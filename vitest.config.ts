@@ -11,6 +11,8 @@ export default defineConfig({
           // alone, and more than 5 seconds (the vitest default) when other test runs or a build share the machine.
           testTimeout: 30_000,
           hookTimeout: 30_000,
+          // Removes the shared .test-tmp/ folders once every test file is done. See cli/src/testing/fixture.ts.
+          globalSetup: ['cli/src/testing/global-setup.ts', 'adapters/ts/src/test-global-setup.ts'],
         },
       },
       {

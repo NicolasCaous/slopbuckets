@@ -1,12 +1,19 @@
 // Fixture projects for the unit tests. They live in adapters/ts/.test-tmp/ so that
-// the repository's own `typescript` package resolves from them. Each test process
+// the repository's own `typescript` package resolves from them. Each test file
 // gets its own run-<pid>-<time>-<random>/ folder there, so overlapping test runs
 // never remove each other's files.
+//
+// The run folder stays until the test file ends, and .test-tmp/ stays until the
+// whole run ends (see test-global-setup.ts). Removing either one while a test
+// still creates folders in it fails on Windows: a folder that was just removed can
+// linger for a moment while another program holds a handle on it, and creating
+// anything inside it then fails with EPERM.
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterAll } from 'vitest';
 import { loadTypeScript } from './env.js';
 import type { AnalyzeRequest, BucketsConfig } from './protocol.js';
 
@@ -17,14 +24,37 @@ export const TMP_ROOT = path.resolve(
   `run-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`,
 );
 
-/** Removes this process's run folder and .test-tmp/ when nothing else is left in them. */
-export function removeEmptyRunFolder(): void {
-  for (const dir of [TMP_ROOT, path.dirname(TMP_ROOT)]) {
+// Registered when a test file imports this module, so it runs once at the end of that file, after its own hooks.
+afterAll(() => removeFolder(TMP_ROOT));
+
+/** Errors Windows returns for a moment while an antivirus or indexer scans a file or folder that was just created. */
+const TRANSIENT = new Set(['EPERM', 'EBUSY', 'EACCES', 'UNKNOWN']);
+
+/** Runs `action` again, up to 5 times with a growing pause, while it fails with one of the TRANSIENT errors. */
+function retry<T>(action: () => T): T {
+  for (let attempt = 1; ; attempt++) {
     try {
-      rmdirSync(dir);
-    } catch {
-      // Not empty: another fixture, or another test process, still uses it.
+      return action();
+    } catch (error) {
+      if (attempt >= 5 || !TRANSIENT.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * attempt);
     }
+  }
+}
+
+/** Creates a new folder named `prefix` plus random characters inside `base`, creating `base` first when needed. */
+export function makeTempDir(base: string, prefix: string): string {
+  retry(() => mkdirSync(base, { recursive: true }));
+  return retry(() => mkdtempSync(path.join(base, prefix)));
+}
+
+/** Removes a scratch folder. One that still cannot go after the retries stays, since .test-tmp/ is gitignored. */
+export function removeFolder(dir: string): void {
+  // Retries cover Windows, where a handle can stay open for a moment after the compiler or a child process lets go.
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Left for a later run to ignore.
   }
 }
 
@@ -56,9 +86,7 @@ export class Fixture {
   readonly dir: string;
 
   constructor(files: Record<string, string | object>, options: { base?: string; tsconfig?: boolean; packageJson?: boolean } = {}) {
-    const base = options.base ?? TMP_ROOT;
-    mkdirSync(base, { recursive: true });
-    this.dir = mkdtempSync(path.join(base, 'fixture-'));
+    this.dir = makeTempDir(options.base ?? TMP_ROOT, 'fixture-');
     const defaults: Record<string, string | object> = {};
     if (options.tsconfig !== false) defaults['tsconfig.json'] = TSCONFIG;
     if (options.packageJson !== false) defaults['package.json'] = PACKAGE_JSON;
@@ -68,8 +96,8 @@ export class Fixture {
   write(files: Record<string, string | object>): void {
     for (const [name, content] of Object.entries(files)) {
       const file = path.join(this.dir, name);
-      mkdirSync(path.dirname(file), { recursive: true });
-      writeFileSync(file, typeof content === 'string' ? content : `${JSON.stringify(content, null, 2)}\n`);
+      retry(() => mkdirSync(path.dirname(file), { recursive: true }));
+      retry(() => writeFileSync(file, typeof content === 'string' ? content : `${JSON.stringify(content, null, 2)}\n`));
     }
   }
 
@@ -93,13 +121,8 @@ export class Fixture {
     return { abi: 1, config: CONFIG, files: { dmz, code } };
   }
 
+  /** Removes the fixture folder. The run folder itself goes when the test file ends. */
   remove(): void {
-    // Retries cover Windows, where a handle can stay open for a moment after the compiler or a child process lets go.
-    try {
-      rmSync(this.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
-    } catch {
-      // A folder that still cannot go stays in this process's run folder, which is scratch space.
-    }
-    removeEmptyRunFolder();
+    removeFolder(this.dir);
   }
 }

@@ -1,9 +1,14 @@
 // Temporary projects for unit tests, created under cli/.test-tmp/run-<pid>-<time>-<random>/ and removed after each
-// test. Each test process gets its own run folder, so parallel or overlapping test runs never remove each other's files.
-import { existsSync, mkdirSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+// test. Each test file gets its own run folder, so parallel or overlapping test runs never remove each other's files.
+// The run folder stays until the test file ends, and cli/.test-tmp/ stays until the whole run ends (see
+// global-setup.ts). Removing either one while a test still creates folders in it fails on Windows: a folder that was
+// just removed can linger for a moment while another program holds a handle on it, and creating anything inside it
+// then fails with EPERM.
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { afterAll } from 'vitest';
 import { removeLinkFolder } from '../core/links.js';
 
 const TMP_BASE = fileURLToPath(new URL('../../.test-tmp/', import.meta.url));
@@ -11,6 +16,9 @@ const TMP_BASE = fileURLToPath(new URL('../../.test-tmp/', import.meta.url));
 export const TMP_ROOT = path.join(TMP_BASE, `run-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`);
 
 const created: string[] = [];
+
+// Registered when a test file imports this module, so it runs once at the end of that file, after its own hooks.
+afterAll(() => removeFolder(TMP_ROOT));
 
 /** Writes `files` (project path to content) into a new temporary folder and returns its absolute path. */
 export function makeProject(files: Record<string, string>, withDefaults = true): string {
@@ -24,25 +32,39 @@ export function makeProject(files: Record<string, string>, withDefaults = true):
       }
     : files;
   for (const [file, content] of Object.entries(all)) writeFile(dir, file, content);
-  mkdirSync(dir, { recursive: true });
+  retry(() => mkdirSync(dir, { recursive: true }));
   return dir;
 }
 
-/** Errors Windows returns for a moment while an antivirus or indexer scans a file that was just created. */
+/** Errors Windows returns for a moment while an antivirus or indexer scans a file or folder that was just created. */
 const TRANSIENT = new Set(['EPERM', 'EBUSY', 'EACCES', 'UNKNOWN']);
+
+/** Runs `action` again, up to 5 times with a growing pause, while it fails with one of the TRANSIENT errors. */
+function retry<T>(action: () => T): T {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return action();
+    } catch (error) {
+      if (attempt >= 5 || !TRANSIENT.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * attempt);
+    }
+  }
+}
+
+/** Removes a scratch folder. One that still cannot go after the retries stays, since .test-tmp/ is gitignored. */
+function removeFolder(dir: string): void {
+  // Retries cover Windows, where a child process or a file watcher can hold a handle for a moment after it exits.
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch {
+    // Left for a later run to ignore. A server of a timed out test can still watch it, for example.
+  }
+}
 
 export function writeFile(dir: string, file: string, content: string): void {
   const abs = path.join(dir, file);
-  mkdirSync(path.dirname(abs), { recursive: true });
-  for (let attempt = 1; ; attempt++) {
-    try {
-      writeFileSync(abs, content, 'utf8');
-      return;
-    } catch (error) {
-      if (attempt >= 5 || !TRANSIENT.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * attempt);
-    }
-  }
+  retry(() => mkdirSync(path.dirname(abs), { recursive: true }));
+  retry(() => writeFileSync(abs, content, 'utf8'));
 }
 
 export function readFile(dir: string, file: string): string {
@@ -71,25 +93,9 @@ export function canLink(dir: string): boolean {
   }
 }
 
-/** Removes every folder created by makeProject, then this process's run folder and cli/.test-tmp/ when they are empty. */
+/** Removes every folder created by makeProject. The run folder itself goes when the test file ends. */
 export function cleanupProjects(): void {
-  // Retries cover Windows, where a child process or a file watcher can hold a handle for a moment after it exits.
-  // A folder that still cannot go, such as one a server of a timed out test still watches, stays in this process's run
-  // folder. It is scratch space, so leaving it must not fail the next test.
-  for (const dir of created.splice(0)) {
-    try {
-      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
-    } catch {
-      // Left for the next run to ignore; cli/.test-tmp/ is gitignored.
-    }
-  }
-  for (const dir of [TMP_ROOT, TMP_BASE]) {
-    try {
-      rmdirSync(dir);
-    } catch {
-      // Not empty: another test in this process, or another test process, still uses it.
-    }
-  }
+  for (const dir of created.splice(0)) removeFolder(dir);
 }
 
 /** The example from SPEC.md: invoices consumes `logger` from log through two DMZ files. */

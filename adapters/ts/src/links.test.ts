@@ -1,11 +1,11 @@
 // Tests for source-code links: a consumer project whose `<bucket>/_/links/<name>` folder is a junction to another
 // project's root folder, or a copy of its source files.
 
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { analyze, type AnalyzeResponse, type LinkReport, type LinkRequest } from './index.js';
-import { Fixture, removeEmptyRunFolder, TMP_ROOT, TSCONFIG } from './test-fixture.js';
+import { Fixture, makeTempDir, removeFolder, TMP_ROOT, TSCONFIG } from './test-fixture.js';
 
 const fixtures: Fixture[] = [];
 const links: string[] = [];
@@ -25,9 +25,7 @@ afterAll(() => {
     }
   }
   for (const created of fixtures) created.remove();
-  for (const folder of folders) rmSync(folder, { recursive: true, force: true });
-  // The extra folders above live in the run folder too, so it can go only now.
-  removeEmptyRunFolder();
+  for (const folder of folders) removeFolder(folder);
 });
 
 /** Creates a directory link (a junction on Windows). Returns false when the system does not allow it. */
@@ -198,7 +196,7 @@ describe('a copied link', () => {
     const copied = consumer(true);
     copyLink(source, copied, elsewhere);
     // A copy outside the default fixture folder, so that no path is shared with the other two.
-    const base = mkdtempSync(path.join(TMP_ROOT, 'far-'));
+    const base = makeTempDir(TMP_ROOT, 'far-');
     folders.push(base);
     const far = fixture({ 'root/b/_/use.ts': 'export const x = 1;\n', ...FAKE_HTTP }, { base });
     copyLink(source, far, API);
@@ -217,7 +215,7 @@ describe('link problems', () => {
   test('a broken link is reported without throwing', async (context) => {
     const project = consumer(false);
     // A junction whose target is gone.
-    const gone = mkdtempSync(path.join(TMP_ROOT, 'gone-'));
+    const gone = makeTempDir(TMP_ROOT, 'gone-');
     if (!linkDir(gone, path.join(project.dir, 'root/b/_/links/gone'))) context.skip();
     rmSync(gone, { recursive: true, force: true });
     // A folder without any .external.ts.
