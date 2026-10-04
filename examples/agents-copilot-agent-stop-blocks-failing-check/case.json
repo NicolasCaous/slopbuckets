@@ -1,0 +1,25 @@
+{
+  "description": "GitHub Copilot: agentStop blocks once when the check fails",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "copilot",
+    "agent-stop"
+  ],
+  "stdin": {
+    "sessionId": "00000000-0000-4000-8000-000000000000",
+    "timestamp": 1791115200000,
+    "cwd": "${PROJECT}",
+    "transcriptPath": "/home/dev/.copilot/session.jsonl",
+    "stopReason": "end_turn",
+    "stop_hook_active": false
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

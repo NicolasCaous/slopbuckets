@@ -1,0 +1,15 @@
+{
+  "description": "alias imports of an .svg and a .css file in the same bucket resolve to those files and pass",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

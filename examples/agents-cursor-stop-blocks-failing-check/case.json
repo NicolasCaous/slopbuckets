@@ -1,0 +1,29 @@
+{
+  "description": "Cursor: stop sends the report as a follow-up on the first loop",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "cursor",
+    "stop"
+  ],
+  "stdin": {
+    "conversation_id": "00000000-0000-4000-8000-000000000000",
+    "generation_id": "11111111-1111-4111-8111-111111111111",
+    "model": "claude-4.5-sonnet",
+    "hook_event_name": "stop",
+    "cursor_version": "2.4.7",
+    "workspace_roots": [
+      "${PROJECT}"
+    ],
+    "transcript_path": null,
+    "status": "completed",
+    "loop_count": 0
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": false,
+    "stdoutJson": {}
+  }
+}

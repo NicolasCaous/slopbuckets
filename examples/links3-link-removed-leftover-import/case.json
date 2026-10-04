@@ -1,0 +1,28 @@
+{
+  "description": "after buckets link remove, an import left behind through the alias of the removed link is import-unresolved, and the message says the link was removed",
+  "lock": "fresh",
+  "delete": [
+    "root/web/_/links/api"
+  ],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-unresolved",
+        "file": "root/web/_/app.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": [
+      {
+        "kind": "link-removed",
+        "path": "root/web/_/links/api"
+      }
+    ]
+  }
+}

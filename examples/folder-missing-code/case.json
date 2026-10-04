@@ -1,0 +1,20 @@
+{
+  "description": "the billing bucket has dmz/ and a child but no _/ folder",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "folder-missing-code",
+        "file": "root/billing"
+      }
+    ],
+    "lockChanges": []
+  }
+}

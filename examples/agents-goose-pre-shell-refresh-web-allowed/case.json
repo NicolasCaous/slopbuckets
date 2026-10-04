@@ -1,0 +1,27 @@
+{
+  "delete": [],
+  "description": "Goose PreToolUse says nothing for buckets refresh --web, which Goose reads as allow",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "goose",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "event": "PreToolUse",
+    "session_id": "20261004_1",
+    "matcher_context": "shell",
+    "tool_name": "shell",
+    "tool_input": {
+      "command": "buckets refresh --web",
+      "timeout_secs": 900
+    },
+    "working_dir": "${PROJECT}",
+    "tool_call_id": "call-1"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

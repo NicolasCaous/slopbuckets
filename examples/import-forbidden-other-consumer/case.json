@@ -1,0 +1,21 @@
+{
+  "description": "payments imports billing/dmz/.parent/invoices.ts, a contract whose consumer is invoices",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/billing/payments/_/charge.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

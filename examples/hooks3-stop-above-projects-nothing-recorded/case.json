@@ -1,0 +1,22 @@
+{
+  "description": "Stop does nothing when the session was opened above the projects and recorded none, even if a project fails",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "stop"
+  ],
+  "claudeProjectDir": "parent",
+  "stdin": {
+    "transcript_path": "/home/dev/.claude/projects/example/session.jsonl",
+    "cwd": "${PROJECT}/..",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "Stop",
+    "session_id": "hooks3-stop-above-projects-nothing-recorded",
+    "stop_hook_active": false
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

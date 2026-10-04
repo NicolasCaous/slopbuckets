@@ -1,0 +1,82 @@
+{
+  "description": "inspect --json on the README example describes every bucket, contract, symbol origin, chain and import between buckets",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "snapshotVersion": 1,
+      "exitCode": 0,
+      "summary": { "projects": 1, "buckets": 5, "contracts": 6, "symbols": 6, "violations": 0, "lockChanges": 0, "links": 0 },
+      "links": [],
+      "projects": [
+        {
+          "path": ".",
+          "name": "example-valid-readme",
+          "parent": null,
+          "container": null,
+          "status": "ok",
+          "lock": "current",
+          "config": { "root": "root", "alias": "@root", "maxDepth": 2 },
+          "buckets": [
+            { "path": "root", "level": 0, "files": 1, "situation": "ok", "dependsOn": ["root/billing"], "dependents": [] },
+            { "path": "root/billing", "level": 1, "situation": "ok", "dependsOn": ["root/billing/invoices", "root/billing/payments"], "dependents": ["root"] },
+            { "path": "root/billing/invoices", "level": 2, "files": 2, "situation": "ok", "dependsOn": ["root/log"], "rewriteCost": { "symbols": 2, "contracts": 2, "dependents": 2 } },
+            { "path": "root/billing/payments", "level": 2, "situation": "ok", "dependsOn": ["root/billing/invoices"] },
+            { "path": "root/log", "level": 1, "situation": "ok", "dependsOn": [], "dependents": ["root/billing/invoices"], "offers": ["root/dmz/log/billing.ts"] }
+          ],
+          "contracts": [
+            {
+              "file": "root/billing/dmz/.parent/invoices.ts",
+              "owner": "root/billing",
+              "provider": ".parent",
+              "consumer": "invoices",
+              "providerBucket": null,
+              "consumerBucket": "root/billing/invoices",
+              "situation": "ok",
+              "lock": null,
+              "symbols": [
+                {
+                  "name": "logger",
+                  "origin": "root/log",
+                  "declaredIn": "root/log/_/logger.ts",
+                  "chain": ["root/billing/dmz/.parent/invoices.ts", "root/dmz/log/billing.ts", "root/log/_/logger.ts"],
+                  "signature": { "text": "export const logger: Logger" },
+                  "used": true,
+                  "lock": null
+                }
+              ]
+            },
+            {
+              "file": "root/billing/dmz/invoices/.self.ts",
+              "symbols": [{ "name": "createInvoice", "origin": "root/billing/invoices", "signature": { "text": "export function createInvoice(customer: string, amountCents: number): Invoice" } }]
+            },
+            { "file": "root/billing/dmz/invoices/payments.ts", "symbols": [{ "name": "Invoice", "typeOnly": true }] },
+            { "file": "root/billing/dmz/payments/.self.ts", "symbols": [{ "name": "chargeInvoice" }] },
+            { "file": "root/dmz/billing/.self.ts", "symbols": [{ "name": "startBilling" }] },
+            { "file": "root/dmz/log/billing.ts", "symbols": [{ "name": "logger", "chain": ["root/dmz/log/billing.ts", "root/log/_/logger.ts"] }] }
+          ],
+          "imports": [
+            { "from": "root/billing/invoices", "to": "root/log", "symbols": ["logger"], "cycle": false },
+            { "from": "root/billing/payments", "to": "root/billing/invoices", "cycle": false },
+            { "from": "root/billing", "to": "root/billing/invoices", "cycle": false },
+            { "from": "root/billing", "to": "root/billing/payments", "cycle": false },
+            { "from": "root", "to": "root/billing", "symbols": ["startBilling"], "cycle": false }
+          ],
+          "cycles": [],
+          "orphans": [],
+          "violations": [],
+          "lockChanges": [],
+          "links": [],
+          "external": [],
+          "nested": []
+        }
+      ]
+    }
+  }
+}

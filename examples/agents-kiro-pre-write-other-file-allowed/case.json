@@ -1,0 +1,27 @@
+{
+  "delete": [],
+  "description": "Kiro preToolUse lets fs_write change an ordinary file",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "kiro",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "hook_event_name": "preToolUse",
+    "cwd": "${PROJECT}",
+    "session_id": "b7c1e2d4-1111-4222-8333-944445555666",
+    "tool_name": "fs_write",
+    "tool_input": {
+      "command": "str_replace",
+      "path": "root/_/main.ts",
+      "old_str": "a",
+      "new_str": "b"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

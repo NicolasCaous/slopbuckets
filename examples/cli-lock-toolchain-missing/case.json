@@ -1,0 +1,21 @@
+{
+  "description": "a lock written before the toolchain was recorded counts as an unknown toolchain and still passes",
+  "lock": "fresh",
+  "lockPatch": {
+    "adapter": {
+      "name": "ts",
+      "version": "1.0.0"
+    }
+  },
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

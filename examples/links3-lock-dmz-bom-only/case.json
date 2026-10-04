@@ -1,0 +1,15 @@
+{
+  "description": "saving a DMZ file again with a UTF-8 byte order mark does not change its text hash",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

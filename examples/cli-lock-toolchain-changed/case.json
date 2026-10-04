@@ -1,0 +1,22 @@
+{
+  "description": "a lock written with another compiler version still passes when every signature hash matches, because a toolchain difference alone is not an error",
+  "lock": "fresh",
+  "lockPatch": {
+    "adapter": {
+      "name": "ts",
+      "version": "1.0.0",
+      "toolchain": "typescript@0.0.0-older"
+    }
+  },
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

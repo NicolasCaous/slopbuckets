@@ -1,0 +1,25 @@
+{
+  "description": "Factory Droid: Stop blocks once when the check fails",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "factory",
+    "stop"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.factory/sessions/s.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "auto-high",
+    "hook_event_name": "Stop",
+    "stop_hook_active": false
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

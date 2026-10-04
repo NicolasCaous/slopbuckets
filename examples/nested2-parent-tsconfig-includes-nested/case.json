@@ -1,0 +1,33 @@
+{
+  "description": "the tsconfig.json of the enclosing project still includes a nested project folder, so the enclosing project gets project-config",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-config",
+        "file": "tsconfig.json",
+        "project": "."
+      }
+    ],
+    "lockChanges": [],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 1
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 0
+        }
+      ]
+    }
+  }
+}

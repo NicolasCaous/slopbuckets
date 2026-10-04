@@ -1,0 +1,20 @@
+{
+  "description": "the leaf bucket log has a dmz/ folder; the folder is reported and its files are not treated as contracts",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "folder-unexpected-dmz",
+        "file": "root/log/dmz"
+      }
+    ],
+    "lockChanges": []
+  }
+}

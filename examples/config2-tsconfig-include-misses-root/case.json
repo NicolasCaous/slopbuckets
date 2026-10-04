@@ -1,0 +1,20 @@
+{
+  "description": "the include of tsconfig.json does not reach the root folder, so the project gets project-config",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-config",
+        "file": "tsconfig.json"
+      }
+    ],
+    "lockChanges": []
+  }
+}

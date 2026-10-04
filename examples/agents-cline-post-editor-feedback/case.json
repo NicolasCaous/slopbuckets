@@ -1,0 +1,38 @@
+{
+  "delete": [],
+  "description": "Cline PostToolUse hands the buckets check --file report back in contextModification",
+  "lock": "fresh",
+  "args": [
+    "hook",
+    "--agent",
+    "cline",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "clineVersion": "4.2.0",
+    "hookName": "PostToolUse",
+    "timestamp": "1759590000000",
+    "taskId": "01K6P3M8Z7Q2W4E5R6T7Y8U9I0",
+    "workspaceRoots": [
+      "${PROJECT}"
+    ],
+    "userId": "user-1",
+    "postToolUse": {
+      "toolName": "editor",
+      "parameters": {
+        "path": "${PROJECT}/root/log/_/logger.ts",
+        "old_text": "'@root/log/_/format'",
+        "new_text": "'./format'"
+      },
+      "result": "File edited",
+      "success": true,
+      "executionTimeMs": 14
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "cancel": false
+    }
+  }
+}

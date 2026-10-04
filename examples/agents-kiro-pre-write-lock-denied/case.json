@@ -1,0 +1,27 @@
+{
+  "delete": [],
+  "description": "Kiro preToolUse blocks fs_write to buckets.lock.json with exit code 2",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "kiro",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "hook_event_name": "preToolUse",
+    "cwd": "${PROJECT}",
+    "session_id": "b7c1e2d4-1111-4222-8333-944445555666",
+    "tool_name": "fs_write",
+    "tool_input": {
+      "command": "create",
+      "path": "buckets.lock.json",
+      "file_text": "{}"
+    }
+  },
+  "expect": {
+    "exitCode": 2,
+    "stdoutEmpty": true,
+    "stderrIncludes": "buckets.lock.json records the contracts a human approved"
+  }
+}

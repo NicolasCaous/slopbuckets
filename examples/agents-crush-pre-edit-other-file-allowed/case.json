@@ -1,0 +1,26 @@
+{
+  "delete": [],
+  "description": "Crush PreToolUse says nothing for an edit of an ordinary file, so the permission prompt runs",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "crush",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "event": "PreToolUse",
+    "session_id": "313909e",
+    "cwd": "${PROJECT}",
+    "tool_name": "edit",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/_/main.ts",
+      "old_string": "a",
+      "new_string": "b"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

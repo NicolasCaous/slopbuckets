@@ -1,0 +1,20 @@
+{
+  "description": "a formatting-only change of a DMZ file changes its text hash",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "dmz-changed",
+        "path": "root/dmz/log/billing.ts"
+      }
+    ]
+  }
+}

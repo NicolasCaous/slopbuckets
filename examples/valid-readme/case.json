@@ -1,0 +1,15 @@
+{
+  "description": "the README example (log, billing, invoices, payments) with a fresh lock passes",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

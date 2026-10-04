@@ -1,0 +1,25 @@
+{
+  "description": "PreToolUse allows buckets refresh --web run in the background with nohup and its output sent to a log file",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "nohup buckets refresh --web > refresh.log 2>&1 &",
+      "description": "Ask the human to approve the lock"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

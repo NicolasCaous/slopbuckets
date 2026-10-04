@@ -1,0 +1,21 @@
+{
+  "description": "the constructor of a re-exported class becomes private without touching any DMZ file",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "signature-changed",
+        "path": "root/dmz/log/.self.ts",
+        "symbol": "Logger"
+      }
+    ]
+  }
+}

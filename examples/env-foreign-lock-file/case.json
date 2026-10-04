@@ -1,0 +1,19 @@
+{
+  "description": "a committed lock from another CLI and adapter version exits with 3",
+  "lock": "file",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 3,
+    "violations": [],
+    "lockChanges": [],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": {}
+    }
+  }
+}

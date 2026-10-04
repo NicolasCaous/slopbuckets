@@ -1,0 +1,23 @@
+{
+  "description": "billing/_ takes createInvoice through invoices/.self.ts and invoices takes currency through .self/invoices.ts",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "graph-cycle",
+        "file": [
+          "root/billing/_/billing.module.ts",
+          "root/billing/invoices/_/create-invoice.ts"
+        ]
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "description": "inspect --json gives a forbidden import the bucket it starts in and the file and bucket it points at",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 1,
+      "projects": [
+        {
+          "path": ".",
+          "violations": [
+            {
+              "rule": "import-forbidden",
+              "file": "root/billing/invoices/_/create-invoice.ts",
+              "line": 3,
+              "kind": "forbidden",
+              "bucket": "root/billing/invoices",
+              "target": { "file": "root/billing/payments/_/money.ts", "bucket": "root/billing/payments" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

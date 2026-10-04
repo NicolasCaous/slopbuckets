@@ -1,0 +1,27 @@
+{
+  "delete": [],
+  "description": "Windsurf pre_run_command blocks a plain buckets refresh with exit code 2",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "windsurf",
+    "pre-run-command"
+  ],
+  "stdin": {
+    "agent_action_name": "pre_run_command",
+    "trajectory_id": "traj-7f3a",
+    "execution_id": "exec-1",
+    "timestamp": "2026-10-04T12:00:00Z",
+    "model_name": "SWE-1.5",
+    "tool_info": {
+      "command_line": "buckets refresh",
+      "cwd": "${PROJECT}"
+    }
+  },
+  "expect": {
+    "exitCode": 2,
+    "stdoutEmpty": true,
+    "stderrIncludes": "buckets refresh --web"
+  }
+}

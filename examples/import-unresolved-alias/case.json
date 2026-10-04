@@ -1,0 +1,21 @@
+{
+  "description": "an alias import of a file that does not exist",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-unresolved",
+        "file": "root/log/_/logger.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 792 406" width="792" height="406" role="img" aria-labelledby="t d" xml:space="preserve">
+<title id="t">buckets check reports lock differences with exit code 2</title>
+<desc id="d">The AI changed the signature of createInvoice and added the DMZ file root/billing/dmz/.parent/payments.ts. The rules pass, so buckets check lists the lock differences for a human to approve and exits with code 2.</desc>
+<style>
+.cur{animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cur{animation:none}}
+</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#08260f"/><stop offset=".45" stop-color="#020904"/></linearGradient>
+<radialGradient id="vig" cx=".5" cy=".5" r=".75"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>
+<pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect y="2" width="4" height="2" fill="#000" fill-opacity=".2"/></pattern>
+<filter id="glow" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="2.2" result="b"/><feComponentTransfer in="b" result="g"><feFuncA type="linear" slope=".55"/></feComponentTransfer><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="win"><rect width="792" height="406" rx="8"/></clipPath>
+</defs>
+<g clip-path="url(#win)">
+<rect width="792" height="406" fill="#020904"/>
+<rect width="792" height="406" fill="url(#bg)"/>
+<rect width="792" height="28" fill="#3dff74"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace" font-size="12" font-weight="700" fill="#021a0a">
+<text x="14" y="18.5">tty1</text>
+<text x="396" y="18.5" text-anchor="middle">~/acme</text>
+<rect x="722.8" y="5" width="59.2" height="18" rx="2" fill="#021a0a"/>
+<text x="752.4" y="18.5" text-anchor="middle" fill="#ffc04d">exit 2</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace" font-size="14" fill="#b4f5c6" filter="url(#glow)">
+<text y="62"><tspan x="22" fill="#6cbf86">#</tspan><tspan x="38.8" fill="#6cbf86" textLength="25.2">the</tspan><tspan x="72.4" fill="#6cbf86" textLength="16.8">AI</tspan><tspan x="97.6" fill="#6cbf86" textLength="33.6">adds</tspan><tspan x="139.6" fill="#6cbf86">a</tspan><tspan x="156.4" fill="#6cbf86" textLength="75.6">parameter</tspan><tspan x="240.4" fill="#6cbf86" textLength="16.8">to</tspan><tspan x="265.6" fill="#6cbf86" textLength="109.2">createInvoice</tspan><tspan x="383.2" fill="#6cbf86" textLength="25.2">and</tspan><tspan x="416.8" fill="#6cbf86" textLength="42">gives</tspan><tspan x="467.2" fill="#6cbf86" textLength="67.2">payments</tspan><tspan x="542.8" fill="#6cbf86" textLength="25.2">the</tspan><tspan x="576.4" fill="#6cbf86" textLength="50.4">logger</tspan></text>
+<text y="83"><tspan x="22" fill="#ffc04d">$</tspan><tspan x="38.8" fill="#b8ffcc" font-weight="700" textLength="58.8">buckets</tspan><tspan x="106" fill="#b8ffcc" font-weight="700" textLength="42">check</tspan></text>
+<text y="104"><tspan x="22" font-weight="700" textLength="33.6">Lock</tspan><tspan x="64" font-weight="700" textLength="92.4">differences</tspan></text>
+<text y="125"><tspan x="38.8" fill="#6cbf86" textLength="33.6">Only</tspan><tspan x="80.8" fill="#6cbf86">a</tspan><tspan x="97.6" fill="#6cbf86" textLength="42">human</tspan><tspan x="148" fill="#6cbf86" textLength="67.2">approves</tspan><tspan x="223.6" fill="#6cbf86" textLength="50.4">these,</tspan><tspan x="282.4" fill="#6cbf86" textLength="33.6">with</tspan><tspan x="324.4" fill="#6cbf86" textLength="58.8">buckets</tspan><tspan x="391.6" fill="#6cbf86" textLength="58.8">refresh</tspan><tspan x="458.8" fill="#6cbf86" textLength="16.8">or</tspan><tspan x="484" fill="#6cbf86" textLength="58.8">buckets</tspan><tspan x="551.2" fill="#6cbf86" textLength="58.8">refresh</tspan><tspan x="618.4" fill="#6cbf86" textLength="42">--web</tspan><tspan x="660.4" fill="#6cbf86">.</tspan></text>
+<text y="146"><tspan x="38.8" fill="#3dff74">+</tspan><tspan x="55.6" fill="#3dff74" textLength="75.6">dmz-added</tspan><tspan x="215.2" fill="#8ef9ff" textLength="302.4">root/billing/dmz/.parent/payments.ts</tspan></text>
+<text y="167"><tspan x="38.8" fill="#ffc04d">~</tspan><tspan x="55.6" fill="#ffc04d" textLength="142.8">signature-changed</tspan><tspan x="215.2" fill="#8ef9ff" textLength="285.6">root/billing/dmz/invoices/.self.ts</tspan><tspan x="517.6" font-weight="700" textLength="109.2">createInvoice</tspan></text>
+
+<text y="209"><tspan x="22" fill="#6cbf86" textLength="504">────────────────────────────────────────────────────────────</tspan></text>
+<text y="230"><tspan x="22" fill="#ffc04d">!</tspan><tspan x="38.8" textLength="58.8">buckets</tspan><tspan x="106" textLength="50.4">check:</tspan><tspan x="164.8" fill="#ffc04d" font-weight="700">2</tspan><tspan x="181.6" fill="#ffc04d" font-weight="700" textLength="33.6">lock</tspan><tspan x="223.6" fill="#ffc04d" font-weight="700" textLength="92.4">differences</tspan><tspan x="316">.</tspan></text>
+<text y="251"><tspan x="22" fill="#ffc04d" font-weight="700" textLength="33.6">Exit</tspan><tspan x="64" fill="#ffc04d" font-weight="700" textLength="33.6">code</tspan><tspan x="106" fill="#ffc04d" font-weight="700" textLength="16.8">2:</tspan><tspan x="131.2" textLength="25.2">the</tspan><tspan x="164.8" textLength="42">rules</tspan><tspan x="215.2" textLength="42">pass,</tspan><tspan x="265.6" textLength="25.2">but</tspan><tspan x="299.2" textLength="25.2">the</tspan><tspan x="332.8" textLength="42">state</tspan><tspan x="383.2" textLength="58.8">differs</tspan><tspan x="450.4" textLength="33.6">from</tspan><tspan x="492.4" textLength="151.2">buckets.lock.json.</tspan><tspan x="652" textLength="16.8">Do</tspan><tspan x="677.2" textLength="25.2">not</tspan><tspan x="710.8" textLength="33.6">edit</tspan></text>
+<text y="272"><tspan x="22" textLength="25.2">the</tspan><tspan x="55.6" textLength="33.6">lock</tspan><tspan x="97.6" textLength="25.2">and</tspan><tspan x="131.2" textLength="16.8">do</tspan><tspan x="156.4" textLength="25.2">not</tspan><tspan x="190" textLength="25.2">run</tspan><tspan x="223.6" textLength="42">plain</tspan><tspan x="274" fill="#8ef9ff" textLength="58.8">buckets</tspan><tspan x="341.2" fill="#8ef9ff" textLength="58.8">refresh</tspan><tspan x="400">.</tspan><tspan x="416.8" textLength="25.2">Run</tspan><tspan x="450.4" fill="#8ef9ff" textLength="58.8">buckets</tspan><tspan x="517.6" fill="#8ef9ff" textLength="58.8">refresh</tspan><tspan x="584.8" fill="#8ef9ff" textLength="42">--web</tspan><tspan x="635.2" textLength="16.8">in</tspan><tspan x="660.4" textLength="25.2">the</tspan></text>
+<text y="293"><tspan x="22" textLength="92.4">background,</tspan><tspan x="122.8" textLength="33.6">send</tspan><tspan x="164.8" textLength="25.2">the</tspan><tspan x="198.4" textLength="33.6">link</tspan><tspan x="240.4" textLength="16.8">it</tspan><tspan x="265.6" textLength="50.4">prints</tspan><tspan x="324.4" textLength="16.8">to</tspan><tspan x="349.6" textLength="25.2">the</tspan><tspan x="383.2" textLength="42">human</tspan><tspan x="433.6" textLength="33.6">with</tspan><tspan x="475.6">a</tspan><tspan x="492.4" textLength="58.8">summary</tspan><tspan x="559.6" textLength="16.8">of</tspan><tspan x="584.8" textLength="42">which</tspan><tspan x="635.2" textLength="25.2">DMZ</tspan><tspan x="668.8" textLength="42">files</tspan></text>
+<text y="314"><tspan x="22" textLength="58.8">changed</tspan><tspan x="89.2" textLength="25.2">and</tspan><tspan x="122.8" textLength="33.6">why,</tspan><tspan x="164.8" textLength="25.2">and</tspan><tspan x="198.4" textLength="33.6">wait</tspan><tspan x="240.4" textLength="25.2">for</tspan><tspan x="274" textLength="25.2">the</tspan><tspan x="307.6" textLength="58.8">command</tspan><tspan x="374.8" textLength="16.8">to</tspan><tspan x="400" textLength="58.8">finish.</tspan><tspan x="467.2" textLength="25.2">The</tspan><tspan x="500.8" textLength="42">human</tspan><tspan x="551.2" textLength="25.2">can</tspan><tspan x="584.8" textLength="33.6">also</tspan><tspan x="626.8" textLength="25.2">run</tspan><tspan x="660.4" fill="#8ef9ff" textLength="58.8">buckets</tspan></text>
+<text y="335"><tspan x="22" textLength="58.8">refresh</tspan><tspan x="89.2" textLength="16.8">in</tspan><tspan x="114.4">a</tspan><tspan x="131.2" textLength="75.6">terminal.</tspan></text>
+
+<text y="377"><tspan x="22" fill="#ffc04d">$</tspan></text>
+<rect class="cur" x="38.8" y="365" width="8.4" height="17" fill="#3dff74"/>
+</g>
+<rect y="28" width="792" height="378" fill="url(#scan)"/>
+<rect width="792" height="406" fill="url(#vig)"/>
+</g>
+<rect x=".5" y=".5" width="791" height="405" rx="7.5" fill="none" stroke="#2b8a4c"/>
+</svg>

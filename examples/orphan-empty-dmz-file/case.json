@@ -1,0 +1,20 @@
+{
+  "description": "a DMZ file without any symbol is an orphan",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/dmz/log/.self.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

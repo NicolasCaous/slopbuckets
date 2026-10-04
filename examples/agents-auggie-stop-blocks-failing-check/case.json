@@ -1,0 +1,25 @@
+{
+  "description": "Auggie: Stop blocks once when the check fails",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "auggie",
+    "stop"
+  ],
+  "stdin": {
+    "conversation_id": "00000000-0000-4000-8000-000000000000",
+    "workspace_roots": [
+      "${PROJECT}"
+    ],
+    "hook_event_name": "Stop",
+    "stop_hook_active": false
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

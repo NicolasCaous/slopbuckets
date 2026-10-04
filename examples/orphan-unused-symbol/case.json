@@ -1,0 +1,20 @@
+{
+  "description": "formatLine is exported to root/_ but nobody imports it",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/dmz/log/.self.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

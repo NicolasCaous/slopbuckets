@@ -1,0 +1,27 @@
+{
+  "description": "GitHub Copilot: an edit that leaves a relative import gets the report in additionalContext",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "copilot",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "sessionId": "00000000-0000-4000-8000-000000000000",
+    "timestamp": 1791115200000,
+    "cwd": "${PROJECT}",
+    "toolName": "edit",
+    "toolArgs": "{\"path\": \"root/log/_/logger.ts\", \"old_str\": \"'@root/log/_/format'\", \"new_str\": \"'./format'\"}",
+    "toolResult": {
+      "resultType": "success",
+      "textResultForLlm": "ok"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": false,
+    "stdoutJson": {}
+  }
+}

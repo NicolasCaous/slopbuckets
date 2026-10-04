@@ -1,0 +1,12 @@
+{
+  "description": "inspect --export html refuses to write the page over buckets.lock.json, because only an approval writes the lock",
+  "lock": "fresh",
+  "delete": [],
+  "args": ["inspect", "--export", "html", "--out", "buckets.lock.json"],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "stdoutEmpty": true,
+    "stderrIncludes": "Only an approval writes buckets.lock.json"
+  }
+}

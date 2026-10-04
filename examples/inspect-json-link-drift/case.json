@@ -1,0 +1,107 @@
+{
+  "description": "inspect --json shows a copied link whose origin outside the visible projects changed, with its alias, published symbols and the file that drifted",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 2,
+      "summary": {
+        "projects": 1,
+        "links": 1
+      },
+      "links": [
+        {
+          "from": ".",
+          "to": null,
+          "origin": "vendor/api",
+          "alias": "@api",
+          "link": "root/web/_/links/api",
+          "name": "api",
+          "mode": "copy",
+          "state": "drift",
+          "symbols": [
+            "Router",
+            "handle"
+          ]
+        }
+      ],
+      "projects": [
+        {
+          "path": ".",
+          "status": "lock",
+          "buckets": [
+            {
+              "path": "root",
+              "links": []
+            },
+            {
+              "path": "root/log",
+              "links": []
+            },
+            {
+              "path": "root/web",
+              "situation": "lock",
+              "links": [
+                "root/web/_/links/api"
+              ]
+            }
+          ],
+          "links": [
+            {
+              "path": "root/web/_/links/api",
+              "name": "api",
+              "bucket": "root/web",
+              "origin": "vendor/api",
+              "alias": "@api",
+              "mode": "copy",
+              "state": "drift",
+              "target": null,
+              "symbols": [
+                {
+                  "name": "Router",
+                  "typeOnly": true,
+                  "file": "dmz/server/.external.ts"
+                },
+                {
+                  "name": "handle",
+                  "typeOnly": false,
+                  "file": "dmz/server/.external.ts"
+                }
+              ],
+              "usedBy": [
+                {
+                  "file": "root/web/_/app.ts",
+                  "line": 1,
+                  "names": [
+                    "handle",
+                    "Router"
+                  ]
+                }
+              ],
+              "drift": {
+                "added": [],
+                "removed": [],
+                "changed": [
+                  "server/_/helper.ts"
+                ]
+              }
+            }
+          ],
+          "lockChanges": [
+            {
+              "kind": "link-drift",
+              "path": "root/web/_/links/api",
+              "bucket": "root/web"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

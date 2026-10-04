@@ -1,0 +1,21 @@
+{
+  "description": "changing Order creates the literal types used by Flags in another order; only Order's signature changes",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "signature-changed",
+        "path": "root/dmz/log/.self.ts",
+        "symbol": "Order"
+      }
+    ]
+  }
+}

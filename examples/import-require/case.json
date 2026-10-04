@@ -1,0 +1,21 @@
+{
+  "description": "a require() call",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "root/log/_/legacy-format.ts",
+        "line": 2
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "description": "a misspelled field (maxdepth) in buckets.config.json is outside the schema",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ]
+  }
+}

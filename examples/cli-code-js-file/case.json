@@ -1,0 +1,21 @@
+{
+  "description": "a JavaScript file in _/ is analyzed like TypeScript, so its relative import is reported",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/log/_/format.js",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

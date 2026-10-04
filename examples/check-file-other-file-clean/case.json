@@ -1,0 +1,17 @@
+{
+  "description": "check --file on a clean file passes even with an orphan, a relative import elsewhere and no lock",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json",
+    "--file",
+    "root/_/main.ts"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

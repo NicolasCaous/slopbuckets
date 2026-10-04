@@ -1,0 +1,21 @@
+{
+  "description": "a tsconfig paths entry gives log/_/logger.ts a package-like name, and root/_ imports it by that name",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/_/main.ts",
+        "line": 2
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "description": "a folder at bucket level with its own buckets.config.json is project-misplaced, not a bucket",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-misplaced",
+        "file": "root/extra/buckets.config.json",
+        "project": "."
+      }
+    ],
+    "lockChanges": []
+  }
+}

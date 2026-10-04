@@ -1,0 +1,4 @@
+# lock-dmz-crlf-only compares an LF file with its CRLF copy, so git must keep
+# both line endings exactly as committed.
+lock-dmz-crlf-only/project/root/dmz/log/billing.ts -text
+lock-dmz-crlf-only/after/root/dmz/log/billing.ts -text

@@ -1,0 +1,21 @@
+{
+  "description": "an ambient module declaration in a script that takes over another bucket's specifier is a forbidden import",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/a/_/hijack.d.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

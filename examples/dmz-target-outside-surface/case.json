@@ -1,0 +1,21 @@
+{
+  "description": "billing/dmz/invoices/payments.ts re-exports the logger from log/_, outside the surface of invoices",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-target",
+        "file": "root/billing/dmz/invoices/payments.ts",
+        "line": 2
+      }
+    ],
+    "lockChanges": []
+  }
+}

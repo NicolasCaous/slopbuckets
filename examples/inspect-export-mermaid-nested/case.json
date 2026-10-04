@@ -1,0 +1,21 @@
+{
+  "description": "inspect --export mermaid --json puts the nested project inside the graph with its own buckets and keeps the contract of the repo",
+  "lock": "fresh",
+  "delete": [],
+  "args": ["inspect", "--export", "mermaid", "--json"],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "format": "mermaid",
+      "nodes": [
+        { "id": "P0_B0_c", "kind": "code", "project": ".", "bucket": "root" },
+        { "id": "P0_B1_c", "kind": "code", "project": ".", "bucket": "root/log" },
+        { "id": "P1_B0_c", "kind": "code", "project": "root/log/_/engine", "bucket": "root" }
+      ],
+      "edges": [
+        { "from": "P0_B1_c", "to": "P0_B0_c", "label": "1 symbol", "kind": "contract", "file": "root/dmz/log/.self.ts", "project": "." }
+      ]
+    }
+  }
+}

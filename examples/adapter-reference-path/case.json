@@ -1,0 +1,21 @@
+{
+  "description": "a triple-slash reference pulls a file of another bucket into root/_ without an import",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-global",
+        "file": "root/_/main.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

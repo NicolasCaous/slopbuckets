@@ -1,0 +1,21 @@
+{
+  "description": "vi.mock of the bucket's own code is fine, and vi.mock of another bucket's code is import-forbidden",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/a/_/own.spec.ts",
+        "line": 4
+      }
+    ],
+    "lockChanges": []
+  }
+}

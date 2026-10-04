@@ -1,0 +1,21 @@
+{
+  "description": "an import of a package missing from package.json",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-undeclared-package",
+        "file": "root/log/_/logger.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

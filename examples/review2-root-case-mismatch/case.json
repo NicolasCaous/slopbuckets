@@ -1,0 +1,20 @@
+{
+  "description": "a root setting that differs from the folder on disk only in case gives one config-invalid violation",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "lockChanges": []
+  }
+}

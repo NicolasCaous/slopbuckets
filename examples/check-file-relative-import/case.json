@@ -1,0 +1,23 @@
+{
+  "description": "check --file reports the relative import in the checked file and not the orphan formatLine in root/dmz/log/.self.ts",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json",
+    "--file",
+    "root/log/_/logger.ts"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/log/_/logger.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

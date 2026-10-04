@@ -1,0 +1,9 @@
+{
+  "links": {
+    "root/web/_/links/api": {
+      "alias": "@api",
+      "mode": "copy",
+      "origin": "vendor/api"
+    }
+  }
+}

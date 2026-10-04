@@ -1,0 +1,33 @@
+{
+  "description": "a nested buckets.config.json with the alias of the enclosing project is config-invalid in the nested project",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json",
+        "project": "root/log/_/engine"
+      }
+    ],
+    "lockChanges": [],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 0
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 1
+        }
+      ]
+    }
+  }
+}

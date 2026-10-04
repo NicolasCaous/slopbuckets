@@ -1,0 +1,31 @@
+{
+  "description": "Auggie: str-replace-editor that leaves a relative import is reported with decision block",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "auggie",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "conversation_id": "00000000-0000-4000-8000-000000000000",
+    "workspace_roots": [
+      "${PROJECT}"
+    ],
+    "hook_event_name": "PostToolUse",
+    "tool_name": "str-replace-editor",
+    "tool_input": {
+      "command": "str_replace",
+      "path": "root/log/_/logger.ts",
+      "old_str_1": "a",
+      "new_str_1": "b"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

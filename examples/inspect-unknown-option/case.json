@@ -1,0 +1,18 @@
+{
+  "description": "inspect refuses an unknown option and prints its usage",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--approve"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "stdoutEmpty": true,
+    "stderrIncludes": [
+      "unknown option \"--approve\"",
+      "Usage: buckets inspect [--json] [--no-recursive]"
+    ]
+  }
+}

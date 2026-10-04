@@ -1,0 +1,26 @@
+{
+  "description": "a nested project created after the approval is project-added in the parent and has no lock of its own yet",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "project-added",
+        "path": "root/log/_/engine",
+        "project": "."
+      },
+      {
+        "kind": "lock-missing",
+        "path": "buckets.lock.json",
+        "project": "root/log/_/engine"
+      }
+    ]
+  }
+}

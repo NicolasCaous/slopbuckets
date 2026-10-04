@@ -1,0 +1,30 @@
+{
+  "description": "new contract symbols named toString and constructor are reported as added, not read from Object.prototype as changed signatures",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "dmz-changed",
+        "path": "root/dmz/log/billing.ts"
+      },
+      {
+        "kind": "symbol-added",
+        "path": "root/dmz/log/billing.ts",
+        "symbol": "toString"
+      },
+      {
+        "kind": "symbol-added",
+        "path": "root/dmz/log/billing.ts",
+        "symbol": "constructor"
+      }
+    ]
+  }
+}

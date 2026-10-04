@@ -1,0 +1,15 @@
+{
+  "description": "root/dmz/api/.external.ts publishes a type and a function that nothing in the project imports, and the check passes because other projects consume it",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

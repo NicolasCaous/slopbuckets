@@ -1,0 +1,33 @@
+{
+  "description": "PostToolUse blocks when the edited file has a relative import",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "old_string": "import { formatLine } from '@root/log/_/format';",
+      "new_string": "import { formatLine } from './format';",
+      "replace_all": false
+    },
+    "tool_response": {
+      "filePath": "${PROJECT}/root/log/_/logger.ts",
+      "success": true
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

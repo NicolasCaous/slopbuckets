@@ -1,0 +1,24 @@
+{
+  "description": "GitHub Copilot: apply_patch with bare patch text that updates the lock is denied",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "copilot",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "sessionId": "00000000-0000-4000-8000-000000000000",
+    "timestamp": 1791115200000,
+    "cwd": "${PROJECT}",
+    "toolName": "apply_patch",
+    "toolArgs": "*** Begin Patch\n*** Update File: buckets.lock.json\n@@\n-{}\n+{\"version\": 1}\n*** End Patch"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "permissionDecision": "deny"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "inspect --export html --out writes the inspect page as one HTML file where --out points and leaves the analysis cache unwritten",
+  "lock": "fresh",
+  "delete": [],
+  "args": ["inspect", "--export", "html", "--out", "inspect.html"],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": false,
+    "filesExist": ["inspect.html", "buckets.lock.json"],
+    "filesMissing": [".buckets"]
+  }
+}

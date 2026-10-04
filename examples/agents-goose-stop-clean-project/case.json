@@ -1,0 +1,21 @@
+{
+  "delete": [],
+  "description": "Goose Stop writes nothing when the check passes",
+  "lock": "fresh",
+  "args": [
+    "hook",
+    "--agent",
+    "goose",
+    "stop"
+  ],
+  "stdin": {
+    "event": "Stop",
+    "session_id": "20261004_1",
+    "last_assistant_message": "Done.",
+    "working_dir": "${PROJECT}"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "description": "a file with an upper-case .TS extension is analyzed like any other and its relative import fails",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/log/_/Legacy.TS",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

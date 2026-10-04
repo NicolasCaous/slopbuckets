@@ -1,0 +1,19 @@
+{
+  "description": "a buckets.links.json entry whose bucket part climbs out of the project is config-invalid",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.links.json"
+      }
+    ]
+  }
+}

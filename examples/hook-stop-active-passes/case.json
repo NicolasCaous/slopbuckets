@@ -1,0 +1,21 @@
+{
+  "description": "Stop lets the agent finish on the second attempt (stop_hook_active true)",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "stop"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "default",
+    "hook_event_name": "Stop",
+    "stop_hook_active": true
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

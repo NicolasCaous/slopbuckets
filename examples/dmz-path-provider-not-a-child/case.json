@@ -1,0 +1,20 @@
+{
+  "description": "billing/dmz/log/ names a provider (log) that is not a child of billing",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-path",
+        "file": "root/billing/dmz/log/invoices.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

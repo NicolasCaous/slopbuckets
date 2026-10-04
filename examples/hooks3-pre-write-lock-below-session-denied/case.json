@@ -1,0 +1,30 @@
+{
+  "description": "PreToolUse denies Write to the lock of a project below the folder where the session was opened",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "claudeProjectDir": "parent",
+  "stdin": {
+    "transcript_path": "/home/dev/.claude/projects/example/session.jsonl",
+    "cwd": "${PROJECT}/..",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "${PROJECT}/buckets.lock.json",
+      "content": "{}\n"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    }
+  }
+}

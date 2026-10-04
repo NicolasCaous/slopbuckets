@@ -1,0 +1,20 @@
+{
+  "description": "root/_ only re-exports logger from its DMZ file, so nothing uses the contract",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/dmz/log/.self.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

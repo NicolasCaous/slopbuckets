@@ -1,0 +1,21 @@
+{
+  "description": "import * as from a DMZ file (main.ts still imports logger by name, so the symbol is used)",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-namespace-dmz",
+        "file": "root/_/debug.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

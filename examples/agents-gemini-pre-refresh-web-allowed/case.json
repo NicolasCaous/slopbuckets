@@ -1,0 +1,26 @@
+{
+  "description": "Gemini CLI: buckets refresh --web is allowed",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "gemini",
+    "before-tool"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "BeforeTool",
+    "timestamp": "2026-10-04T12:00:00.000Z",
+    "tool_name": "run_shell_command",
+    "tool_input": {
+      "command": "buckets refresh --web > refresh.log 2>&1 &"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

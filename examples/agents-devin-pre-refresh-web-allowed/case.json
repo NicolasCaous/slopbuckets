@@ -1,0 +1,24 @@
+{
+  "description": "Devin Desktop: buckets refresh --web is allowed",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "devin",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "exec",
+    "tool_input": {
+      "command": "buckets refresh --web > refresh.log 2>&1 &"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

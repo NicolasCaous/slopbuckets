@@ -1,0 +1,29 @@
+{
+  "description": "check --no-recursive checks only the current project, so the broken nested project does not count",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json",
+    "--no-recursive"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "bucket-added",
+        "path": "root/mail"
+      }
+    ],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 2
+        }
+      ]
+    }
+  }
+}

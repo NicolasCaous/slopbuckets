@@ -1,0 +1,21 @@
+{
+  "description": "a module augmentation of another bucket's code is an import of that code, so it is forbidden",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/a/_/augment.ts",
+        "line": 3
+      }
+    ],
+    "lockChanges": []
+  }
+}

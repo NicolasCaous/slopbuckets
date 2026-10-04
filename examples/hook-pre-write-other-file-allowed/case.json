@@ -1,0 +1,25 @@
+{
+  "description": "PreToolUse allows Write to a file inside a bucket",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "content": "export interface Logger {\n  info(message: string): void;\n  error(message: string): void;\n}\n\nexport const logger: Logger = {\n  info(message) {\n    console.log('[info] ' + message);\n  },\n  error(message) {\n    console.error('[error] ' + message);\n  },\n};\n"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

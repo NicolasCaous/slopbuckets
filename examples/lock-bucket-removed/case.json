@@ -1,0 +1,22 @@
+{
+  "description": "deleting the standalone bucket root/billing/reports needs approval",
+  "lock": "fresh",
+  "delete": [
+    "root/billing/reports"
+  ],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "bucket-removed",
+        "path": "root/billing/reports"
+      }
+    ]
+  }
+}

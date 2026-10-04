@@ -1,0 +1,24 @@
+{
+  "description": "GitHub Copilot: plain buckets refresh in powershell is denied",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "copilot",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "sessionId": "00000000-0000-4000-8000-000000000000",
+    "timestamp": 1791115200000,
+    "cwd": "${PROJECT}",
+    "toolName": "powershell",
+    "toolArgs": "{\"command\": \"buckets refresh\", \"description\": \"approve\"}"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "permissionDecision": "deny"
+    }
+  }
+}

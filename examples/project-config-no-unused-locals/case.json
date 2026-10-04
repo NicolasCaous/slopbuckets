@@ -1,0 +1,20 @@
+{
+  "description": "noUnusedLocals is off in tsconfig.json",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-config",
+        "file": "tsconfig.json"
+      }
+    ],
+    "lockChanges": []
+  }
+}

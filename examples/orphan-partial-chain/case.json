@@ -1,0 +1,20 @@
+{
+  "description": "invoices stops using the logger but billing/_ still uses root/dmz/log/billing.ts, so only the .parent hop is an orphan",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/billing/dmz/.parent/invoices.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

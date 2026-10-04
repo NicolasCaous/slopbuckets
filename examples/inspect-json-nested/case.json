@@ -1,0 +1,39 @@
+{
+  "description": "inspect --json lists the nested project after the repo, with the bucket whose _/ holds it",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 0,
+      "summary": { "projects": 2, "buckets": 3 },
+      "projects": [
+        {
+          "path": ".",
+          "parent": null,
+          "status": "ok",
+          "nested": ["root/log/_/engine"],
+          "buckets": [
+            { "path": "root", "projects": [] },
+            { "path": "root/log", "projects": ["root/log/_/engine"] }
+          ]
+        },
+        {
+          "path": "root/log/_/engine",
+          "name": "engine",
+          "parent": ".",
+          "container": { "project": ".", "bucket": "root/log" },
+          "status": "ok",
+          "lock": "current",
+          "config": { "alias": "@engine" },
+          "buckets": [{ "path": "root", "files": 1 }]
+        }
+      ]
+    }
+  }
+}

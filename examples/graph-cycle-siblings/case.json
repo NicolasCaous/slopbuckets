@@ -1,0 +1,23 @@
+{
+  "description": "invoices takes isPaid from payments and payments takes Invoice from invoices",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "graph-cycle",
+        "file": [
+          "root/billing/invoices/_/create-invoice.ts",
+          "root/billing/payments/_/charge.ts"
+        ]
+      }
+    ],
+    "lockChanges": []
+  }
+}

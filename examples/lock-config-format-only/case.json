@@ -1,0 +1,15 @@
+{
+  "description": "reformatting the config, reordering keys and dropping fields equal to the defaults does not change the resolved config",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

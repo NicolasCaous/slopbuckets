@@ -1,0 +1,35 @@
+{
+  "description": "PreToolUse denies MultiEdit of buckets.lock.json",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "MultiEdit",
+    "tool_input": {
+      "file_path": "${PROJECT}/buckets.lock.json",
+      "edits": [
+        {
+          "old_string": "\"lockVersion\": 1",
+          "new_string": "\"lockVersion\": 2"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    }
+  }
+}

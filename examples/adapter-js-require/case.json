@@ -1,0 +1,21 @@
+{
+  "description": "a CommonJS file in log/_ loads code with require()",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "root/log/_/legacy.cjs",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

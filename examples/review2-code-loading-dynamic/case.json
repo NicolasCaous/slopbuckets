@@ -1,0 +1,20 @@
+{
+  "description": "import.meta.glob and module.constructor._load load code the check cannot follow, so they are import-dynamic",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "root/_/load.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

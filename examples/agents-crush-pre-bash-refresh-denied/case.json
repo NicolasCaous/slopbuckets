@@ -1,0 +1,26 @@
+{
+  "delete": [],
+  "description": "Crush PreToolUse denies bash running a plain buckets refresh",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "crush",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "event": "PreToolUse",
+    "session_id": "313909e",
+    "cwd": "${PROJECT}",
+    "tool_name": "bash",
+    "tool_input": {
+      "command": "buckets refresh"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "deny"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "a copied file of the linked project imports a package that does not resolve from the consumer, which must install it",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "link-missing-dependency",
+        "file": "root/web/_/links/api/server/_/helper.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

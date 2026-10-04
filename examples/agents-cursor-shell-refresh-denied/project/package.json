@@ -1,0 +1,9 @@
+{
+  "name": "example-agents-cursor-shell-refresh-denied",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

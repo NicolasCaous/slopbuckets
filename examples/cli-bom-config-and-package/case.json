@@ -1,0 +1,15 @@
+{
+  "description": "buckets.config.json and package.json saved again with a UTF-8 byte order mark (after/) are read like plain JSON and match the lock",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

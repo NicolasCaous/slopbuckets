@@ -1,0 +1,20 @@
+{
+  "description": "a bucket folder whose name starts with a dot is invalid",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "folder-invalid-name",
+        "file": "root/.shared"
+      }
+    ],
+    "lockChanges": []
+  }
+}

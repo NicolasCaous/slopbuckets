@@ -1,0 +1,39 @@
+{
+  "description": "a broken rule in the nested project and a lock difference in the parent give exit code 1, with each project's own code",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/_/run.ts",
+        "project": "root/log/_/engine"
+      }
+    ],
+    "lockChanges": [
+      {
+        "kind": "bucket-added",
+        "path": "root/mail",
+        "project": "."
+      }
+    ],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 2
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 1
+        }
+      ]
+    }
+  }
+}

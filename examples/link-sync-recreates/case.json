@@ -1,0 +1,24 @@
+{
+  "description": "buckets link sync recreates a missing copy from the origin project: its published files and every file they import",
+  "lock": "fresh",
+  "delete": [
+    "root/web/_/links/api"
+  ],
+  "args": [
+    "link",
+    "sync"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "filesExist": [
+      "root/web/_/links/api/dmz/server/.external.ts",
+      "root/web/_/links/api/server/_/router.ts",
+      "root/web/_/links/api/server/_/helper.ts"
+    ],
+    "filesMissing": [
+      "root/web/_/links/api/_/main.ts",
+      "root/web/_/links/api/dmz/server/.self.ts"
+    ]
+  }
+}

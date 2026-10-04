@@ -1,0 +1,15 @@
+{
+  "description": "JavaScript and declaration files that tsc wrote next to their TypeScript sources are skipped",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "a new bucket root/billing/refunds needs approval",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "bucket-added",
+        "path": "root/billing/refunds"
+      }
+    ]
+  }
+}

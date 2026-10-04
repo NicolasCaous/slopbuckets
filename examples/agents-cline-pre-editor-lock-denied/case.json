@@ -1,0 +1,34 @@
+{
+  "delete": [],
+  "description": "Cline PreToolUse cancels the task when the editor tool would write buckets.lock.json",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "cline",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "clineVersion": "4.2.0",
+    "hookName": "PreToolUse",
+    "timestamp": "1759590000000",
+    "taskId": "01K6P3M8Z7Q2W4E5R6T7Y8U9I0",
+    "workspaceRoots": [
+      "${PROJECT}"
+    ],
+    "userId": "user-1",
+    "preToolUse": {
+      "toolName": "editor",
+      "parameters": {
+        "path": "${PROJECT}/buckets.lock.json",
+        "new_text": "{}"
+      }
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "cancel": true
+    }
+  }
+}

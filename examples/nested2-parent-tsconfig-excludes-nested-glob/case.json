@@ -1,0 +1,27 @@
+{
+  "description": "an exclude glob in the tsconfig.json of the enclosing project keeps the nested project out of its build, and both projects pass",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": [],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 0
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 0
+        }
+      ]
+    }
+  }
+}

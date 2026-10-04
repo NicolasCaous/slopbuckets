@@ -1,0 +1,23 @@
+{
+  "description": "check --file on the DMZ file whose re-export closes the invoices/payments cycle reports the cycle on that DMZ file",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json",
+    "--file",
+    "root/billing/dmz/payments/invoices.ts"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "graph-cycle",
+        "file": "root/billing/dmz/payments/invoices.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "description": "inspect --json shows the cycle between invoices and payments on the graph, the edges and both violations",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 1,
+      "summary": { "violations": 2, "lockChanges": 0 },
+      "projects": [
+        {
+          "path": ".",
+          "status": "violation",
+          "lock": "current",
+          "cycles": [["root/billing/invoices", "root/billing/payments"]],
+          "imports": [
+            { "from": "root/billing/invoices", "to": "root/billing/payments", "symbols": ["isPaid"], "cycle": true },
+            { "from": "root/billing/invoices", "to": "root/log", "cycle": false },
+            { "from": "root/billing/payments", "to": "root/billing/invoices", "symbols": ["Invoice"], "cycle": true },
+            { "from": "root/billing", "to": "root/billing/invoices", "cycle": false },
+            { "from": "root/billing", "to": "root/billing/payments", "cycle": false },
+            { "from": "root", "to": "root/billing", "cycle": false }
+          ],
+          "violations": [
+            {
+              "rule": "graph-cycle",
+              "file": "root/billing/invoices/_/create-invoice.ts",
+              "kind": "cycle",
+              "bucket": "root/billing/invoices",
+              "cycle": ["root/billing/invoices", "root/billing/payments", "root/billing/invoices"]
+            },
+            {
+              "rule": "graph-cycle",
+              "file": "root/billing/payments/_/charge.ts",
+              "kind": "cycle",
+              "bucket": "root/billing/payments",
+              "cycle": ["root/billing/payments", "root/billing/invoices", "root/billing/payments"]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "a barrel file directly in a bucket folder is a loose file",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "folder-loose-file",
+        "file": "root/log/index.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

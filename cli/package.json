@@ -1,0 +1,49 @@
+{
+  "name": "slopbuckets",
+  "version": "1.0.0",
+  "description": "Sealed folders for AI-written code. The AI writes anything inside a bucket, and a human approves every contract between buckets.",
+  "license": "MIT",
+  "author": "Nicolas Caous",
+  "type": "module",
+  "bin": {
+    "buckets": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "skill"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NicolasCaous/slopbuckets.git",
+    "directory": "cli"
+  },
+  "homepage": "https://nicolascaous.github.io/slopbuckets/",
+  "bugs": {
+    "url": "https://github.com/NicolasCaous/slopbuckets/issues"
+  },
+  "keywords": [
+    "ai",
+    "architecture",
+    "boundaries",
+    "claude-code",
+    "dependency-rules",
+    "imports",
+    "lint",
+    "monorepo",
+    "typescript"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepack": "node scripts/prepack.mjs"
+  },
+  "devDependencies": {
+    "@slopbuckets/adapter-ts": "*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "billing/dmz/invoices/invoices.ts has the same bucket as provider and consumer",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-path",
+        "file": "root/billing/dmz/invoices/invoices.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

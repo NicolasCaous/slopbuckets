@@ -1,0 +1,34 @@
+{
+  "description": "Codex CLI: a patch that leaves a relative import gets the report in additionalContext",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "codex",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "turn_id": "turn-1",
+    "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "PostToolUse",
+    "model": "gpt-5.3-codex",
+    "permission_mode": "default",
+    "tool_name": "apply_patch",
+    "tool_use_id": "call_4",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Update File: root/log/_/logger.ts\n@@\n-import { formatLine } from '@root/log/_/format';\n+import { formatLine } from './format';\n*** End Patch"
+    },
+    "tool_response": "Success. Updated the following files:\nM root/log/_/logger.ts"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PostToolUse"
+      }
+    }
+  }
+}

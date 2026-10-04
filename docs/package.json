@@ -1,0 +1,16 @@
+{
+  "name": "@slopbuckets/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Documentation site for slopbuckets, built with VitePress into site/docs/.",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "dev": "node scripts/generate.mjs && vitepress dev .",
+    "docs:build": "node scripts/generate.mjs && vitepress build . && node scripts/llms.mjs",
+    "preview": "vitepress preview ."
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

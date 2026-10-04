@@ -1,0 +1,23 @@
+{
+  "description": "init --yes sets up a minimal TypeScript project without writing the lock, and a second run changes nothing",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "init",
+    "--yes"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "filesExist": [
+      "buckets.config.json",
+      "root/_",
+      ".claude/settings.json",
+      ".claude/skills/slopbuckets/SKILL.md"
+    ],
+    "filesMissing": [
+      "buckets.lock.json"
+    ],
+    "idempotent": true
+  }
+}

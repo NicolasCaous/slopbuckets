@@ -1,0 +1,29 @@
+{
+  "description": "PreToolUse denies a PowerShell command that names the lock by its 8.3 short name",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "PowerShell",
+    "tool_input": {
+      "command": "Set-Content BUCKET~1.JSO '{}'"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    }
+  }
+}

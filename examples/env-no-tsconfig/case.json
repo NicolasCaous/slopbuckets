@@ -1,0 +1,21 @@
+{
+  "description": "without tsconfig.json the adapter fails with no-tsconfig and the check exits with 3",
+  "lock": "fresh",
+  "delete": [
+    "tsconfig.json"
+  ],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 3,
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": {
+        "code": "no-tsconfig"
+      }
+    }
+  }
+}

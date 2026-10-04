@@ -1,0 +1,22 @@
+{
+  "description": "billing/_ stops charging and billing/dmz/payments/.self.ts is deleted",
+  "lock": "fresh",
+  "delete": [
+    "root/billing/dmz/payments/.self.ts"
+  ],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "dmz-removed",
+        "path": "root/billing/dmz/payments/.self.ts"
+      }
+    ]
+  }
+}

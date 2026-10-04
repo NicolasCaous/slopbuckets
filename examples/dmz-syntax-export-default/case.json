@@ -1,0 +1,21 @@
+{
+  "description": "export default in a DMZ file",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-syntax",
+        "file": "root/dmz/log/.self.ts",
+        "line": 3
+      }
+    ],
+    "lockChanges": []
+  }
+}

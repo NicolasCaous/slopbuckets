@@ -1,0 +1,39 @@
+{
+  "description": "inspect --json gives both orphan files the whole unused chain of logger, from the origin to the tip",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 1,
+      "projects": [
+        {
+          "path": ".",
+          "status": "violation",
+          "orphans": [{ "symbol": "logger", "origin": "root/log", "files": ["root/dmz/log/billing.ts", "root/billing/dmz/.parent/invoices.ts"] }],
+          "violations": [
+            {
+              "rule": "dmz-orphan",
+              "file": "root/billing/dmz/.parent/invoices.ts",
+              "kind": "orphan",
+              "bucket": "root/billing",
+              "chain": { "symbol": "logger", "origin": "root/log", "files": ["root/dmz/log/billing.ts", "root/billing/dmz/.parent/invoices.ts"] }
+            },
+            {
+              "rule": "dmz-orphan",
+              "file": "root/dmz/log/billing.ts",
+              "kind": "orphan",
+              "bucket": "root",
+              "chain": { "symbol": "logger", "origin": "root/log", "files": ["root/dmz/log/billing.ts", "root/billing/dmz/.parent/invoices.ts"] }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

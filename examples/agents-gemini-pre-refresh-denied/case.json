@@ -1,0 +1,30 @@
+{
+  "description": "Gemini CLI: plain buckets refresh in run_shell_command is denied",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "gemini",
+    "before-tool"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "BeforeTool",
+    "timestamp": "2026-10-04T12:00:00.000Z",
+    "tool_name": "run_shell_command",
+    "tool_input": {
+      "command": "buckets refresh",
+      "description": "approve",
+      "dir_path": "."
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "deny"
+    }
+  }
+}

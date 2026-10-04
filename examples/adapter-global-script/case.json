@@ -1,0 +1,21 @@
+{
+  "description": "a _/ file without imports or exports shares its functions globally, and another bucket calls one without an import",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-global",
+        "file": "root/log/_/secret.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "description": "Factory Droid: Create on the lock is denied",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "factory",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.factory/sessions/s.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "auto-high",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Create",
+    "tool_input": {
+      "file_path": "${PROJECT}/buckets.lock.json",
+      "content": "{}"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    }
+  }
+}

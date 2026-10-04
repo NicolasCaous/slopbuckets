@@ -1,0 +1,21 @@
+{
+  "description": "code imports a file of the linked project that is not one of its published .external.ts files",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "link-forbidden-import",
+        "file": "root/web/_/app.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

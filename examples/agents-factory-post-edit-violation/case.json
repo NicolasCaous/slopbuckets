@@ -1,0 +1,33 @@
+{
+  "description": "Factory Droid: an Edit that leaves a relative import is reported with decision block",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "factory",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.factory/sessions/s.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "auto-high",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "old_str": "a",
+      "new_str": "b"
+    },
+    "tool_response": {
+      "success": true
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@slopbuckets/adapter-ts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TypeScript adapter for slopbuckets. Bundled into the slopbuckets CLI, not published on its own.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

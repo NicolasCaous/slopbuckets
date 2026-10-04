@@ -1,0 +1,32 @@
+# Local design notes, not part of the repository
+SPEC.md
+
+node_modules/
+dist/
+*.tgz
+
+# Copied into the CLI package by cli/scripts/prepack.mjs
+cli/README.md
+cli/LICENSE
+cli/skill/
+
+# Local Claude Code settings
+/.claude/
+
+# Scratch copies made by the examples battery
+examples/.tmp/
+
+# Scratch folders made by unit tests
+.test-tmp/
+
+# Docs: generated reference pages, build cache and the built site
+docs/reference/
+docs/public/logo.svg
+docs/.vitepress/cache/
+docs/.cli-build/
+site/docs/
+# Written by scripts/site-demo.mjs, in the Pages workflow
+site/demo/
+# Written by docs/scripts/llms.mjs on every docs build
+site/llms.txt
+site/llms-full.txt

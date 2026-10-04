@@ -1,0 +1,29 @@
+{
+  "description": "PostToolUse is silent for a clean file even with an orphan elsewhere and no lock",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "hook",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/_/main.ts",
+      "content": "import { logger } from '@root/dmz/log/.self';\n\nexport function main(): void {\n  logger.info('app started');\n}\n\nmain();\n"
+    },
+    "tool_response": {
+      "filePath": "${PROJECT}/root/_/main.ts",
+      "success": true
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

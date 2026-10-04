@@ -1,0 +1,20 @@
+{
+  "description": "a DMZ file with the .mts extension instead of the adapter dmzExtension (.ts)",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-path",
+        "file": "root/dmz/log/.self.mts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

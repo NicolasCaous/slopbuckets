@@ -1,0 +1,13 @@
+{
+  "description": "inspect --export svg --out writes the map as an SVG file where --out points and prints where it went",
+  "lock": "fresh",
+  "delete": [],
+  "args": ["inspect", "--export", "svg", "--out", "map.svg"],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": false,
+    "filesExist": ["map.svg", "buckets.lock.json"],
+    "filesMissing": [".buckets"]
+  }
+}

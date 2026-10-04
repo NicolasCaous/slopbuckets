@@ -1,0 +1,31 @@
+{
+  "delete": [],
+  "description": "Windsurf pre_write_code lets an ordinary file through",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "windsurf",
+    "pre-write-code"
+  ],
+  "stdin": {
+    "agent_action_name": "pre_write_code",
+    "trajectory_id": "traj-7f3a",
+    "execution_id": "exec-1",
+    "timestamp": "2026-10-04T12:00:00Z",
+    "model_name": "SWE-1.5",
+    "tool_info": {
+      "file_path": "${PROJECT}/root/_/main.ts",
+      "edits": [
+        {
+          "old_string": "a",
+          "new_string": "b"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

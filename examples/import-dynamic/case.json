@@ -1,0 +1,21 @@
+{
+  "description": "a dynamic import() with an alias path",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "root/log/_/lazy-format.ts",
+        "line": 2
+      }
+    ],
+    "lockChanges": []
+  }
+}

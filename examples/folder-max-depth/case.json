@@ -1,0 +1,20 @@
+{
+  "description": "a bucket at level 3 (root/billing/invoices/pdf) exceeds the default maxDepth of 2",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "folder-max-depth",
+        "file": "root/billing/invoices/pdf"
+      }
+    ],
+    "lockChanges": []
+  }
+}

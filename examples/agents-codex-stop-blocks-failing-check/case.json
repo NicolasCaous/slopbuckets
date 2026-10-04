@@ -1,0 +1,28 @@
+{
+  "description": "Codex CLI: Stop blocks once when the check fails",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "codex",
+    "stop"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "turn_id": "turn-1",
+    "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "Stop",
+    "model": "gpt-5.3-codex",
+    "permission_mode": "default",
+    "stop_hook_active": false,
+    "last_assistant_message": "Done."
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

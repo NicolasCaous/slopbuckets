@@ -1,0 +1,15 @@
+{
+  "description": "after link update copies an internal change of the origin that keeps every published signature, the check passes without any lock difference",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "description": "Qwen Code: an edit that leaves a relative import gets the report in additionalContext",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "qwen",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.qwen/tmp/chat.jsonl",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "PostToolUse",
+    "permission_mode": "default",
+    "tool_name": "edit",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "old_string": "a",
+      "new_string": "b"
+    },
+    "tool_response": {
+      "llmContent": "ok"
+    },
+    "tool_use_id": "toolu_1"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PostToolUse"
+      }
+    }
+  }
+}

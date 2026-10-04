@@ -1,0 +1,13 @@
+// The slopbuckets logo from site/logo.svg, served as /assets/logo.svg for the top bar and the tab icon.
+export const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title">
+  <title id="title">slopbuckets</title>
+  <path d="M27 50 C27 12 101 12 101 50" fill="none" stroke="#6e7781" stroke-width="6" stroke-linecap="round"/>
+  <path d="M25 50 C24 39 35 34 42 38 C46 27 61 24 67 33 C73 24 89 26 91 37 C98 33 106 40 103 50 Z" fill="#84cc16"/>
+  <circle cx="54" cy="21" r="4" fill="#84cc16"/>
+  <circle cx="80" cy="17" r="2.5" fill="#84cc16"/>
+  <circle cx="58" cy="35" r="2.5" fill="#bef264"/>
+  <path d="M24 56 L104 56 L95 110 C94.2 114.6 91 117 86.5 117 L41.5 117 C37 117 33.8 114.6 33 110 Z" fill="#6e7781"/>
+  <rect x="18" y="45" width="92" height="14" rx="7" fill="#57606a"/>
+  <path d="M28.5 76 H99.5 M31.8 96 H96.2" fill="none" stroke="#8c959f" stroke-width="4" stroke-linecap="round"/>
+</svg>
+`;

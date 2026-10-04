@@ -1,0 +1,33 @@
+{
+  "description": "Auggie: save-file on the lock is denied with exit 2",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "auggie",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "conversation_id": "00000000-0000-4000-8000-000000000000",
+    "workspace_roots": [
+      "${PROJECT}"
+    ],
+    "hook_event_name": "PreToolUse",
+    "tool_name": "save-file",
+    "tool_input": {
+      "path": "buckets.lock.json",
+      "file_content": "{}"
+    }
+  },
+  "expect": {
+    "exitCode": 2,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    },
+    "stderrIncludes": "buckets.lock.json records the contracts a human approved"
+  }
+}

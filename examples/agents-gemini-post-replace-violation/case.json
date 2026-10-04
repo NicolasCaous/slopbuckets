@@ -1,0 +1,35 @@
+{
+  "description": "Gemini CLI: replace that leaves a relative import gets the report in additionalContext",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "gemini",
+    "after-tool"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "AfterTool",
+    "timestamp": "2026-10-04T12:00:00.000Z",
+    "tool_name": "replace",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "old_string": "'@root/log/_/format'",
+      "new_string": "'./format'"
+    },
+    "tool_response": {
+      "llmContent": "Successfully modified file"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "AfterTool"
+      }
+    }
+  }
+}

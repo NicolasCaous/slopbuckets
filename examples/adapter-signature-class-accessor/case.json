@@ -1,0 +1,21 @@
+{
+  "description": "a writable property of a re-exported class becomes a getter without touching any DMZ file",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "signature-changed",
+        "path": "root/dmz/log/.self.ts",
+        "symbol": "Logger"
+      }
+    ]
+  }
+}

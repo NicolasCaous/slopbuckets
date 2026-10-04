@@ -1,0 +1,34 @@
+{
+  "description": "Codex CLI: an apply_patch that updates the lock is denied with a reason",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "codex",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "turn_id": "turn-1",
+    "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "PreToolUse",
+    "model": "gpt-5.3-codex",
+    "permission_mode": "default",
+    "tool_name": "apply_patch",
+    "tool_use_id": "call_1",
+    "tool_input": {
+      "command": "*** Begin Patch\n*** Update File: buckets.lock.json\n@@\n-{}\n+{\"version\": 1}\n*** End Patch"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny"
+      }
+    }
+  }
+}

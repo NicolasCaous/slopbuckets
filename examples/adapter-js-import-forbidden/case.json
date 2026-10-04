@@ -1,0 +1,21 @@
+{
+  "description": "a JavaScript file in audit/_ imports the _/ of its sibling log",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/audit/_/bridge.js",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

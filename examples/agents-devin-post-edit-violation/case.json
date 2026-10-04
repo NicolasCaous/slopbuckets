@@ -1,0 +1,28 @@
+{
+  "description": "Devin Desktop: an edit that leaves a relative import is reported with decision block",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "devin",
+    "post-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "cwd": "${PROJECT}",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "edit",
+    "tool_input": {
+      "file_path": "${PROJECT}/root/log/_/logger.ts",
+      "old_string": "a",
+      "new_string": "b"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "block"
+    }
+  }
+}

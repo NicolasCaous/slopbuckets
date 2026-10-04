@@ -1,0 +1,20 @@
+{
+  "description": "the origin of a copied link changes a file its published code imports, so the copy drifted, without a published signature change",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "link-drift",
+        "path": "root/web/_/links/api"
+      }
+    ]
+  }
+}

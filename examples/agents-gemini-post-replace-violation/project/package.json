@@ -1,0 +1,9 @@
+{
+  "name": "example-agents-gemini-post-replace-violation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

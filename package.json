@@ -1,0 +1,29 @@
+{
+  "name": "slopbuckets-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "adapters/ts",
+    "cli",
+    "docs"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run --project unit",
+    "test:examples": "npm run build && vitest run --project examples",
+    "test:all": "npm run build && vitest run",
+    "docs:dev": "npm run dev -w docs",
+    "docs:build": "npm run docs:build -w docs",
+    "readme:assets": "node scripts/readme-assets.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  },
+  "overrides": {
+    "esbuild": "^0.28.2"
+  }
+}

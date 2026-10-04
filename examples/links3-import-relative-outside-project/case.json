@@ -1,0 +1,29 @@
+{
+  "description": "a relative import that leaves the project is import-relative, and the message says code outside the project is reached only through buckets link",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/log/_/logger.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": [],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-relative",
+          "message": "Relative import \"../../../../shared/format\" leaves this project (it points at ../shared/format, outside the project folder). slopbuckets forbids relative imports, and code outside this project is reached only through `buckets link`: if that code is a slopbuckets project, run `buckets link add <name> <its project folder>` in root/log, then import its published .external files through its alias. Otherwise publish it as a package and declare it in package.json."
+        }
+      ]
+    }
+  }
+}

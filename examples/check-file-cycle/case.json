@@ -1,0 +1,25 @@
+{
+  "description": "check --file includes cycle detection",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json",
+    "--file",
+    "root/billing/invoices/_/create-invoice.ts"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "graph-cycle",
+        "file": [
+          "root/billing/invoices/_/create-invoice.ts",
+          "root/billing/payments/_/charge.ts"
+        ]
+      }
+    ],
+    "lockChanges": []
+  }
+}

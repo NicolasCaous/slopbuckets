@@ -1,0 +1,20 @@
+{
+  "description": "a buckets.config.json inside a dmz/ folder is project-misplaced",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-misplaced",
+        "file": "root/dmz/log/tool/buckets.config.json"
+      }
+    ],
+    "lockChanges": []
+  }
+}

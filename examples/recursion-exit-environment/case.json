@@ -1,0 +1,28 @@
+{
+  "description": "an environment problem in a nested project (no tsconfig.json) makes the whole check exit with 3",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 3,
+    "stdoutJson": {
+      "environment": {
+        "code": "no-tsconfig"
+      },
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 2
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 3
+        }
+      ]
+    }
+  }
+}

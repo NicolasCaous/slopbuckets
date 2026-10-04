@@ -1,0 +1,27 @@
+{
+  "description": "a nested project inside root/log/_/ is checked on its own and both projects pass",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": [],
+    "stdoutJson": {
+      "projects": [
+        {
+          "path": ".",
+          "exitCode": 0
+        },
+        {
+          "path": "root/log/_/engine",
+          "exitCode": 0
+        }
+      ]
+    }
+  }
+}

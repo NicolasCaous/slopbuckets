@@ -1,0 +1,27 @@
+{
+  "description": "hooks do nothing outside a slopbuckets project, even for a lock write",
+  "lock": "none",
+  "delete": [
+    "buckets.config.json"
+  ],
+  "args": [
+    "hook",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "${PROJECT}/buckets.lock.json",
+      "content": "{}\n"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

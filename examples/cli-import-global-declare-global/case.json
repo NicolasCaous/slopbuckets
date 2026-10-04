@@ -1,0 +1,20 @@
+{
+  "description": "a declare global block in _/ code shares names without an import and is reported as import-global",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-global",
+        "file": "root/log/_/globals.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "description": "GitHub Copilot: buckets refresh --web in bash is allowed",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "copilot",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "sessionId": "00000000-0000-4000-8000-000000000000",
+    "timestamp": 1791115200000,
+    "cwd": "${PROJECT}",
+    "toolName": "bash",
+    "toolArgs": "{\"command\": \"buckets refresh --web > refresh.log 2>&1 &\"}"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "the README example without buckets.lock.json passes the rules and exits with 2 (lock-missing)",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "lock-missing",
+        "path": "buckets.lock.json"
+      }
+    ]
+  }
+}

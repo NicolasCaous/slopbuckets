@@ -1,0 +1,30 @@
+{
+  "description": "inspect --export mermaid --json prints the bucket graph: a code node per bucket, a dmz node for .parent contracts and one edge per DMZ file with its symbol count",
+  "lock": "fresh",
+  "delete": [],
+  "args": ["inspect", "--export", "mermaid", "--json"],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "format": "mermaid",
+      "file": null,
+      "nodes": [
+        { "id": "P0_B0_c", "label": "_/ 1 file", "kind": "code", "project": ".", "bucket": "root", "situation": "ok" },
+        { "id": "P0_B1_c", "label": "_/ 1 file", "kind": "code", "bucket": "root/billing" },
+        { "id": "P0_B1_d", "label": "dmz/ .parent", "kind": "dmz", "bucket": "root/billing" },
+        { "id": "P0_B2_c", "label": "_/ 2 files", "kind": "code", "bucket": "root/billing/invoices" },
+        { "id": "P0_B3_c", "label": "_/ 1 file", "kind": "code", "bucket": "root/billing/payments" },
+        { "id": "P0_B4_c", "label": "_/ 1 file", "kind": "code", "bucket": "root/log" }
+      ],
+      "edges": [
+        { "from": "P0_B1_d", "to": "P0_B2_c", "label": "1 symbol", "kind": "down", "file": "root/billing/dmz/.parent/invoices.ts", "situation": "ok" },
+        { "from": "P0_B2_c", "to": "P0_B1_c", "label": "1 symbol", "kind": "contract", "file": "root/billing/dmz/invoices/.self.ts" },
+        { "from": "P0_B2_c", "to": "P0_B3_c", "label": "1 symbol", "kind": "contract", "file": "root/billing/dmz/invoices/payments.ts" },
+        { "from": "P0_B3_c", "to": "P0_B1_c", "label": "1 symbol", "kind": "contract", "file": "root/billing/dmz/payments/.self.ts" },
+        { "from": "P0_B1_c", "to": "P0_B0_c", "label": "1 symbol", "kind": "contract", "file": "root/dmz/billing/.self.ts" },
+        { "from": "P0_B4_c", "to": "P0_B1_c", "label": "1 symbol", "kind": "contract", "file": "root/dmz/log/billing.ts" }
+      ]
+    }
+  }
+}

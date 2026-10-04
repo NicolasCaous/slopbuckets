@@ -1,0 +1,18 @@
+{
+  "description": "buckets refresh rejects --webx and writes no lock",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "refresh",
+    "--webx"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "stderrIncludes": "unknown option \"--webx\"",
+    "stdoutEmpty": true,
+    "filesMissing": [
+      "buckets.lock.json"
+    ]
+  }
+}

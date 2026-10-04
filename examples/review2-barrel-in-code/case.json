@@ -1,0 +1,15 @@
+{
+  "description": "a contract re-exported by a barrel in the consumer's _/ and used through that barrel is not an orphan",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

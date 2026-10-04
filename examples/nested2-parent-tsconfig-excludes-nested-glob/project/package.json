@@ -1,0 +1,9 @@
+{
+  "name": "example-nested2-parent-tsconfig-excludes-nested-glob",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  }
+}

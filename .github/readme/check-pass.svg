@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 792 175" width="792" height="175" role="img" aria-labelledby="t d" xml:space="preserve">
+<title id="t">buckets check passes with exit code 0</title>
+<desc id="d">After a human approved the state, buckets check prints that all bucket rules pass and the state matches buckets.lock.json, and exits with code 0.</desc>
+<style>
+.cur{animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.cur{animation:none}}
+</style>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#08260f"/><stop offset=".45" stop-color="#020904"/></linearGradient>
+<radialGradient id="vig" cx=".5" cy=".5" r=".75"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>
+<pattern id="scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect y="2" width="4" height="2" fill="#000" fill-opacity=".2"/></pattern>
+<filter id="glow" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="2.2" result="b"/><feComponentTransfer in="b" result="g"><feFuncA type="linear" slope=".55"/></feComponentTransfer><feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<clipPath id="win"><rect width="792" height="175" rx="8"/></clipPath>
+</defs>
+<g clip-path="url(#win)">
+<rect width="792" height="175" fill="#020904"/>
+<rect width="792" height="175" fill="url(#bg)"/>
+<rect width="792" height="28" fill="#3dff74"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace" font-size="12" font-weight="700" fill="#021a0a">
+<text x="14" y="18.5">tty1</text>
+<text x="396" y="18.5" text-anchor="middle">~/acme</text>
+<rect x="722.8" y="5" width="59.2" height="18" rx="2" fill="#021a0a"/>
+<text x="752.4" y="18.5" text-anchor="middle" fill="#3dff74">exit 0</text>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace" font-size="14" fill="#b4f5c6" filter="url(#glow)">
+<text y="62"><tspan x="22" fill="#6cbf86">#</tspan><tspan x="38.8" fill="#6cbf86">a</tspan><tspan x="55.6" fill="#6cbf86" textLength="42">human</tspan><tspan x="106" fill="#6cbf86" textLength="67.2">approved</tspan><tspan x="181.6" fill="#6cbf86" textLength="25.2">the</tspan><tspan x="215.2" fill="#6cbf86" textLength="42">state</tspan><tspan x="265.6" fill="#6cbf86" textLength="33.6">with</tspan><tspan x="307.6" fill="#6cbf86" textLength="58.8">buckets</tspan><tspan x="374.8" fill="#6cbf86" textLength="58.8">refresh</tspan></text>
+<text y="83"><tspan x="22" fill="#ffc04d">$</tspan><tspan x="38.8" fill="#b8ffcc" font-weight="700" textLength="58.8">buckets</tspan><tspan x="106" fill="#b8ffcc" font-weight="700" textLength="42">check</tspan></text>
+<text y="104"><tspan x="22" fill="#3dff74">✓</tspan><tspan x="38.8" fill="#3dff74" textLength="25.2">All</tspan><tspan x="72.4" fill="#3dff74" textLength="50.4">bucket</tspan><tspan x="131.2" fill="#3dff74" textLength="42">rules</tspan><tspan x="181.6" fill="#3dff74" textLength="33.6">pass</tspan><tspan x="223.6" fill="#3dff74" textLength="25.2">and</tspan><tspan x="257.2" fill="#3dff74" textLength="25.2">the</tspan><tspan x="290.8" fill="#3dff74" textLength="42">state</tspan><tspan x="341.2" fill="#3dff74" textLength="58.8">matches</tspan><tspan x="408.4" fill="#3dff74" textLength="151.2">buckets.lock.json.</tspan></text>
+
+<text y="146"><tspan x="22" fill="#ffc04d">$</tspan></text>
+<rect class="cur" x="38.8" y="134" width="8.4" height="17" fill="#3dff74"/>
+</g>
+<rect y="28" width="792" height="147" fill="url(#scan)"/>
+<rect width="792" height="175" fill="url(#vig)"/>
+</g>
+<rect x=".5" y=".5" width="791" height="174" rx="7.5" fill="none" stroke="#2b8a4c"/>
+</svg>

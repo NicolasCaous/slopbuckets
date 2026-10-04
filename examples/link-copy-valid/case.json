@@ -1,0 +1,15 @@
+{
+  "description": "a project linked in copy mode, committed as source files, is imported through its alias and its .external.ts, values included, and passes",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

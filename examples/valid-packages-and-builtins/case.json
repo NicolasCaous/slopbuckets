@@ -1,0 +1,15 @@
+{
+  "description": "node builtins (node:crypto, os), a declared dependency and a declared devDependency in a unit test are allowed",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

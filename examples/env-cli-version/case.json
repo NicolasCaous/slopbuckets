@@ -1,0 +1,24 @@
+{
+  "description": "a lock written by another CLI version makes the check refuse to run (cli-version)",
+  "lock": "fresh",
+  "lockPatch": {
+    "cli": "999.0.0"
+  },
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 3,
+    "violations": [],
+    "lockChanges": [],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": {
+        "code": "cli-version"
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "switching a DMZ file to CRLF line endings does not change its text hash",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

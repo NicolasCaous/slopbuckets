@@ -1,0 +1,21 @@
+{
+  "description": "a barrel in _/ that no file of its bucket uses does not keep the contract alive",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/dmz/b/a.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

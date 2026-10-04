@@ -1,0 +1,21 @@
+{
+  "description": "export as namespace makes a module a global name, so it is import-global",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-global",
+        "file": "root/b/_/api.d.ts",
+        "line": 5
+      }
+    ],
+    "lockChanges": []
+  }
+}

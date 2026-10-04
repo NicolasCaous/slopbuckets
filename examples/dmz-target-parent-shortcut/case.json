@@ -1,0 +1,21 @@
+{
+  "description": "billing/dmz/.parent/invoices.ts re-exports straight from log/_ instead of from root/dmz/*/billing.ts",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-target",
+        "file": "root/billing/dmz/.parent/invoices.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

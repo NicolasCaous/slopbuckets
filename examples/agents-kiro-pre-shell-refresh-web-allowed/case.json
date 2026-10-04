@@ -1,0 +1,24 @@
+{
+  "delete": [],
+  "description": "Kiro preToolUse lets shell run buckets refresh --web in the background",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "kiro",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "hook_event_name": "preToolUse",
+    "cwd": "${PROJECT}",
+    "session_id": "b7c1e2d4-1111-4222-8333-944445555666",
+    "tool_name": "shell",
+    "tool_input": {
+      "command": "buckets refresh --web > refresh.log 2>&1 &"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

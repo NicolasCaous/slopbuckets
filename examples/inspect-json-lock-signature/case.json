@@ -1,0 +1,51 @@
+{
+  "description": "inspect --json marks the contract, the symbol and the owner bucket that differ from the lock, with the new signature text",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "inspect",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "exitCode": 2,
+      "summary": { "violations": 0, "lockChanges": 1 },
+      "projects": [
+        {
+          "path": ".",
+          "status": "lock",
+          "lock": "differs",
+          "buckets": [
+            { "path": "root", "situation": "ok" },
+            { "path": "root/billing", "situation": "lock", "lockChanges": 1 },
+            { "path": "root/billing/invoices", "situation": "ok" },
+            { "path": "root/billing/payments", "situation": "ok" },
+            { "path": "root/log", "situation": "ok" }
+          ],
+          "lockChanges": [{ "kind": "signature-changed", "path": "root/billing/dmz/invoices/.self.ts", "symbol": "createInvoice", "project": ".", "bucket": "root/billing" }],
+          "contracts": [
+            { "file": "root/billing/dmz/.parent/invoices.ts", "lock": null },
+            {
+              "file": "root/billing/dmz/invoices/.self.ts",
+              "situation": "lock",
+              "lock": "changed",
+              "symbols": [
+                {
+                  "name": "createInvoice",
+                  "lock": "changed",
+                  "signature": { "text": "export function createInvoice(customer: { id: string; name: string }, amountCents: number): Invoice" }
+                }
+              ]
+            },
+            { "file": "root/billing/dmz/invoices/payments.ts", "lock": null },
+            { "file": "root/billing/dmz/payments/.self.ts", "lock": null },
+            { "file": "root/dmz/billing/.self.ts", "lock": null },
+            { "file": "root/dmz/log/billing.ts", "lock": null }
+          ]
+        }
+      ]
+    }
+  }
+}

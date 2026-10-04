@@ -1,0 +1,21 @@
+{
+  "description": "declare global publishes a service to every file, and root/_ uses it without an import",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-global",
+        "file": "root/log/_/registry.ts",
+        "line": 3
+      }
+    ],
+    "lockChanges": []
+  }
+}

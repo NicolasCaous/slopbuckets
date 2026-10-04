@@ -1,0 +1,24 @@
+{
+  "description": "SubagentStop lets the subagent finish when stop_hook_active is true",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "subagent-stop"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.claude/projects/example/00000000-0000-4000-8000-000000000000.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "default",
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": true,
+    "agent_id": "a1b2c3d4",
+    "agent_type": "general-purpose",
+    "agent_transcript_path": "/home/dev/.claude/projects/example/subagents/agent-a1b2c3d4.jsonl"
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

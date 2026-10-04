@@ -1,0 +1,26 @@
+{
+  "description": "Factory Droid: buckets refresh --web passes without an allow answer",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "hook",
+    "--agent",
+    "factory",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "session_id": "00000000-0000-4000-8000-000000000000",
+    "transcript_path": "/home/dev/.factory/sessions/s.jsonl",
+    "cwd": "${PROJECT}",
+    "permission_mode": "auto-high",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Execute",
+    "tool_input": {
+      "command": "buckets refresh --web > refresh.log 2>&1 &"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true
+  }
+}

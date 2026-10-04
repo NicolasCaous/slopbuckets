@@ -1,0 +1,26 @@
+{
+  "delete": [],
+  "description": "Kiro preToolUse blocks execute_bash with a plain buckets refresh",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "kiro",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "hook_event_name": "preToolUse",
+    "cwd": "${PROJECT}",
+    "session_id": "b7c1e2d4-1111-4222-8333-944445555666",
+    "tool_name": "execute_bash",
+    "tool_input": {
+      "command": "buckets refresh",
+      "summary": "Approve the changes"
+    }
+  },
+  "expect": {
+    "exitCode": 2,
+    "stdoutEmpty": true,
+    "stderrIncludes": "buckets refresh --web"
+  }
+}

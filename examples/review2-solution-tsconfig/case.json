@@ -1,0 +1,15 @@
+{
+  "description": "a solution-style tsconfig.json is read through the referenced app config, which has the alias and noUnusedLocals",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

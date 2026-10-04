@@ -1,0 +1,15 @@
+{
+  "description": "a barrel that imports a contract and exports it again under another name keeps it alive when the bucket uses that name",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "lockChanges": []
+  }
+}

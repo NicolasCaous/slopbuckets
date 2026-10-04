@@ -1,0 +1,21 @@
+{
+  "description": "a paths entry that leads outside the root folder is a forbidden internal import, not a missing package",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/_/main.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "description": "a new bucket with a relative import: a broken rule plus a lock difference exits with 1 and reports both",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-relative",
+        "file": "root/billing/refunds/_/refund.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": [
+      {
+        "kind": "bucket-added",
+        "path": "root/billing/refunds"
+      }
+    ]
+  }
+}

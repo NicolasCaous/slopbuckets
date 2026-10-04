@@ -1,0 +1,21 @@
+{
+  "description": "the parameter type of createInvoice changes without touching any DMZ file",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "signature-changed",
+        "path": "root/billing/dmz/invoices/.self.ts",
+        "symbol": "createInvoice"
+      }
+    ]
+  }
+}

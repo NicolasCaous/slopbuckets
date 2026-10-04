@@ -1,0 +1,26 @@
+{
+  "description": "createRequire from node:module builds a require function and loads code through it",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "root/log/_/loader.ts",
+        "line": 1
+      },
+      {
+        "rule": "import-dynamic",
+        "file": "root/log/_/loader.ts",
+        "line": 5
+      }
+    ],
+    "lockChanges": []
+  }
+}

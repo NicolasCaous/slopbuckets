@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",
+  "title": "slopbuckets config",
+  "description": "Configuration for buckets.config.json, read by the slopbuckets CLI.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this JSON Schema, for editor autocomplete."
+    },
+    "adapter": {
+      "type": "string",
+      "enum": ["ts"],
+      "default": "ts",
+      "description": "Language adapter the CLI uses to read the project."
+    },
+    "root": {
+      "type": "string",
+      "minLength": 1,
+      "default": "root",
+      "description": "Folder of the root bucket, relative to the project."
+    },
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "default": "@root",
+      "description": "Import prefix for every internal import."
+    },
+    "maxDepth": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "Maximum depth of the bucket tree. The root bucket is level 0."
+    }
+  }
+}

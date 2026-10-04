@@ -1,0 +1,25 @@
+{
+  "description": "a new symbol (voidInvoice) in an existing DMZ file, used by billing/_; the file text changes too",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "symbol-added",
+        "path": "root/billing/dmz/invoices/.self.ts",
+        "symbol": "voidInvoice"
+      },
+      {
+        "kind": "dmz-changed",
+        "path": "root/billing/dmz/invoices/.self.ts"
+      }
+    ]
+  }
+}

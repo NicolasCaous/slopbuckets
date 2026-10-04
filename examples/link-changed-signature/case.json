@@ -1,0 +1,21 @@
+{
+  "description": "the origin changes the signature of a published function and the copy is updated, so the link changes with that symbol until a human approves",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "link-changed",
+        "path": "root/web/_/links/api",
+        "symbol": "handle"
+      }
+    ]
+  }
+}

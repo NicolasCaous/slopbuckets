@@ -1,0 +1,22 @@
+{
+  "description": "a link listed in buckets.links.json is missing on disk, as after a clone of a link in link mode, and its import is not reported again",
+  "lock": "fresh",
+  "delete": [
+    "root/web/_/links/api"
+  ],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "link-missing",
+        "file": "root/web/_/links/api"
+      }
+    ],
+    "lockChanges": []
+  }
+}

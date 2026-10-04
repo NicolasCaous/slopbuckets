@@ -1,0 +1,20 @@
+{
+  "description": "root/dmz/.parent/ is not allowed because root has no parent",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-path",
+        "file": "root/dmz/.parent/log.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

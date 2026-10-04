@@ -1,0 +1,26 @@
+{
+  "description": "the type of logger changes, so its signature changes in both DMZ files of the chain",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 2,
+    "violations": [],
+    "lockChanges": [
+      {
+        "kind": "signature-changed",
+        "path": "root/dmz/log/billing.ts",
+        "symbol": "logger"
+      },
+      {
+        "kind": "signature-changed",
+        "path": "root/billing/dmz/.parent/invoices.ts",
+        "symbol": "logger"
+      }
+    ]
+  }
+}

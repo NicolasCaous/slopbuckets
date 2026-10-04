@@ -1,0 +1,15 @@
+{
+  "description": "buckets refresh refuses to run without a TTY and does not write the lock",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "refresh"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": "nonzero",
+    "filesMissing": [
+      "buckets.lock.json"
+    ]
+  }
+}

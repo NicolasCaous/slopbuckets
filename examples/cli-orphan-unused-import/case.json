@@ -1,0 +1,24 @@
+{
+  "description": "importing a contract name that the file never references does not count as using it, so the whole logger chain is orphaned",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dmz-orphan",
+        "file": "root/dmz/log/billing.ts"
+      },
+      {
+        "rule": "dmz-orphan",
+        "file": "root/billing/dmz/.parent/invoices.ts"
+      }
+    ],
+    "lockChanges": []
+  }
+}

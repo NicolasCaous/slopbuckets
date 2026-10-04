@@ -1,0 +1,27 @@
+{
+  "delete": [],
+  "description": "Crush PreToolUse denies the write tool on buckets.lock.json",
+  "lock": "none",
+  "args": [
+    "hook",
+    "--agent",
+    "crush",
+    "pre-tool-use"
+  ],
+  "stdin": {
+    "event": "PreToolUse",
+    "session_id": "313909e",
+    "cwd": "${PROJECT}",
+    "tool_name": "write",
+    "tool_input": {
+      "file_path": "${PROJECT}/buckets.lock.json",
+      "content": "{}"
+    }
+  },
+  "expect": {
+    "exitCode": 0,
+    "stdoutJson": {
+      "decision": "deny"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "description": "a paths entry named like a Node builtin is resolved first, so importing another bucket through it is forbidden",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-forbidden",
+        "file": "root/a/_/use.ts",
+        "line": 1
+      }
+    ],
+    "lockChanges": []
+  }
+}

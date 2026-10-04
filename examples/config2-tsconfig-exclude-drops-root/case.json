@@ -1,0 +1,20 @@
+{
+  "description": "the exclude of tsconfig.json leaves the root folder out of the build, so the project gets project-config",
+  "lock": "fresh",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-config",
+        "file": "tsconfig.json"
+      }
+    ],
+    "lockChanges": []
+  }
+}
