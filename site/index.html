@@ -1320,7 +1320,7 @@
             <span class="ids" translate="no"><span class="rule-id">import-global</span></span></li>
           <li>The bucket graph has no cycles. Circular imports inside a single bucket are allowed.
             <span class="ids" translate="no"><span class="rule-id">graph-cycle</span></span></li>
-          <li>When the config has <code translate="no">access</code> lines, such as <code translate="no">root/teams/** -&gt; root/sql</code>, each import between buckets passes them. The most specific matching line decides, and an allow line and a deny line that each win on one side make the import ambiguous until a human adds a more specific line.
+          <li>When the config has <code translate="no">access</code> lines, such as <code translate="no">root/teams/** -&gt; root/sql</code>, each import between buckets passes them. The most specific matching line decides, and an allow line and a deny line that match with neither more specific on both sides make the import ambiguous until a human adds a more specific line.
             <span class="ids" translate="no"><span class="rule-id">access-denied</span><span class="rule-id">access-ambiguous</span><span class="rule-id">access-unknown-bucket</span></span></li>
           <li>The config is valid, and no nested project reuses the alias of a project around it. <code translate="no">tsconfig.json</code> covers the root folder, keeps <code translate="no">noUnusedLocals</code> on so an unused import cannot count as a use, and maps the alias.
             <span class="ids" translate="no"><span class="rule-id">config-invalid</span><span class="rule-id">project-config</span></span></li>

@@ -206,7 +206,7 @@ Graph and project:
 Access, when the config has an `access` key:
 
 - Each import between buckets passes the `access` lines of `buckets.config.json`, such as `"root/teams/** -> root/sql"`. A line reads "code in this bucket uses code declared in that bucket", whatever DMZ files the symbol passes through.
-- The most specific matching line decides, and `default` decides when no line matches. When an allow line and a deny line each win on one side, the import is `access-ambiguous` until a human adds a more specific line.
+- The most specific matching line decides, and `default` decides when no line matches. A pattern with more literal bucket names is more specific, and where a segment sits does not matter. When an allow line and a deny line both match and neither is more specific than the other on both sides, the import is `access-ambiguous` until a human adds a more specific line.
 - A side of a line without wildcards names a bucket that exists, so renaming that bucket fails the check.
 
 The [access rules guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) has a worked example.

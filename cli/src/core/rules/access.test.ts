@@ -104,6 +104,19 @@ describe('access-denied on DMZ files', () => {
     expect(message).toContain('none of the buckets that may import it (root/billing, root/billing/invoices, root/billing/payments) may use code from root/log');
   });
 
+  it('needs an allow line for a parent that uses its child through .self under default deny', async () => {
+    const files = {
+      'root/_/main.ts': 'export const main = 1;\n',
+      'root/billing/_/billing.ts': "import { inv } from '@root/billing/dmz/invoices/.self';\nexport const billing = inv;\n",
+      'root/billing/invoices/_/invoice.ts': 'export const inv = 1;\n',
+      'root/billing/dmz/invoices/.self.ts': "export { inv } from '@root/billing/invoices/_/invoice';\n",
+    };
+    const denied = await checkProject(makeProject({ ...files, 'buckets.config.json': config({ default: 'deny' }) }));
+    expect(where(denied.report.violations)).toEqual(['access-denied root/billing/_/billing.ts:1', 'access-denied root/billing/dmz/invoices/.self.ts:1']);
+    const allowed = await checkProject(makeProject({ ...files, 'buckets.config.json': config({ default: 'deny', allow: ['root/billing -> root/billing/**'] }) }));
+    expect(access(allowed.report.violations)).toEqual([]);
+  });
+
   it('reports a .self re-export that its owner may not use, and skips a .parent re-export', async () => {
     const dir = makeProject({
       'buckets.config.json': config({ default: 'allow', deny: ['** -> root/billing/invoices'] }),
@@ -144,6 +157,12 @@ describe('access-ambiguous', () => {
     expect(message).toContain('Access ambiguous for every consumer of this DMZ file');
     expect(message).toContain('For root/billing/invoices -> root/log, the allow line "root/billing/invoices -> root/**" and the deny line "root/** -> root/log" both match');
     expect(message).toContain('The line "root/** -> root/log" in access.deny of buckets.config.json is the most specific line that matches root/billing -> root/log, root/billing/payments -> root/log.');
+  });
+
+  it('counts named segments, not their position, so root/billing/** and root/**/invoices tie', async () => {
+    const { report } = await checkProject(loggerProject({ default: 'deny', allow: ['root/billing/** -> root/log'], deny: ['root/**/invoices -> root/log'] }));
+    const message = report.violations.find((v) => v.file === IMPORTER)!.message;
+    expect(message).toContain('The allow line "root/billing/** -> root/log" and the deny line "root/**/invoices -> root/log" of buckets.config.json both match this edge');
   });
 
   it('is settled by a line more specific than both', async () => {

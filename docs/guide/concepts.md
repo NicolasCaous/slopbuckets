@@ -173,6 +173,8 @@ The DMZ decides how code reaches another bucket. Access rules decide which bucke
 
 The lines apply to the edges of the bucket graph, which come only from DMZ symbols. A parent that imports from its child through `.self` is an edge too. Imports of packages, Node built-ins and linked projects are not edges, and a bucket that uses its own code never counts.
 
+Under `"default": "deny"`, the `_/` code of a parent needs an allow line to use its children through `.self`. A line such as `root/billing -> root/billing/**` lets the code in `root/billing/_/` use every bucket below it. Without that line, each `.self` import is `access-denied`.
+
 ### Patterns
 
 Each side of a line is a pattern over bucket paths. A bucket path is the folder path from the project, as the lock lists it: `root`, `root/log`, `root/teams/search`.
@@ -220,7 +222,7 @@ The human writes these rules:
 
 Line by line:
 
-- `root -> root/**` lets the code in `root/_/` use every bucket, so `main.ts` can wire the modules together.
+- `root -> root/**` lets the code in `root/_/` use every bucket, so `main.ts` can wire the modules together. It is also the line a parent needs to use its children through `.self`.
 - `** -> root/log` lets every bucket use the logger.
 - `root/teams/** -> root/sql` lets every team use the database layer.
 - `root/teams/billing -> root/teams/payments` lets billing call payments. No other team may, because no other line matches and `default` is `"deny"`.
@@ -239,18 +241,28 @@ With `"default": "deny"`, every edge the project already has needs an allow line
 
 Several lines can match one edge. The most specific one decides.
 
-The check ranks each segment of a pattern:
+The check counts the segments of each pattern by kind:
 
-| Segment | Example | Rank |
+| Count | Segment | Example |
 |---|---|---|
-| a literal name | `teams` | 3 |
-| a name with `*` or `{}` in it | `team-*`, `{api,web}` | 2 |
-| exactly `*` | `*` | 1 |
-| `**` | `**` | 0 |
+| 1st | a literal name | `teams` |
+| 2nd | a name with `*` or `{}` mixed in | `team-*`, `{api,web}` |
+| 3rd | exactly `*` | `*` |
+| 4th | `**`, counted as minus one each | `**` |
 
-To compare two patterns, the check reads both from the left and stops at the first position where the ranks differ. The higher rank is more specific. A pattern that has already ended beats `**` at that position, so `root/billing` is more specific than `root/billing/**`. Patterns with the same ranks all the way are equally specific.
+To compare two patterns, the check compares the first counts. The pattern with more literal names is more specific. When they have the same number, the second counts decide, then the third, then the fourth, where fewer `**` is more specific. Patterns with the same four counts are equally specific.
 
-The comparison goes by position in the pattern, not by the bucket name a segment matched. So a pattern that starts with `**` is less specific than any pattern that starts with the root path: `root/**` beats `**/log`, because `root` ranks 3 and `**` ranks 0 at the first position.
+| Pattern | Counts |
+|---|---|
+| `root/log` | 2, 0, 0, 0 |
+| `root/billing` | 2, 0, 0, 0 |
+| `root/billing/**` | 2, 0, 0, -1 |
+| `root/teams/**` | 2, 0, 0, -1 |
+| `root/**/payments` | 2, 0, 0, -1 |
+| `root/**` | 1, 0, 0, -1 |
+| `**/log` | 1, 0, 0, -1 |
+
+So `root/log` beats `root/**`, and `root/billing` beats `root/billing/**`. Where a segment sits in the pattern does not matter. `root/**/payments` and `root/teams/**` are equally specific, and so are `**/log` and `root/**`. When two such patterns sit in an allow line and a deny line with the same other side, the edge they both match is ambiguous.
 
 A line beats another line when it is at least as specific on both sides and more specific on at least one. For each edge, the check:
 
@@ -270,9 +282,9 @@ An exception under `"default": "allow"`. Teams do not use each other, except bil
 "deny": ["root/teams/* -> root/teams/*"]
 ```
 
-For `root/teams/billing -> root/teams/payments`, the allow line ranks 3 at the third position on both sides, where the deny line has `*` with rank 1. The allow line beats the deny line, and billing may call payments. For `root/teams/search -> root/teams/payments`, only the deny line matches.
+For `root/teams/billing -> root/teams/payments`, each side of the allow line has three literal names, where each side of the deny line has two. The allow line beats the deny line, and billing may call payments. For `root/teams/search -> root/teams/payments`, only the deny line matches.
 
-A carve-out on one side. In the worked example, the deny line `root/teams/search -> root/sql` and the allow line `root/teams/** -> root/sql` have the same right side. On the left side, `search` ranks 3 where `**` ranks 0. The deny line is more specific on one side and as specific on the other, so it wins.
+A carve-out on one side. In the worked example, the deny line `root/teams/search -> root/sql` and the allow line `root/teams/** -> root/sql` have the same right side. On the left side, `root/teams/search` has three literal names and `root/teams/**` has two. The deny line is more specific on one side and as specific on the other, so it wins.
 
 An ambiguous edge. Search may use anything, and nobody may use the database directly:
 

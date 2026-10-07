@@ -102,14 +102,22 @@ describe('compareSpecificity', () => {
     more('root/billing/**', '**');
   });
 
-  it('decides at the first position where the ranks differ', () => {
-    more('root/billing/*', 'root/*/payments');
-    more('root/a/**', 'root/*/b');
+  it('counts literal segments first, then partial wildcards, then *, then fewer **', () => {
+    more('root/a/b/**', 'root/*/*/*');
+    more('root/team-*/*', 'root/*/*/*');
+    more('root/*/*', 'root/*/**');
   });
 
-  it('finds patterns with the same ranks equally specific', () => {
-    expect(compareSpecificity(pattern('root/a'), pattern('root/b'))).toBe(0);
-    expect(compareSpecificity(pattern('root/team-*/**'), pattern('root/{a,b}/**'))).toBe(0);
+  it('finds patterns with the same counts equally specific, wherever the segments sit', () => {
+    const same = (a: string, b: string): void => {
+      expect(compareSpecificity(pattern(a), pattern(b)), `${a} ties ${b}`).toBe(0);
+      expect(compareSpecificity(pattern(b), pattern(a)), `${b} ties ${a}`).toBe(0);
+    };
+    same('root/a', 'root/b');
+    same('root/team-*/**', 'root/{a,b}/**');
+    same('root/**/payments', 'root/teams/**');
+    same('**/log', 'root/**');
+    same('root/billing/*', 'root/*/payments');
   });
 });
 
@@ -158,6 +166,19 @@ describe('evaluateAccess', () => {
     expect(evaluateAccess(crossed, 'root/api', 'root/sql')).toEqual({ allowed: false, by: 'ambiguous', allowLine: 'root/api -> root/**', denyLine: 'root/** -> root/sql' });
     expect(evaluateAccess(crossed, 'root/api', 'root/log')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/**' });
     expect(evaluateAccess(crossed, 'root/web', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/** -> root/sql' });
+  });
+
+  it('fails as ambiguous when root/**/payments and root/teams/** tie', () => {
+    const tied: AccessConfig = { default: 'deny', allow: ['root/api -> root/**/payments'], deny: ['root/api -> root/teams/**'] };
+    expect(evaluateAccess(tied, 'root/api', 'root/teams/payments')).toEqual({ allowed: false, by: 'ambiguous', allowLine: 'root/api -> root/**/payments', denyLine: 'root/api -> root/teams/**' });
+    expect(evaluateAccess(tied, 'root/api', 'root/billing/payments')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/**/payments' });
+    expect(evaluateAccess(tied, 'root/api', 'root/teams/search')).toEqual({ allowed: false, by: 'deny', line: 'root/api -> root/teams/**' });
+  });
+
+  it('fails as ambiguous when **/log and root/** tie', () => {
+    const tied: AccessConfig = { default: 'allow', allow: ['**/log -> root/sql'], deny: ['root/** -> root/sql'] };
+    expect(evaluateAccess(tied, 'root/log', 'root/sql')).toEqual({ allowed: false, by: 'ambiguous', allowLine: '**/log -> root/sql', denyLine: 'root/** -> root/sql' });
+    expect(evaluateAccess(tied, 'root/api', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/** -> root/sql' });
   });
 
   it('fails as ambiguous when lines of both lists are equally specific', () => {

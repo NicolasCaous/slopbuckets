@@ -17,10 +17,10 @@ export interface AccessPattern {
   /** One entry per `/` segment: `**`, or a regular expression for the whole segment. */
   segments: Array<'**' | RegExp>;
   /**
-   * The specificity rank of each segment: 3 for a literal name, 2 for a name with `*` or `{}` in it (such as `team-*`
-   * or `{api,web}`), 1 for exactly `*`, 0 for `**`.
+   * The specificity tuple: the number of literal segments, of segments with `*` or `{}` mixed with other text (such as
+   * `team-*` or `{api,web}`), of segments that are exactly `*`, and minus the number of `**` segments.
    */
-  ranks: number[];
+  specificity: [number, number, number, number];
 }
 
 /** A parsed access line: code in a bucket that `from` matches uses code that originates in a bucket that `to` matches. */
@@ -51,20 +51,20 @@ export function parseAccessLine(text: string): { line: AccessLine } | { error: s
 export function parsePattern(text: string): { pattern: AccessPattern } | { error: string } {
   if (text === '') return { error: 'is empty. Write a bucket path such as "root/billing", or "**" for every bucket.' };
   const segments: AccessPattern['segments'] = [];
-  const ranks: number[] = [];
+  const specificity: AccessPattern['specificity'] = [0, 0, 0, 0];
   for (const segment of text.split('/')) {
     if (segment === '') return { error: `has an empty segment in "${text}". Remove the extra "/".` };
     if (segment === '**') {
       segments.push('**');
-      ranks.push(0);
+      specificity[3]--;
       continue;
     }
     const source = segmentSource(segment);
     if (typeof source !== 'string') return source;
     segments.push(new RegExp(`^${source}$`, 'u'));
-    ranks.push(segment === '*' ? 1 : /[*{]/.test(segment) ? 2 : 3);
+    specificity[segment === '*' ? 2 : /[*{]/.test(segment) ? 1 : 0]++;
   }
-  return { pattern: { text, literal: !/[*{]/.test(text), segments, ranks } };
+  return { pattern: { text, literal: !/[*{]/.test(text), segments, specificity } };
 }
 
 function segmentSource(segment: string): string | { error: string } {
@@ -129,18 +129,13 @@ function compile(access: AccessConfig): { allow: AccessLine[]; deny: AccessLine[
   return lines;
 }
 
-/** Rank of a position past the end of a pattern. It beats `**`, the only segment it can meet on the same path. */
-const ENDED = 0.5;
-
 /**
- * Compares two patterns that match the same bucket: positive when `a` is more specific, negative when `b` is, 0 when
- * they are equally specific. The first position where the segment ranks differ decides.
+ * Compares two patterns: positive when `a` is more specific, negative when `b` is, 0 when they are equally specific.
+ * The specificity tuples are compared left to right, so where a segment sits in the pattern does not matter.
  */
 export function compareSpecificity(a: AccessPattern, b: AccessPattern): number {
-  for (let i = 0; i < Math.max(a.ranks.length, b.ranks.length); i++) {
-    const ra = a.ranks[i] ?? ENDED;
-    const rb = b.ranks[i] ?? ENDED;
-    if (ra !== rb) return ra - rb;
+  for (let i = 0; i < a.specificity.length; i++) {
+    if (a.specificity[i] !== b.specificity[i]) return a.specificity[i]! - b.specificity[i]!;
   }
   return 0;
 }
