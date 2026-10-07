@@ -92,7 +92,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->)[^|])+->(?:(?!->)[^|])+$",
-        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. \"<a,b>\" matches one of the alternatives too, but the \"<...>\" groups of one name match values that differ from each other, so \"<A,B>+<A,B>\" matches \"A+B\" and \"B+A\" but not \"A+A\". \"<<a,b>>\" matches one of the alternatives, but the \"<<...>>\" groups of one name match values in strictly increasing order by character code, so \"<<A,B>>+<<A,B>>\" matches only \"A+B\". One name cannot mix \"<...>\" and \"<<...>>\" groups. Alternatives are separated by commas, never by \"|\"."
+        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\"."
       }
     },
     "layoutLines": {
@@ -101,7 +101,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->)[^|])+$",
-        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. \"<a,b>\" matches one of the alternatives too, but the \"<...>\" groups of one name match values that differ from each other, so \"<A,B>+<A,B>\" matches \"A+B\" and \"B+A\" but not \"A+A\". \"<<a,b>>\" matches one of the alternatives, but the \"<<...>>\" groups of one name match values in strictly increasing order by character code, so \"<<A,B>>+<<A,B>>\" matches only \"A+B\". One name cannot mix \"<...>\" and \"<<...>>\" groups. Alternatives are separated by commas, never by \"|\"."
+        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\"."
       }
     }
   }

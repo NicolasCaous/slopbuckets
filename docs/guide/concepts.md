@@ -181,10 +181,25 @@ Each side of a line is a pattern over bucket paths. A bucket path is the folder 
 
 - `**` as a whole segment matches zero or more bucket names. `root/teams/**` matches `root/teams` and every bucket below it, and `**` alone matches every bucket.
 - `*` matches any characters inside one name. `root/teams/*` matches each child of `root/teams` but not `root/teams` itself, and `root/team-*` matches `root/team-a`.
-- `{a,b}` matches one of the alternatives, as in `root/{api,web}`. Commas separate the alternatives, and alternatives cannot nest. A `|`, as in `{api|web}`, is [`config-invalid`](../reference/rules#config-invalid), because no folder name may contain it on Windows. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/A+A` and `root/repository/C+B`, but not `root/repository/A+D` or `root/repository/A`.
-- `<a,b>` matches one of the alternatives, like `{a,b}`, but the `<...>` groups of one name must match values that differ from each other. `root/repository/<A,B,C>+<A,B,C>+<A,B,C>` matches the six orders `A+B+C`, `A+C+B`, `B+A+C`, `B+C+A`, `C+A+B` and `C+B+A`, but not `A+A+B`. The order still matters, so `A+B` and `B+A` are different buckets that both match `<A,B,C>+<A,B,C>`. A `{a,b}` group in the same name may repeat a value. A `<...>` group lists exact values, so a `*` inside it is `config-invalid`, and so is a group inside another group.
-- `<<a,b>>` matches one of the alternatives, but the `<<...>>` groups of one name must match values in strictly increasing order, read left to right. `root/repository/<<A,B,C>>+<<A,B,C>>` matches `A+B`, `A+C` and `B+C`, but not `B+A`, `A+A` or `C+B`. The order of the values decides, not the order of the list, so `<<C,B,A>>+<<C,B,A>>` matches `A+B` too. The values compare by plain character code, as JavaScript compares strings without a locale, so uppercase letters sort before lowercase ones: `<<a,B>>+<<a,B>>` matches `B+a`, not `a+B`. One name cannot mix `<...>` and `<<...>>` groups, which is `config-invalid`, but `{...}` groups mix with either. `*` and nested groups are `config-invalid` inside `<<...>>` too.
 - Every other character is literal. `root/teams` matches only that bucket.
+
+::: v-pre
+A group of alternatives matches one of its values, as in `root/{api,web}`. Commas separate the values. One name can hold several groups, and the four kinds of group differ in how the groups of one name relate to each other:
+
+| | Repeats allowed | No repeats |
+|---|---|---|
+| Any order | `{a,b}` | `<a,b>` |
+| Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
+
+- `{a,b}`: each group matches any of its values. `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/A+A` and `root/repository/C+B`, but not `root/repository/A+D` or `root/repository/A`.
+- `{{a,b}}`: the values of the `{{...}}` groups of one name never decrease from left to right. `root/repository/{{A,B,C}}+{{A,B,C}}` matches `A+A`, `A+B`, `B+B`, `B+C` and `C+C`, but not `B+A` or `C+A`.
+- `<a,b>`: the values of the `<...>` groups of one name differ from each other. `root/repository/<A,B,C>+<A,B,C>+<A,B,C>` matches the six orders `A+B+C`, `A+C+B`, `B+A+C`, `B+C+A`, `C+A+B` and `C+B+A`, but not `A+A+B`. The order still matters, so `A+B` and `B+A` are different buckets that both match `<A,B,C>+<A,B,C>`.
+- `<<a,b>>`: the values of the `<<...>>` groups of one name increase strictly from left to right. `root/repository/<<A,B,C>>+<<A,B,C>>` matches `A+B`, `A+C` and `B+C`, but not `B+A`, `A+A` or `C+B`. The order of the values decides, not the order of the list, so `<<C,B,A>>+<<C,B,A>>` matches `A+B` too.
+
+The sorted kinds compare values by plain character code, as JavaScript compares strings without a locale, so uppercase letters sort before lowercase ones: `<<a,B>>+<<a,B>>` matches `B+a`, not `a+B`. A name with a single group of any kind matches as if the group were `{a,b}`. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and mixing two of them is [`config-invalid`](../reference/rules#config-invalid). `{...}` mixes with any of them: `root/r/<<A,B>>-{x,y}-<<A,B>>` matches `root/r/A-x-B` but not `root/r/B-x-A`.
+
+`{{...}}`, `<...>` and `<<...>>` list exact values, so a `*` inside them is `config-invalid`. A value of `{a,b}` may hold a `*`, as in `{api,web-*}`. Groups cannot nest. A `|`, as in `{api|web}`, is `config-invalid` too, because no folder name may contain it on Windows. Separate the values with commas.
+:::
 
 Each side starts with the root path or with `**`. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
 
@@ -245,12 +260,14 @@ Several lines can match one edge. The most specific one decides.
 
 The check counts the segments of each pattern by kind:
 
+::: v-pre
 | Count | Segment | Example |
 |---|---|---|
 | 1st | a literal name | `teams` |
-| 2nd | a name with `*` or a group mixed in | `team-*`, `{api,web}`, `<a,b>`, `<<a,b>>` |
+| 2nd | a name with `*` or a group mixed in | `team-*`, `{api,web}`, `{{a,b}}`, `<a,b>`, `<<a,b>>` |
 | 3rd | exactly `*` | `*` |
 | 4th | `**`, counted as minus one each | `**` |
+:::
 
 To compare two patterns, the check compares the first counts. The pattern with more literal names is more specific. When they have the same number, the second counts decide, then the third, then the fourth, where fewer `**` is more specific. Patterns with the same four counts are equally specific.
 

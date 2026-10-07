@@ -944,7 +944,7 @@ Every difference between this file and the project is listed in [Lock difference
     const sample = v.examples?.[0];
     // A <p> keeps Markdown from reading the `**` of a pattern as bold.
     const itemsText = lists.length
-      ? `<p>Each item of ${lists.map(([name]) => `<code>${esc(`${k}.${name}`)}</code>`).join(' and ')} is one line. ${uniq(lists.map(([, f]) => inline(resolved(f).items.description))).join(' ')}</p>`
+      ? `<p v-pre>Each item of ${lists.map(([name]) => `<code>${esc(`${k}.${name}`)}</code>`).join(' and ')} is one line. ${uniq(lists.map(([, f]) => inline(resolved(f).items.description))).join(' ')}</p>`
       : '';
     return `
 ## ${k}
@@ -967,6 +967,7 @@ A malformed line, a line listed twice in one list, the same line in both lists a
     ['<code>**</code>', 'zero or more bucket names, as a whole segment', '<code>root/teams/**</code> matches <code>root/teams</code> and every bucket below it'],
     ['<code>*</code>', 'any characters inside one name', '<code>root/team-*</code> matches <code>root/team-a</code>'],
     ['<code>{a,b}</code>', 'one of the alternatives, separated by commas', '<code>root/{api,web}</code> matches <code>root/api</code> and <code>root/web</code>'],
+    ['<code>{{a,b}}</code>', 'one of the alternatives, and the <code>{{...}}</code> groups of one name match values that never decrease, by character code', '<code>root/{{A,B,C}}+{{A,B,C}}</code> matches <code>root/A+A</code> and <code>root/A+B</code>, not <code>root/B+A</code>'],
     ['<code>&lt;a,b&gt;</code>', 'one of the alternatives, and the <code>&lt;...&gt;</code> groups of one name match values that differ from each other', '<code>root/&lt;A,B,C&gt;+&lt;A,B,C&gt;</code> matches <code>root/A+B</code> and <code>root/B+A</code>, not <code>root/A+A</code>'],
     ['<code>&lt;&lt;a,b&gt;&gt;</code>', 'one of the alternatives, and the <code>&lt;&lt;...&gt;&gt;</code> groups of one name match values in strictly increasing order, by character code, so uppercase sorts before lowercase', '<code>root/&lt;&lt;A,B,C&gt;&gt;+&lt;&lt;A,B,C&gt;&gt;</code> matches <code>root/A+B</code>, <code>root/A+C</code> and <code>root/B+C</code>, not <code>root/B+A</code>'],
   ];
@@ -995,6 +996,10 @@ A nested project has its own <code>buckets.config.json</code> in a subfolder of 
 Each side of an <code>access</code> line and each <code>layout</code> line is a pattern over bucket paths, such as <code>root/billing</code>. A pattern starts with the root path or with <code>**</code>. See [Patterns](../guide/concepts#patterns).
 
 ${table(['Pattern', 'Matches', 'Example'], PATTERN_ROWS)}
+
+<p v-pre>The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right. One name may use only one of <code>{{...}}</code>, <code>&lt;...&gt;</code> and <code>&lt;&lt;...&gt;&gt;</code>, and <code>{...}</code> mixes with any of them. Those three list exact values, without <code>*</code>. Groups never nest, and a <code>|</code> is <a href="./rules#config-invalid"><code>config-invalid</code></a>: separate the values with commas.</p>
+
+${table(['', 'Repeats allowed', 'No repeats'], [['Any order', '<code>{a,b}</code>', '<code>&lt;a,b&gt;</code>'], ['Sorted, left to right', '<code>{{a,b}}</code>', '<code>&lt;&lt;a,b&gt;&gt;</code>']])}
 ${nested}`;
 }
 

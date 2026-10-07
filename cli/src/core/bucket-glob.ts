@@ -35,21 +35,22 @@ export interface GlobLine {
 }
 
 /**
- * The kinds of groups of alternatives. Each `{a,b}` matches any of its values. The `<a,b>` groups of one segment match
- * values that differ from each other. The `<<a,b>>` groups of one segment match values in strictly increasing order,
- * compared by plain JavaScript string order, without a locale.
+ * The kinds of groups of alternatives. Each `{a,b}` matches any of its values. Within one segment, the `{{a,b}}` groups
+ * match values in non-decreasing order, the `<a,b>` groups match values that differ from each other, and the `<<a,b>>`
+ * groups match values in strictly increasing order. Order is plain JavaScript string order, without a locale.
  */
-type GroupKind = 'any' | 'distinct' | 'increasing';
+type GroupKind = 'any' | 'sorted' | 'distinct' | 'increasing';
 
 /** The opener and closer of each kind of group, longest opener first. */
 const GROUPS: Array<{ kind: GroupKind; open: string; close: string }> = [
+  { kind: 'sorted', open: '{{', close: '}}' },
   { kind: 'increasing', open: '<<', close: '>>' },
   { kind: 'any', open: '{', close: '}' },
   { kind: 'distinct', open: '<', close: '>' },
 ];
 
 /** The kinds whose groups constrain each other within a segment. A segment may hold only one of them. */
-const CONSTRAINED: ReadonlySet<GroupKind> = new Set(['distinct', 'increasing']);
+const CONSTRAINED: ReadonlySet<GroupKind> = new Set(['sorted', 'distinct', 'increasing']);
 
 /** One piece of a segment: literal text, `*`, or a group of alternatives. */
 type Token = { kind: 'text'; text: string } | { kind: 'star' } | { kind: GroupKind; values: string[] };
@@ -181,6 +182,7 @@ function tokenSource(token: Token): string {
 function fits(kind: GroupKind, value: string, used: string[]): boolean {
   if (kind === 'distinct') return !used.includes(value);
   if (kind === 'increasing') return used.length === 0 || used[used.length - 1]! < value;
+  if (kind === 'sorted') return used.length === 0 || used[used.length - 1]! <= value;
   return true;
 }
 

@@ -196,6 +196,48 @@ describe('<<...>> groups', () => {
   });
 });
 
+describe('{{...}} groups', () => {
+  const all = (glob: string, names: string[]): boolean[] => names.map((name) => matches(glob, name));
+  const under = (dir: string, names: string[]): string[] => names.map((n) => `${dir}/${n}`);
+
+  it('matches values in non-decreasing order across the {{...}} groups of a segment', () => {
+    const two = 'root/repository/{{A,B,C}}+{{A,B,C}}';
+    expect(all(two, under('root/repository', ['A+A', 'A+B', 'B+B', 'B+C', 'C+C']))).toEqual([true, true, true, true, true]);
+    expect(all(two, under('root/repository', ['B+A', 'C+A']))).toEqual([false, false]);
+    const three = 'root/repository/{{A,B,C}}+{{A,B,C}}+{{A,B,C}}';
+    expect(all(three, under('root/repository', ['A+A+B', 'A+B+B', 'C+C+C', 'A+B+A', 'B+A+A']))).toEqual([true, true, true, false, false]);
+  });
+
+  it('compares whole values, not prefixes', () => {
+    expect(all('root/{{A,AB}}{{A,AB}}', ['root/AAB', 'root/ABA'])).toEqual([true, false]);
+  });
+
+  it('matches like {...} when the segment has a single {{...}} group, and mixes with {...}', () => {
+    const names = ['root/a', 'root/b', 'root/c'];
+    expect(all('root/{{b,a}}', names)).toEqual(all('root/{b,a}', names));
+    expect(all('root/{{A,B}}-{x,y}-{{A,B}}', ['root/A-x-A', 'root/A-y-B', 'root/B-x-A'])).toEqual([true, true, false]);
+  });
+
+  it('counts as a partial wildcard and is not literal', () => {
+    expect(pattern('root/{{a,b}}').literal).toBe(false);
+    expect(pattern('root/{{a,b}}').specificity).toEqual([1, 1, 0, 0]);
+  });
+
+  it.each([
+    ['root/{{A,B}}+<A,B>', 'mixes "{{...}}" and "<...>" groups in "{{A,B}}+<A,B>". Pick one of them for this segment. "{...}" groups mix with any kind.'],
+    ['root/<<A,B>>+{{A,B}}', 'mixes "<<...>>" and "{{...}}" groups in "<<A,B>>+{{A,B}}". Pick one of them for this segment. "{...}" groups mix with any kind.'],
+    ['root/{{A,*}}', 'has a "*" inside "{{...}}" in "{{A,*}}". This group must list exact values, so write each value instead of "*".'],
+    ['root/{{A,<B>}}', 'nests "<" inside "{{" in "{{A,<B>}}". A group of alternatives cannot contain another group.'],
+    ['root/{{A|B}}', 'has a "|" in "{{A|B}}". Separate alternatives with a comma, as in "{A,B,C}".'],
+    ['root/{{A,B', 'has a "{{" without a "}}" in "{{A,B".'],
+    ['root/{{a}', 'closes "{{" with "}" in "{{a}". Close it with "}}".'],
+    ['root/{a}}', 'closes "{" with "}}" in "{a}}". Close it with "}".'],
+    ['root/A}}', 'has a "}}" without a "{{" in "A}}".'],
+  ])('rejects %j', (text, error) => {
+    expect(parsePattern(text)).toEqual({ error });
+  });
+});
+
 describe('parseAccessLine', () => {
   it('puts the line in canonical form', () => {
     const result = parseAccessLine('  root/api/**->root/log ');
