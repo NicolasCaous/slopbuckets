@@ -246,7 +246,29 @@ describe('parseAccessLine', () => {
     expect('line' in spaced && spaced.line.text).toBe('root/api/** -> root/log');
   });
 
-  it.each(['root/a', 'root/a -> root/b -> root/c', ' -> root/b', 'root/a -> ', 'root//a -> root/b'])('rejects %j', (text) => {
+  it('splits at the arrow outside every group, so a group value may end in "-"', () => {
+    const cases: Array<[string, string, string]> = [
+      ['root/<a,b-> -> root/x', 'root/<a,b->', 'root/x'],
+      ['root/{{a,b-}} -> root/x', 'root/{{a,b-}}', 'root/x'],
+      ['root/x->root/<<a-,b->>', 'root/x', 'root/<<a-,b->>'],
+      ['root/{a-}->root/{b-}', 'root/{a-}', 'root/{b-}'],
+    ];
+    for (const [text, from, to] of cases) {
+      const result = parseAccessLine(text);
+      if ('error' in result) throw new Error(result.error);
+      expect([result.line.from.text, result.line.to.text]).toEqual([from, to]);
+    }
+    const line = parseAccessLine('root/<a,b-> -> root/x');
+    if ('error' in line) throw new Error(line.error);
+    expect(matchesBucket(line.line.from, 'root/b-')).toBe(true);
+    expect(matchesBucket(line.line.from, 'root/b')).toBe(false);
+  });
+
+  it('names the unclosed group when it hides the arrow', () => {
+    expect(parseAccessLine('root/<a -> root/b')).toEqual({ error: 'The left side of "root/<a -> root/b" has a "<" without a ">" in "<a".' });
+  });
+
+  it.each(['root/a', 'root/a -> root/b -> root/c', ' -> root/b', 'root/a -> ', 'root//a -> root/b', 'root/<a,b-> root/x'])('rejects %j', (text) => {
     expect('error' in parseAccessLine(text)).toBe(true);
   });
 });

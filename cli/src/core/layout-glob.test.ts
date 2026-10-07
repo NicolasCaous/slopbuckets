@@ -38,7 +38,14 @@ describe('parseLayoutLine', () => {
     expect('line' in result && result.line.text).toBe('root/repository/<A,B>+{A,B}');
   });
 
-  it.each(['', 'root//a', 'root/{a', 'root/a -> root/b', 'root/{a|b}'])('rejects %j', (text) => {
+  it('keeps a group value that ends in "-", which is not an arrow', () => {
+    for (const text of ['root/<a,b->', 'root/{{a,b-}}']) {
+      const result = parseLayoutLine(text);
+      expect('line' in result && result.line.text).toBe(text);
+    }
+  });
+
+  it.each(['', 'root//a', 'root/{a', 'root/a -> root/b', 'root/<a,b-> -> root/x', 'root/{a|b}'])('rejects %j', (text) => {
     expect('error' in parseLayoutLine(text)).toBe(true);
   });
 });

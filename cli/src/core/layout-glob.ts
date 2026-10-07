@@ -1,6 +1,6 @@
 // Layout lines of buckets.config.json: globs over bucket paths that say which bucket folders may exist. The lines
 // follow the same rules as access lines (bucket-glob.ts), with one pattern each instead of two.
-import { compiler, decide, matchesBelow, matchesBucket, parsePattern, type Decision, type GlobLine, type LineLists } from './bucket-glob.js';
+import { compiler, decide, matchesBelow, matchesBucket, parsePattern, splitAtArrows, type Decision, type GlobLine, type LineLists } from './bucket-glob.js';
 
 /** The `layout` key of the resolved config. Lines are in canonical form, without the spaces around them. */
 export type LayoutConfig = LineLists;
@@ -8,7 +8,7 @@ export type LayoutConfig = LineLists;
 /** Parses one layout line, such as `root/gpu/*`. Returns the reason when the line is malformed. */
 export function parseLayoutLine(text: string): { line: GlobLine } | { error: string } {
   const trimmed = text.trim();
-  if (trimmed.includes('->')) {
+  if (splitAtArrows(trimmed).length > 1) {
     return { error: `"${text}" contains "->". A layout line is one bucket path glob, such as "root/*/*". Lines with "->" belong in "access".` };
   }
   const parsed = parsePattern(trimmed);

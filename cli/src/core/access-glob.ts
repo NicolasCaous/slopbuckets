@@ -1,5 +1,5 @@
 // Access lines of buckets.config.json ("A -> B"). Each side is a glob over bucket paths (bucket-glob.ts).
-import { compiler, decide, matchesBucket, parsePattern, type BucketPattern, type Decision, type GlobLine, type LineLists } from './bucket-glob.js';
+import { compiler, decide, matchesBucket, parsePattern, splitAtArrows, type BucketPattern, type Decision, type GlobLine, type LineLists } from './bucket-glob.js';
 
 /** The `access` key of the resolved config. Lines are in canonical form, `A -> B`. */
 export type AccessConfig = LineLists;
@@ -14,7 +14,9 @@ export interface AccessLine extends GlobLine {
 
 /** Parses `A -> B`. Returns the reason when the line is malformed. */
 export function parseAccessLine(text: string): { line: AccessLine } | { error: string } {
-  const sides = text.split('->');
+  let sides = splitAtArrows(text);
+  // A group without its closer hides the arrow. A plain split then lets the pattern parser name the unclosed group.
+  if (sides.length !== 2 && text.split('->').length === 2) sides = text.split('->');
   if (sides.length !== 2) {
     return { error: `"${text}" must contain exactly one "->", as in "root/api/** -> root/log".` };
   }

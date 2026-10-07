@@ -84,6 +84,33 @@ export function parsePattern(text: string): { pattern: BucketPattern } | { error
   return { pattern: { text, literal, segments, specificity } };
 }
 
+/**
+ * Splits `text` at each `->` outside every group, so a group value that ends in `-`, as in `<a,b->`, stays whole. A
+ * group runs from its opener to its closer, or to the end of the text when it has none.
+ */
+export function splitAtArrows(text: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text.startsWith('->', i)) {
+      parts.push(text.slice(start, i));
+      i += 2;
+      start = i;
+      continue;
+    }
+    const group = groupAt(text, i);
+    if (group === undefined) {
+      i++;
+      continue;
+    }
+    const end = text.indexOf(group.close, i + group.open.length);
+    i = end === -1 ? text.length : end + group.close.length;
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
 /** Users write {a|b} for alternatives, and Windows forbids | in a folder name, so it is never a literal. */
 function barError(segment: string): { error: string } {
   return { error: `has a "|" in "${segment}". Separate alternatives with a comma, as in "{A,B,C}".` };
