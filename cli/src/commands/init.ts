@@ -49,7 +49,7 @@ export function generateAlias(root: string, taken: string[] = [], random: (max: 
 }
 
 async function askConfig(io: Io, style: Style, defaultAlias: (root: string) => string): Promise<unknown> {
-  io.stdout('Three questions. Press Enter to keep the default in brackets.\n\n');
+  io.stdout('Two questions. Press Enter to keep the default in brackets.\n\n');
   const prompt = io.openPrompt();
   try {
     const ask = async (question: string, fallback: string): Promise<string> => {
@@ -58,8 +58,7 @@ async function askConfig(io: Io, style: Style, defaultAlias: (root: string) => s
     };
     const root = await ask('Root bucket folder', DEFAULT_CONFIG.root);
     const alias = await ask('Import alias for internal imports (unique, so other projects can link this one)', defaultAlias(root));
-    const depth = await ask('Maximum bucket depth (the root bucket is depth 0)', String(DEFAULT_CONFIG.maxDepth));
-    return { root, alias, maxDepth: /^\d+$/.test(depth) ? Number(depth) : depth };
+    return { root, alias };
   } finally {
     prompt.close();
     io.stdout('\n');
@@ -198,15 +197,17 @@ export async function initCommand(ctx: Context, io: Io, args: string[], options:
       );
       return 1;
     }
-    config = validated.config;
+    // A new project allows buckets down to two levels below the root, and the file shows that limit.
+    const layoutLine = `${validated.config.root}/*/*`;
+    config = { ...validated.config, layout: { default: 'deny', allow: [layoutLine], deny: [] } };
     writeJson(path.join(projectDir, CONFIG_FILE), {
       $schema: SCHEMA_URL,
       adapter: config.adapter,
       root: config.root,
       alias: config.alias,
-      maxDepth: config.maxDepth,
+      layout: { default: 'deny', allow: [layoutLine] },
     });
-    say.done(`Created ${CONFIG_FILE} ${out.dim(`(root "${config.root}", alias "${config.alias}", maxDepth ${config.maxDepth})`)}`);
+    say.done(`Created ${CONFIG_FILE} ${out.dim(`(root "${config.root}", alias "${config.alias}", layout allows "${layoutLine}")`)}`);
   }
 
   const codeDir = path.join(projectDir, config.root, '_');

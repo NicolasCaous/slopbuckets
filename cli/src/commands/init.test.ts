@@ -70,10 +70,11 @@ describe('buckets init', () => {
       adapter: 'ts',
       root: 'root',
       alias: '@root-aaaaaaaa',
-      maxDepth: 2,
+      layout: { default: 'deny', allow: ['root/*/*'] },
     });
+    expect(io.out).toContain('layout allows "root/*/*"');
     expect(fileExists(dir, 'root/_')).toBe(true);
-    expect(ctx.adapter.initCalls).toEqual([{ abi: 1, config: { root: 'root', alias: '@root-aaaaaaaa', maxDepth: 2 } }]);
+    expect(ctx.adapter.initCalls).toEqual([{ abi: 1, config: { root: 'root', alias: '@root-aaaaaaaa' } }]);
     expect(io.out).toContain('Updated tsconfig.json');
     const settings = JSON.parse(readFile(dir, '.claude/settings.json')) as { hooks: Record<string, unknown[]> };
     expect(Object.keys(settings.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse', 'Stop', 'SubagentStop']);
@@ -135,11 +136,11 @@ describe('buckets init', () => {
 
   it('asks the questions in an interactive terminal', async () => {
     const { dir, skill } = setup();
-    const io = fakeIo({ cwd: dir, interactive: true, answers: ['src/buckets', '', '3'] });
+    const io = fakeIo({ cwd: dir, interactive: true, answers: ['src/buckets', ''] });
     expect(await initCommand(testContext(), io, [], { skillSource: skill, random: () => 1 })).toBe(0);
-    expect(io.questions).toHaveLength(3);
+    expect(io.questions).toHaveLength(2);
     expect(io.questions[1]).toContain('[@buckets-bbbbbbbb]');
-    expect(JSON.parse(readFile(dir, 'buckets.config.json'))).toMatchObject({ root: 'src/buckets', alias: '@buckets-bbbbbbbb', maxDepth: 3 });
+    expect(JSON.parse(readFile(dir, 'buckets.config.json'))).toMatchObject({ root: 'src/buckets', alias: '@buckets-bbbbbbbb', layout: { default: 'deny', allow: ['src/buckets/*/*'] } });
     expect(fileExists(dir, 'src/buckets/_')).toBe(true);
   });
 
