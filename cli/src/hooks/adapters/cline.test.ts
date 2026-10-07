@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'no
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { feedbackFor, line, LOCK_DENY_REASON, lockNames, patch, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { feedbackFor, line, LOCK_DENY_REASON, guardedNames, patch, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
 import { cancelMessage, clineAdapter, clineCommands, clineParameters, powershellScript, unixScript } from './cline.js';
 
 afterEach(cleanupProjects);
@@ -51,10 +51,10 @@ describe('cline pre-tool-use', () => {
 
   it('cancels the task, saying why, for an editor or apply_patch write to the lock', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: name, new_text: '{}' }), dir)).toEqual({ code: 0, out: deny('editor'), err: '' });
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: name, new_text: '{}' }), dir)).toEqual(as({ code: 0, out: deny('editor'), err: '' }));
       const input = patch([`*** Update File: ${name}`, '@@', '-a', '+b']);
-      expect((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'apply_patch', { input }), dir)).out).toBe(deny('apply_patch'));
+      expect((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'apply_patch', { input }), dir)).out).toBe(as(deny('apply_patch')));
     }
     const out = JSON.parse((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: 'buckets.lock.json', new_text: '' }), dir)).out) as { errorMessage: string };
     expect(out.errorMessage).toContain('ends the whole task');

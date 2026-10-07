@@ -37,7 +37,7 @@ const TOOLS: Record<string, ToolKind> = {
   LS: 'other',
 };
 
-const USER_MESSAGE = 'slopbuckets blocked this call: only a human may change buckets.lock.json or run `buckets refresh`.';
+const USER_MESSAGE = 'slopbuckets blocked this call: only a human may change buckets.lock.json or buckets.config.json, or run `buckets refresh`.';
 
 export const cursorRun: RunConfig = {
   agent: AGENT,

@@ -109,7 +109,7 @@ ul.diff ul.symbols li code { grid-column: auto; }
 
 @media (max-width: 640px) {
   ul.diff li { grid-template-columns: 2ch minmax(0, 1fr); }
-  ul.diff li code { grid-column: 2; }
+  ul.diff li code, ul.diff li .item { grid-column: 2; }
   ul.symbols li { grid-template-columns: 2ch minmax(0, 1fr); }
   ul.symbols .note { grid-column: 2; }
   .decide { padding-top: 10px; gap: 10px; }

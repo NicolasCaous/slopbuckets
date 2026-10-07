@@ -8,7 +8,7 @@
 import type { HookAdapter } from '../adapter.js';
 import { patchEditedPaths, patchPaths, str } from '../input.js';
 import { installPluginFile, uninstallPluginFile, type PluginFileSpec } from '../plugin-file.js';
-import { LOWERCASE_READ_DENY_REASON, NO_TOOL_CALL, PLUGIN_EVENTS, pathArg, runPluginHook, type PluginInput, type PluginToolCall } from '../plugin-protocol.js';
+import { lowercaseReadTool, NO_TOOL_CALL, PLUGIN_EVENTS, pathArg, runPluginHook, type PluginInput, type PluginToolCall } from '../plugin-protocol.js';
 import { OPENCODE_PLUGIN } from '../plugins/opencode.js';
 
 interface ToolTable {
@@ -56,7 +56,7 @@ export const opencodeAdapter: HookAdapter = {
   title: 'OpenCode',
   markers: ['.opencode', 'opencode.json', 'opencode.jsonc'],
   events: PLUGIN_EVENTS,
-  run: (ctx, io, event) => runPluginHook(ctx, io, event, opencodeToolCall, { denyReason: LOWERCASE_READ_DENY_REASON }),
+  run: (ctx, io, event) => runPluginHook(ctx, io, event, opencodeToolCall, { denyReason: lowercaseReadTool }),
   install: (projectDir) => [installPluginFile(projectDir, OPENCODE_PLUGIN_FILE)],
   uninstall: (projectDir) => uninstallPluginFile(projectDir, OPENCODE_PLUGIN_FILE),
 };

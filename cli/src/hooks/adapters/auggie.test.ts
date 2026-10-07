@@ -9,7 +9,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   REFRESH_ALLOWED,
   REFRESH_DENIED,
@@ -44,11 +44,11 @@ describe('auggie pre-tool-use', () => {
 
   it('denies save-file, str-replace-editor and remove-files on the lock under any name', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'save-file', { path: name, file_content: '{}' }), dir)).toEqual(DENIED);
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'save-file', { path: name, file_content: '{}' }), dir)).toEqual(as(DENIED));
       const edit = tool(dir, 'PreToolUse', 'str-replace-editor', { command: 'str_replace', path: name, old_str_1: 'a', new_str_1: 'b', old_str_start_line_number_1: 1, old_str_end_line_number_1: 1 });
-      expect(await runAdapter(auggieAdapter, 'pre-tool-use', edit, dir)).toEqual(DENIED);
-      expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'remove-files', { file_paths: ['notes.md', name] }), dir)).toEqual(DENIED);
+      expect(await runAdapter(auggieAdapter, 'pre-tool-use', edit, dir)).toEqual(as(DENIED));
+      expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'remove-files', { file_paths: ['notes.md', name] }), dir)).toEqual(as(DENIED));
     }
   });
 

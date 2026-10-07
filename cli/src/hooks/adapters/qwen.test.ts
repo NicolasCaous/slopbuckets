@@ -9,7 +9,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   REFRESH_ALLOWED,
   REFRESH_DENIED,
@@ -43,9 +43,9 @@ describe('qwen pre-tool-use', () => {
 
   it('denies write_file, edit and the Write alias on the lock under any name', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
+    for (const [name, as] of guardedNames(dir)) {
       for (const tool_name of ['write_file', 'edit', 'Write']) {
-        expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', tool_name, { file_path: name, content: '{}', old_string: 'a', new_string: 'b' }), dir)).toEqual(DENIED);
+        expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', tool_name, { file_path: name, content: '{}', old_string: 'a', new_string: 'b' }), dir)).toEqual(as(DENIED));
       }
     }
   });

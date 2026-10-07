@@ -30,7 +30,11 @@ describe('touchesLock', () => {
     [{ tool_name: 'Bash', tool_input: { command: 'buckets  refresh' } }, true],
     [{ tool_name: 'PowerShell', tool_input: { command: 'Get-Content buckets.lock.json' } }, true],
     [{ tool_name: 'PowerShell', tool_input: { command: 'npx slopbuckets refresh' } }, true],
-    [{ tool_name: 'Edit', tool_input: { file_path: '/p/buckets.config.json' } }, false],
+    [{ tool_name: 'Edit', tool_input: { file_path: '/p/buckets.config.json' } }, true],
+    [{ tool_name: 'Write', tool_input: { file_path: '/p/root/api/_/engine/buckets.config.json' } }, true],
+    [{ tool_name: 'Bash', tool_input: { command: 'cat buckets.config.json' } }, true],
+    [{ tool_name: 'PowerShell', tool_input: { command: 'Set-Content buckets.config.json x' } }, true],
+    [{ tool_name: 'Read', tool_input: { file_path: '/p/buckets.config.json' } }, false],
     [{ tool_name: 'Read', tool_input: { file_path: '/p/buckets.lock.json' } }, false],
     [{ tool_name: 'Bash', tool_input: { command: 'buckets check' } }, false],
   ])('%j -> %s', (input, expected) => {

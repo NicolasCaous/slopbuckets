@@ -66,12 +66,17 @@ export function parsePluginInput(text: string): { input: PluginInput; raw: JsonR
 }
 
 export interface PluginRunOptions {
-  /** The deny reason for this harness. Defaults to the core's reason. */
-  denyReason?: string;
+  /** Rewrites the core's deny reason (of the lock or of the config) for this harness. Defaults to no change. */
+  denyReason?: (reason: string) => string;
 }
 
-/** The deny reason with the name of the read tool of a harness whose tools have lowercase names. */
-export const LOWERCASE_READ_DENY_REASON = LOCK_DENY_REASON.replace('use the Read tool', 'use the read tool');
+/** A deny reason with the name of the read tool of a harness whose tools have lowercase names. */
+export function lowercaseReadTool(reason: string): string {
+  return reason.replace('use the Read tool', 'use the read tool');
+}
+
+/** The lock deny reason for a harness whose tools have lowercase names. */
+export const LOWERCASE_READ_DENY_REASON = lowercaseReadTool(LOCK_DENY_REASON);
 
 /**
  * Runs one plugin hook call. It always writes one JSON line and returns 0, so the plugin can tell a real answer from a
@@ -95,7 +100,7 @@ export async function runPluginHook(ctx: Context, io: Io, event: string, mapper:
     switch (event as PluginEvent) {
       case 'pre-tool-use': {
         const result = preTool({ ...scope, action: mapper(input).action });
-        if (result.decision === 'deny') return answer({ decision: 'deny', reason: options.denyReason ?? result.reason });
+        if (result.decision === 'deny') return answer({ decision: 'deny', reason: options.denyReason ? options.denyReason(result.reason) : result.reason });
         if (result.error !== undefined) fail(result.error);
         return answer({ decision: 'allow' });
       }

@@ -4,6 +4,7 @@
 // type the code from the page, and recomputes once more before it writes the lock: the typed code must be the code
 // of the state at that moment. GET requests only read; every decision comes from a token-authenticated POST.
 import { LockWriteError, writeLockFile } from '../core/lock.js';
+import { configChangeDetail, configChangeLabel, configChangeSign, configRows } from '../core/lock-config.js';
 import { LOCK_FILE } from '../core/paths.js';
 import type { Context } from '../core/types.js';
 import { plural } from '../output/text.js';
@@ -69,7 +70,15 @@ export function dialogItems(review: LockReview): string[] {
   const name = (text: string): string => sanitizeDialogText(text, 80);
   const lines: string[] = [];
   for (const v of review.versions) lines.push(`~ ${v.label}: ${name(v.before)} to ${name(v.after)}`);
-  if (review.config.changed) lines.push('~ buckets.config.json changed');
+  if (review.config.changed) {
+    if (review.config.recorded) {
+      lines.push('~ buckets.config.json changed');
+      for (const change of review.config.changes) lines.push(`${configChangeSign(change)} config ${configChangeLabel(change)}: ${name(configChangeDetail(change))}`);
+    } else {
+      lines.push('~ buckets.config.json changed, its old values were not recorded. Approving records:');
+      for (const row of configRows(review.config.current)) lines.push(`config ${row.label}: ${name(row.value)}`);
+    }
+  }
   for (const b of review.buckets.added) lines.push(`+ bucket ${name(b)}`);
   for (const b of review.buckets.removed) lines.push(`- bucket ${name(b)}`);
   for (const row of review.projects) lines.push(`${row.sign} ${row.label} ${name(row.path)}`);

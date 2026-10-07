@@ -9,7 +9,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   patch,
   REFRESH_ALLOWED,
@@ -40,11 +40,11 @@ describe('copilot pre-tool-use', () => {
 
   it('denies create, edit and str_replace_editor on the lock under any name, with toolArgs as a string or an object', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'create', { path: name, file_text: '{}' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      expect((await runAdapter(copilotAdapter, 'pre-tool-use', payload(dir, { toolName: 'edit', toolArgs: { file_path: name } }), dir)).out).toBe(DENY);
-      expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'str_replace_editor', { command: 'create', path: name, file_text: '{}' }), dir)).out).toBe(DENY);
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'create', { path: name, file_text: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
+      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
+      expect((await runAdapter(copilotAdapter, 'pre-tool-use', payload(dir, { toolName: 'edit', toolArgs: { file_path: name } }), dir)).out).toBe(as(DENY));
+      expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'str_replace_editor', { command: 'create', path: name, file_text: '{}' }), dir)).out).toBe(as(DENY));
     }
   });
 

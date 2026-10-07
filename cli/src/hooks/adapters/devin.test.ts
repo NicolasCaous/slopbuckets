@@ -8,7 +8,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   REFRESH_ALLOWED,
   REFRESH_DENIED,
@@ -42,11 +42,11 @@ describe('devin pre-tool-use', () => {
 
   it('denies write, edit, delete and move of the lock under any name and argument spelling', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'write', { file_path: name, content: '{}' }), dir)).toEqual(DENIED);
-      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'edit', { path: name, old_string: 'a', new_string: 'b' }), dir)).toEqual(DENIED);
-      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'delete', { target_file: name }), dir)).toEqual(DENIED);
-      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'move', { old_path: name, new_path: 'old.json' }), dir)).toEqual(DENIED);
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'write', { file_path: name, content: '{}' }), dir)).toEqual(as(DENIED));
+      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'edit', { path: name, old_string: 'a', new_string: 'b' }), dir)).toEqual(as(DENIED));
+      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'delete', { target_file: name }), dir)).toEqual(as(DENIED));
+      expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'move', { old_path: name, new_path: 'old.json' }), dir)).toEqual(as(DENIED));
     }
   });
 

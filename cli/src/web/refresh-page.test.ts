@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, LOGGER_PROJECT, makeProject, removeFile, writeFile } from '../testing/fixture.js';
 import { approve, testContext } from '../testing/harness.js';
+import { serializeLock } from '../core/lock.js';
+import { lockConfigHash } from '../core/lock-config.js';
 import { escapeHtml, html, raw } from './html.js';
 import { CODE_ALPHABET, CODE_LENGTH, confirmationCode, evaluateLockState, normalizeTypedCode, type LockReview } from './lock-review.js';
 import { describeDmzPath, renderBlockedPage, renderClosedPage, renderCurrentPage, renderReviewPage } from './refresh-page.js';
@@ -22,6 +24,8 @@ function textOf(page: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/&#39;/g, "'")
     .replace(/&#34;/g, '"')
+    .replace(/&#62;/g, '>')
+    .replace(/&#60;/g, '<')
     .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ');
 }
@@ -67,7 +71,7 @@ describe('renderReviewPage', () => {
     expect(text).toMatch(/Toolchain typescript@5\.8\.0 typescript@5\.9\.3/);
     expect(text).toContain('+ bucket created root/mail');
     expect(text).toContain('- bucket removed root/billing/payments');
-    expect(text).toContain('maxDepth 3');
+    expect(text).toContain('~ maxDepth 2 to 3');
     expect(text).toContain('+ root/dmz/log/mail.ts new file');
     expect(text).toContain('root/mail uses these symbols from root/log.');
     expect(text).toContain('+ level exported');
@@ -82,6 +86,31 @@ describe('renderReviewPage', () => {
     // No inline script: the CSP allows only scripts from the server.
     expect(page).not.toMatch(/<script>(?!<\/script>)/);
     expect([...page.matchAll(/<script([^>]*)>/g)].every((m) => /src="\/assets\//.test(m[1]!))).toBe(true);
+  });
+
+  it('lists each access line and value that changed in buckets.config.json', async () => {
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', access: { default: 'allow', deny: ['root/billing/** -> root/zz*'] } }) });
+    await approve(dir);
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: { default: 'allow', deny: ['root/log/** -> root/zz*'] } }));
+    const r = await review(dir);
+    expect(r.config).toMatchObject({ changed: true, recorded: true });
+    const page = renderReviewPage(CTX, r);
+    const text = textOf(page);
+    expect(text).toContain('buckets.config.json 3 changes Config');
+    expect(text).toContain('- deny line removed root/billing/** -> root/zz*');
+    expect(text).toContain('+ deny line added root/log/** -> root/zz*');
+    expect(text).toContain('~ maxDepth 2 to 3');
+    expect(page).toContain('<ul class="diff" aria-label="Config changes">');
+  });
+
+  it('shows the config being approved when the approved lock kept only its hash', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    const lock = await approve(dir);
+    writeFile(dir, 'buckets.lock.json', serializeLock({ ...lock, lockVersion: 3, config: lockConfigHash(lock.config) }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3 }));
+    const text = textOf(renderReviewPage(CTX, await review(dir)));
+    expect(text).toContain('so the old values were not recorded. These are the values approving records:');
+    expect(text).toContain('maxDepth 3');
   });
 
   it('lists the whole state for a first lock', async () => {

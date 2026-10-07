@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { parseJson } from '../../core/json.js';
-import { installSuite, line, LOCK_DENY_REASON, lockNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { installSuite, line, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
 import { CRUSH_MATCHER, crushAdapter, crushTarget } from './crush.js';
 
 afterEach(cleanupProjects);
@@ -26,8 +26,8 @@ describe('crush pre-tool-use', () => {
 
   it('denies a write to the lock under any name, from every file tool', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      for (const tool of ['edit', 'multiedit', 'write']) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, tool, { file_path: name, content: '{}' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
+    for (const [name, as] of guardedNames(dir)) {
+      for (const tool of ['edit', 'multiedit', 'write']) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, tool, { file_path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
     }
     expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'download', { url: 'https://example.com/x', file_path: 'buckets.lock.json' }), dir)).out).toBe(DENY);
   });

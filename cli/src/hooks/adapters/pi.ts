@@ -3,7 +3,7 @@
 // powershell run `command`; edit and write change `path`. Pi has no patch tool and no subagents.
 import type { HookAdapter } from '../adapter.js';
 import { installPluginFile, uninstallPluginFile, type PluginFileSpec } from '../plugin-file.js';
-import { LOWERCASE_READ_DENY_REASON, NO_TOOL_CALL, pathArg, runPluginHook, type PluginInput, type PluginToolCall } from '../plugin-protocol.js';
+import { lowercaseReadTool, NO_TOOL_CALL, pathArg, runPluginHook, type PluginInput, type PluginToolCall } from '../plugin-protocol.js';
 import { PI_PLUGIN } from '../plugins/pi.js';
 
 export const PI_EVENTS = ['pre-tool-use', 'post-tool-use', 'stop'] as const;
@@ -35,7 +35,7 @@ export const piAdapter: HookAdapter = {
   title: 'Pi',
   markers: ['.pi'],
   events: PI_EVENTS,
-  run: (ctx, io, event) => runPluginHook(ctx, io, event, piToolCall, { denyReason: LOWERCASE_READ_DENY_REASON }),
+  run: (ctx, io, event) => runPluginHook(ctx, io, event, piToolCall, { denyReason: lowercaseReadTool }),
   install: (projectDir) => {
     const step = installPluginFile(projectDir, PI_PLUGIN_FILE);
     if (step.status === 'failed') return [step];

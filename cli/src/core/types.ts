@@ -1,6 +1,7 @@
 // Shared types of the CLI core. CheckReport, RuleId, LockChangeKind and EnvironmentCode are part of the
 // public contract described in SPEC.md ("Implementação"), so their values must not change.
 import type { AnalyzeRequest, AnalyzeResponse, InfoResponse, InitRequest, InitResponse } from '@slopbuckets/adapter-ts';
+import type { ResolvedConfig } from './config.js';
 
 export type RuleId =
   | 'config-invalid'
@@ -107,15 +108,22 @@ export interface LockLink {
 }
 
 export interface Lock {
-  /** 1 for locks written before nested projects and links, 2 for links of generated declarations, 3 for source links. */
-  lockVersion: 1 | 2 | 3;
+  /**
+   * 1 for locks written before nested projects and links, 2 for links of generated declarations, 3 for source links,
+   * 4 for the config stored as an object.
+   */
+  lockVersion: 1 | 2 | 3 | 4;
   cli: string;
   /**
    * `toolchain` names the tools whose version can change signature hashes, such as "typescript@5.9.3".
    * Locks written before the adapter reported it do not have it.
    */
   adapter: { name: string; version: string; toolchain?: string };
-  config: string;
+  /**
+   * The resolved config with sorted keys, defaults filled in and without `$schema`. Locks of versions 1 to 3 hold
+   * only its hash, a `sha256:` string.
+   */
+  config: ResolvedConfig | string;
   buckets: string[];
   /** `external` exists only in locks of version 2 (the hash of a generated `.external/` folder). It is ignored. */
   dmz: Record<string, { text: string; symbols: Record<string, string>; external?: string }>;

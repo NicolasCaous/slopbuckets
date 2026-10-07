@@ -849,7 +849,7 @@ ${GEN}
 
 <code>${LOCK_FILE}</code> records the last state a human approved. Each project has its own lock, nested projects included. Only <code>buckets refresh</code> writes it, in a terminal or after the confirmation that <code>buckets refresh --web</code> asks for. Agents read it and never write it.
 
-The current format is <code>lockVersion: ${lockVersion}</code>. The CLI also reads older locks. Version 1 locks were written before nested projects and links, and the CLI reads them as if the newer sections were empty. Version 2 locks hold links in an older format, without the alias and the published symbols, so every link in them shows up as <a href="./lock#link-changed"><code>link-changed</code></a> until a human approves again. The next approval writes version ${lockVersion}. Keys are sorted and the file ends with a line feed, so the lock diffs cleanly in a pull request.
+The current format is <code>lockVersion: ${lockVersion}</code>. The CLI also reads older locks. Version 1 locks were written before nested projects and links, and the CLI reads them as if the newer sections were empty. Version 2 locks hold links in an older format, without the alias and the published symbols, so every link in them shows up as <a href="./lock#link-changed"><code>link-changed</code></a> until a human approves again. Versions 1 to 3 store only a hash of the config. The CLI compares that hash with the hash of the current config, so an unchanged config is not a difference, and a review of a changed one shows the current values and says the old ones were not recorded. The next approval writes version ${lockVersion}. Keys are sorted and the file ends with a line feed, so the lock diffs cleanly in a pull request.
 
 ## What each field holds
 
@@ -857,7 +857,7 @@ ${table(['Field', 'Holds'], [
   ['<code>lockVersion</code>', `The format version, ${lockVersion} today.`],
   ['<code>cli</code>', 'The CLI version that wrote the lock. <code>buckets check</code> refuses to run with another version and exits with code 3. CI installs this version.'],
   ['<code>adapter</code>', 'The adapter name and version, and <code>toolchain</code>: the tools whose version can change signature hashes, such as <code>typescript@5.9.3</code>. A different toolchain alone is not a problem. The check exits with code 3 only when the toolchain changed and a signature hash changed too.'],
-  ['<code>config</code>', 'A hash of <code>buckets.config.json</code> with the defaults filled in and without <code>$schema</code>, so a formatting change is not a difference.'],
+  ['<code>config</code>', '<code>buckets.config.json</code> with the defaults filled in, its keys sorted and without <code>$schema</code>, so a formatting change is not a difference. <code>access</code> is there only when the config has it, with <code>allow</code> and <code>deny</code> always present and each line in the form <code>A -&gt; B</code>. Locks of versions 1 to 3 hold a <code>sha256:</code> hash of the same object instead.'],
   ['<code>buckets</code>', 'Every bucket folder, sorted.'],
   ['<code>dmz</code>', 'For each DMZ file, <code>.external.ts</code> files included, a hash of its text and a hash of the type signature of each symbol it re-exports. The text hash ignores line endings (CRLF counts as LF) and a leading byte order mark, so an editor that adds or drops either one does not change it.'],
   ['<code>projects</code>', 'Nested projects, relative to this project. Each one has its own lock. Left out when there are none.'],
@@ -876,7 +876,7 @@ ${codeBlock('json', JSON.stringify({
   adapter: { name: 'ts', toolchain: 'typescript@5.9.3', version: pkg.version },
   buckets: ['root', 'root/api', 'root/store', 'root/web'],
   cli: pkg.version,
-  config: 'sha256:1e52...',
+  config: { access: { allow: ['** -> root/store'], default: 'deny', deny: [] }, adapter: 'ts', alias: '@root', maxDepth: 2, root: 'root' },
   dmz: {
     'root/dmz/api/web.ts': { symbols: { route: 'sha256:a361...' }, text: 'sha256:2dda...' },
     'root/dmz/store/api.ts': { symbols: { query: 'sha256:6b13...' }, text: 'sha256:cff1...' },
@@ -1076,6 +1076,8 @@ ${typeSections(decl.filter((d) => d.kind !== 'const'))}
   const hooks = obj.elements.map((e) => Object.fromEntries(e.properties.map((p) => [p.name.getText(sf), render(sf, p.initializer)])));
   check(hooks.map((h) => h.event), EXPLAIN_HOOK, 'HOOKS');
   const deny = constString(source('cli/src/hooks/core.ts'), 'LOCK_DENY_REASON');
+  const configDeny = constString(source('cli/src/hooks/core.ts'), 'CONFIG_DENY_REASON');
+  if (!deny || !configDeny) throw new Error('LOCK_DENY_REASON or CONFIG_DENY_REASON not found in cli/src/hooks/core.ts');
   const stopIntro = recordOf('cli/src/hooks/core.ts', 'STOP_INTRO');
   const setOf = (name) => {
     const { sf: s, obj: o } = objectLiteralOf('cli/src/hooks/adapters/claude.ts', name);
@@ -1124,22 +1126,26 @@ A missing, oversized or malformed record counts as empty, and the next record re
 
 ### pre-tool-use
 
-When a call would write a lock or run <code>buckets refresh</code> in any form other than <code>buckets refresh --web</code>, the hook writes a deny decision. Claude Code applies it even in bypass permission mode. Otherwise it writes nothing.
+When a call would write a lock or a config (<code>${LOCK_FILE}</code> or <code>buckets.config.json</code> of any project, nested ones included) or run <code>buckets refresh</code> in any form other than <code>buckets refresh --web</code>, the hook writes a deny decision. Claude Code applies it even in bypass permission mode. Otherwise it writes nothing.
 
 ${codeBlock('json', JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: '...' } }, null, 2))}
 
-The reason the agent reads:
+The reason the agent reads for the lock and for <code>buckets refresh</code>:
 
 ${msgBlock([deny])}
 
-The file rule denies a file tool when the target is a lock:
+The reason for a config:
+
+${msgBlock([configDeny])}
+
+The file rule denies a file tool when the target is a lock or a config. The rules below name the lock, and they apply to <code>buckets.config.json</code> the same way:
 
 - by name, after Windows drops a stream suffix (<code>${LOCK_FILE}::$DATA</code>) and trailing dots and spaces (<code>${LOCK_FILE}.</code>)
 - by identity, when the target or its folder exists: the hook compares the real path, and the device and inode, with the lock of the session project, the lock of the project nearest to the target and the locks of the nested projects listed in the session lock. This catches 8.3 short names such as <code>BUCKET~1.JSO</code>, hard links, symbolic links and linked folders. In a session opened above the projects, a target is a lock when a project holds it and its typed or real name is the lock's, and a target with more than one hard link is compared with the locks of the projects the session recorded and of the projects found up to 3 levels below the session folder.
 
 The shell rule is a text match, after the hook removes quotes, backticks, carets and backslashes, which shells drop. It denies a command when:
 
-- it names the lock: literally, through an 8.3 short name, or through a glob whose last part matches <code>${LOCK_FILE}</code> but not <code>package.json</code>, such as <code>bucket*</code>, <code>*.lock.json</code> or <code>b[u]ckets.lock.json</code>. So even <code>cat ${LOCK_FILE}</code> is denied, and the agent reads the lock with the Read tool.
+- it names the lock or a config: literally, through an 8.3 short name, or through a glob whose last part matches the file name but not <code>package.json</code>, such as <code>bucket*</code>, <code>*.lock.json</code>, <code>*.config.json</code> or <code>b[u]ckets.lock.json</code>. So even <code>cat ${LOCK_FILE}</code> is denied, and the agent reads both files with the Read tool.
 - it runs <code>buckets refresh</code> and what follows <code>refresh</code> is not exactly <code>--web</code>, optionally followed by output redirections, then the end of the command or a separator. A redirection goes to a file (<code>&gt; refresh.log</code>, <code>&gt;&gt; refresh.log</code>, <code>&amp;&gt; refresh.log</code>, PowerShell <code>*&gt; refresh.log</code>) or to another stream (<code>2&gt;&amp;1</code>). The separator can be a trailing <code>&amp;</code> or a pipe, as in <code>| tee refresh.log</code>, and <code>nohup</code> in front of the call is allowed too. So an agent can run the command in the background and keep its log. A redirection to the lock names the lock, so the first rule denies it. The program can be <code>buckets</code> or <code>slopbuckets</code>, with a version (<code>npx slopbuckets@0.1.0 refresh</code>), through a Windows shim (<code>buckets.cmd refresh</code>), as a script run by node or tsx (<code>node cli/dist/index.js refresh</code>), or behind a package runner with flags (<code>npm exec slopbuckets -- refresh</code>). Every call in the command must pass, so <code>buckets refresh --web; buckets refresh</code> is denied.
 
 When this hook crashes, it allows the call, because a crash here would break every tool call the agent makes. When a stop hook or the post-edit hook crashes, it blocks once with the error, so the agent cannot finish with unchecked work.

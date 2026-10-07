@@ -9,7 +9,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   REFRESH_ALLOWED,
   REFRESH_DENIED,
@@ -25,7 +25,7 @@ const ALLOW = line({ permission: 'allow' });
 const DENY = line({
   permission: 'deny',
   agent_message: LOCK_DENY_REASON,
-  user_message: 'slopbuckets blocked this call: only a human may change buckets.lock.json or run `buckets refresh`.',
+  user_message: 'slopbuckets blocked this call: only a human may change buckets.lock.json or buckets.config.json, or run `buckets refresh`.',
 });
 
 /** Cursor writes a Windows workspace root as /c:/Users/...; the adapter must undo that. */
@@ -61,10 +61,10 @@ describe('cursor pre-tool-use and before-shell-execution', () => {
 
   it('denies a write or delete of the lock under any name, with workspace roots in the /c:/ form', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(cursorAdapter, 'pre-tool-use', write(dir, name), dir)).toEqual({ code: 0, out: DENY, err: '' });
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(cursorAdapter, 'pre-tool-use', write(dir, name), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
       const del = payload(dir, 'preToolUse', { tool_name: 'Delete', tool_input: { file_path: name }, cwd: dir });
-      expect(await runAdapter(cursorAdapter, 'pre-tool-use', del, dir)).toEqual({ code: 0, out: DENY, err: '' });
+      expect(await runAdapter(cursorAdapter, 'pre-tool-use', del, dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
     }
     // Without cwd, relative paths resolve from the workspace root.
     const bare = payload(dir, 'preToolUse', { tool_name: 'Write', tool_input: { path: 'buckets.lock.json' } });

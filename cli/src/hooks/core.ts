@@ -1,7 +1,8 @@
 // The decisions of the slopbuckets hooks, for any agent harness. An adapter turns a harness payload into one of the
 // calls below and turns the answer into the harness output. Nothing here reads stdin, writes stdout or knows a tool name.
 //
-// - preTool: before a tool runs. Denies a write to any buckets.lock.json and any `buckets refresh` but `--web`.
+// - preTool: before a tool runs. Denies a write to any buckets.lock.json or buckets.config.json and any
+//   `buckets refresh` but `--web`.
 // - postEdit: after files were written. Returns the `buckets check --file` report of the files with problems.
 // - stop: before the agent (or a subagent) ends its turn. Returns the full check report when it fails.
 //
@@ -11,18 +12,35 @@ import path from 'node:path';
 import { CACHE_DIR } from '../core/cache.js';
 import { runCheck } from '../core/check.js';
 import { loadConfig } from '../core/config.js';
-import { diskCase, LOCK_FILE, relativeToProject } from '../core/paths.js';
+import { diskCase, relativeToProject } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { runRecursiveCheck } from '../core/recursive.js';
 import type { CheckReport, Context } from '../core/types.js';
 import { formatReport } from '../output/text.js';
-import { isLockByIdentity, mentionsLock, normalizeTargetPath, runsForbiddenRefresh, sameFile, touchesLockAboveProjects } from './lock-guard.js';
+import {
+  guardedAboveProjects,
+  guardedByIdentity,
+  guardedName,
+  mentionsConfig,
+  mentionsLock,
+  normalizeTargetPath,
+  runsForbiddenRefresh,
+  sameFile,
+  type GuardedFile,
+} from './lock-guard.js';
 import { liveSessionProjects, readSessionProjects, recordSessionProject, sessionStateFile } from './session.js';
 
 export const LOCK_DENY_REASON =
   'buckets.lock.json records the contracts a human approved, and only a human may change it: with `buckets refresh` in their own terminal, or by confirming the approval that `buckets refresh --web` asks for. ' +
   'Do not edit or write the lock under any name (alternative streams, short names, links), do not run shell commands that mention it, also through wildcards, and do not run `buckets refresh` with anything but exactly the `--web` flag. Output redirections such as `> refresh.log 2>&1`, a pipe to `tee` and a trailing `&` are allowed after `--web`. To read the lock, use the Read tool. ' +
   'If `buckets check` reports lock differences (exit code 2), run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish.';
+
+export const CONFIG_DENY_REASON =
+  'buckets.config.json belongs to the human: it sets the root bucket folder, the import alias and the `access` rules that decide which buckets may use which, in this project and in every nested project. ' +
+  'Do not edit or write any buckets.config.json under any name (alternative streams, short names, links), and do not run shell commands that mention it, also through wildcards. To read it, use the Read tool. ' +
+  'If a task needs a change in it, such as an `access` line that allows a dependency, stop and ask the human to make the change, with the exact lines you need and why.';
+
+const DENY_REASONS: Record<GuardedFile, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON };
 
 /** The first line of a stop report, by exit code. Exit 2 needs a human, so the agent must not try to fix it. */
 export const STOP_INTRO: Record<0 | 1 | 2 | 3, string> = {
@@ -97,30 +115,47 @@ function errorDetail(error: unknown): string {
 }
 
 /**
- * True when writing `file` would write a lock. A name check alone without `where`. With `where`, a path that does not
- * name the lock is also compared with the real lock files on disk (short names, hard links, symbolic links).
+ * The guarded file that writing `file` would write: a lock or a config. A name check alone without `where`. With
+ * `where`, a path that does not name one is also compared with the real files on disk (short names, hard links,
+ * symbolic links). Null when it writes neither.
  */
-export function isLockWrite(file: string, where?: { projectDir: string; cwd: string }): boolean {
+export function guardedWrite(file: string, where?: { projectDir: string; cwd: string }): GuardedFile | null {
   const { dir, base } = normalizeTargetPath(file);
-  if (base.toLowerCase() === LOCK_FILE) return true;
-  if (where === undefined || base === '') return false;
-  return isLockByIdentity(path.resolve(where.cwd, dir === '' ? '.' : dir, base), base, where.projectDir);
+  const named = guardedName(base);
+  if (named !== null) return named;
+  if (where === undefined || base === '') return null;
+  return guardedByIdentity(path.resolve(where.cwd, dir === '' ? '.' : dir, base), base, where.projectDir);
 }
 
-/** True when a shell command names a lock or runs `buckets refresh` in any form but `buckets refresh --web`. */
+/** True when writing `file` would write a lock or a config, as `guardedWrite` reads it. */
+export function isLockWrite(file: string, where?: { projectDir: string; cwd: string }): boolean {
+  return guardedWrite(file, where) !== null;
+}
+
+/** The guarded file a shell command names, or `lock` when it runs `buckets refresh` in any form but `--web`. */
+export function guardedShell(command: string): GuardedFile | null {
+  if (mentionsLock(command) || runsForbiddenRefresh(command)) return 'lock';
+  return mentionsConfig(command) ? 'config' : null;
+}
+
+/** True when a shell command names a lock or a config, or runs `buckets refresh` in any form but `--web`. */
 export function isForbiddenShell(command: string): boolean {
-  return mentionsLock(command) || runsForbiddenRefresh(command);
+  return guardedShell(command) !== null;
 }
 
-/** The lock guard. A crash allows the call, because a crash here would break every tool call the agent makes. */
+/**
+ * The guard of the lock and the config. A crash allows the call, because a crash here would break every tool call
+ * the agent makes.
+ */
 export function preTool(input: PreToolInput): PreToolResult {
-  const deny: PreToolResult = { decision: 'deny', reason: LOCK_DENY_REASON };
+  const deny = (kind: GuardedFile): PreToolResult => ({ decision: 'deny', reason: DENY_REASONS[kind] });
   try {
     const { action } = input;
     if (action.kind === 'other') return { decision: 'allow' };
     const { sessionDir, projectDir } = locate(input);
     if (action.kind === 'shell') {
-      if (isForbiddenShell(action.command)) return deny;
+      const guarded = guardedShell(action.command);
+      if (guarded !== null) return deny(guarded);
       // A session above the projects records the project of every shell command, so its stop hook checks it.
       if (projectDir === null) {
         const cwd = path.resolve(sessionDir, action.cwd ?? input.cwd);
@@ -130,13 +165,19 @@ export function preTool(input: PreToolInput): PreToolResult {
       return { decision: 'allow' };
     }
     if (projectDir !== null) {
-      for (const file of action.paths) if (isLockWrite(file, { projectDir, cwd: input.cwd })) return deny;
+      for (const file of action.paths) {
+        const guarded = guardedWrite(file, { projectDir, cwd: input.cwd });
+        if (guarded !== null) return deny(guarded);
+      }
       return { decision: 'allow' };
     }
     const stateFile = sessionStateFile(input.sessionId);
     const recorded = () => (stateFile === null ? [] : readSessionProjects(stateFile).projects);
     const cwd = path.resolve(sessionDir, input.cwd);
-    for (const file of action.paths) if (touchesLockAboveProjects(file, cwd, sessionDir, recorded)) return deny;
+    for (const file of action.paths) {
+      const guarded = guardedAboveProjects(file, cwd, sessionDir, recorded);
+      if (guarded !== null) return deny(guarded);
+    }
     return { decision: 'allow' };
   } catch (error) {
     return { decision: 'allow', error: errorDetail(error) };

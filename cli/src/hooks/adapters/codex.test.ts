@@ -8,7 +8,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   patch,
   REFRESH_ALLOWED,
@@ -49,10 +49,10 @@ describe('codex pre-tool-use', () => {
 
   it('denies a patch that adds, updates, deletes or moves the lock under any name, with a reason', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
+    for (const [name, as] of guardedNames(dir)) {
       for (const lines of [[`*** Add File: ${name}`, '+{}'], [`*** Update File: ${name}`, '@@', '-a', '+b'], [`*** Delete File: ${name}`], ['*** Update File: notes.md', `*** Move to: ${name}`]]) {
         for (const crlf of [false, true]) {
-          expect(await runAdapter(codexAdapter, 'pre-tool-use', applyPatch(dir, 'PreToolUse', patch(lines, crlf)), dir)).toEqual({ code: 0, out: DENY, err: '' });
+          expect(await runAdapter(codexAdapter, 'pre-tool-use', applyPatch(dir, 'PreToolUse', patch(lines, crlf)), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
         }
       }
     }

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Context } from '../core/types.js';
 import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture.js';
 import { approve, testContext } from '../testing/harness.js';
-import { LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, type ToolAction } from './core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, type ToolAction } from './core.js';
 import { readSessionProjects, sessionStateFile } from './session.js';
 
 const stateFiles: string[] = [];
@@ -25,6 +25,7 @@ function newSession(): string {
 
 const NOWHERE = path.join(path.sep, 'nowhere', 'at', 'all');
 const DENY = { decision: 'deny', reason: LOCK_DENY_REASON };
+const CONFIG_DENY = { decision: 'deny', reason: CONFIG_DENY_REASON };
 const ALLOW = { decision: 'allow' };
 const shell = (command: string): ToolAction => ({ kind: 'shell', command });
 const write = (...paths: string[]): ToolAction => ({ kind: 'write', paths });
@@ -203,7 +204,8 @@ describe('preTool: file writes', () => {
   it('denies when any path of a multi-file write is a lock, and allows other files', () => {
     const dir = makeProject(LOGGER_PROJECT);
     expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts', 'buckets.lock.json') })).toEqual(DENY);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts', 'buckets.config.json') })).toEqual(ALLOW);
+    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts', 'buckets.config.json') })).toEqual(CONFIG_DENY);
+    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts') })).toEqual(ALLOW);
     expect(preTool({ projectDir: dir, cwd: dir, action: write() })).toEqual(ALLOW);
   });
 
@@ -264,6 +266,69 @@ describe('preTool: file writes', () => {
     for (const file of ['', ':', '::$DATA', '\0', 'C:', '\\\\?\\', 'a/'.repeat(500)]) {
       expect(() => preTool({ projectDir: NOWHERE, cwd: NOWHERE, action: write(file) })).not.toThrow();
     }
+  });
+});
+
+describe('preTool: buckets.config.json', () => {
+  const NESTED = { ...LOGGER_PROJECT, 'root/log/_/engine/buckets.config.json': '{ "root": "root" }\n', 'root/log/_/engine/root/_/run.ts': 'export const run = 1;\n' };
+
+  it.each([
+    'buckets.config.json',
+    'C:\\p\\buckets.config.json',
+    'buckets.config.json::$DATA',
+    'BUCKETS.CONFIG.JSON. ',
+    'root/log/_/engine/buckets.config.json',
+  ])('denies a write to %j inside a project, root or nested, with the config reason', (file) => {
+    const dir = makeProject(NESTED);
+    expect(preTool({ projectDir: dir, cwd: dir, action: write(file) })).toEqual(CONFIG_DENY);
+  });
+
+  it('denies hard links and symbolic links of the root config and of a nested config, by identity', async () => {
+    const dir = makeProject(NESTED);
+    await approve(path.join(dir, 'root/log/_/engine'));
+    await approve(dir);
+    const at = (file: string) => preTool({ projectDir: dir, cwd: dir, action: write(file) });
+    const hard = path.join(dir, 'root', 'log', '_', 'settings.json');
+    linkSync(path.join(dir, 'buckets.config.json'), hard);
+    expect(at(hard)).toEqual(CONFIG_DENY);
+    const nestedHard = path.join(dir, 'root', 'log', '_', 'engine-settings.json');
+    linkSync(path.join(dir, 'root/log/_/engine/buckets.config.json'), nestedHard);
+    expect(at(nestedHard)).toEqual(CONFIG_DENY);
+    try {
+      const soft = path.join(dir, 'root', 'log', '_', 'soft-config.json');
+      symlinkSync(path.join(dir, 'root/log/_/engine/buckets.config.json'), soft, 'file');
+      expect(at(soft)).toEqual(CONFIG_DENY);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+    }
+  });
+
+  it.each([
+    'cat buckets.config.json',
+    'sed -i s/deny/allow/ buckets.config.json',
+    'echo {} > root/log/_/engine/buckets.config.json',
+    'Set-Content -Path .\\buckets.config.json -Value x',
+    'cat *.config.json',
+    'cat b"ucke"ts.config.json',
+  ])('denies the shell command %j with the config reason', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(CONFIG_DENY);
+    const dir = makeProject(NESTED);
+    expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(CONFIG_DENY);
+  });
+
+  it('gives the lock reason when a command names both files', () => {
+    expect(preTool({ cwd: NOWHERE, action: shell('cp buckets.config.json buckets.lock.json') })).toEqual(DENY);
+  });
+
+  it('above the projects, denies the config of a project below the session and of its nested project', async () => {
+    const parent = makeProject({ ...Object.fromEntries(Object.entries(NESTED).map(([f, c]) => [`a/${f}`, c])), 'a/buckets.config.json': '{ "root": "root" }\n' }, false);
+    const scope = { projectDir: parent, cwd: parent, sessionId: newSession() };
+    expect(preTool({ ...scope, action: write('a/buckets.config.json') })).toEqual(CONFIG_DENY);
+    expect(preTool({ ...scope, action: write('a/root/log/_/engine/buckets.config.json') })).toEqual(CONFIG_DENY);
+    await approve(path.join(parent, 'a'));
+    const hard = path.join(parent, 'copy.json');
+    linkSync(path.join(parent, 'a', 'buckets.config.json'), hard);
+    expect(preTool({ ...scope, action: write(hard) })).toEqual(CONFIG_DENY);
   });
 });
 
