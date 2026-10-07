@@ -42,7 +42,7 @@ On Windows, a global npm install puts a `buckets.cmd` shim on `PATH`, which Node
 
 The extension holds no rules. For each guarded tool call it runs `buckets hook --agent pi <event>`, writes one JSON object on stdin with the tool name, its arguments, Pi's working folder and the session id, and reads one JSON line back. The CLI reads `command` from `bash` and `powershell`, and `path` from `edit` and `write`. Pi has no patch tool. Other tools, such as `read`, run without a call to the CLI.
 
-Before a guarded tool runs, `tool_call` asks for `pre-tool-use`. When the answer is `{"decision": "deny", "reason": "..."}`, the handler returns `{ block: true, reason }`. Pi does not run the tool and hands the reason to the model. That covers a write to any `buckets.lock.json` or `buckets.config.json`, a shell command that names one, and `buckets refresh` with anything but exactly `--web`. `buckets refresh --web > refresh.log 2>&1 &` passes.
+Before a guarded tool runs, `tool_call` asks for `pre-tool-use`. When the answer is `{"decision": "deny", "reason": "..."}`, the handler returns `{ block: true, reason }`. Pi does not run the tool and hands the reason to the model. That covers a write to any `buckets.lock.json` or `buckets.config.json`, a shell command that names one, `buckets refresh` with anything but exactly `--web`, and `buckets update` without `--check` or `--json`. `buckets refresh --web > refresh.log 2>&1 &` passes.
 
 After `edit` or `write` succeeds, `tool_result` asks for `post-tool-use`. When the file has problems, the handler returns the tool's content with the report added as one more text part, so the model reads it with the result.
 

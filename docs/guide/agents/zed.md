@@ -9,7 +9,7 @@ This page covers the agent built into Zed. Claude Code running inside Zed throug
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | partial | static `agent.tool_permissions` rules in your user settings deny matching commands and paths |
+| Block lock writes and plain refresh | partial | static `agent.tool_permissions` rules in your user settings deny matching commands and paths, and `buckets update` without `--check` or `--json` |
 | Feedback after edits | no | Zed has no hooks |
 | Block the end of a turn | no | Zed has no hooks |
 
@@ -34,7 +34,8 @@ Zed reads `agent` settings only from your user settings file, not from a project
         "terminal": {
           "always_deny": [
             { "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" },
-            { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))" }
+            { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))" },
+            { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*update(?:\\s+(?:[^-\\s;&|][^\\s;&|]*|-(?:[^-\\s;&|][^\\s;&|]*)?|--(?:[^cj\\s;&|][^\\s;&|]*|c(?:[^h\\s;&|][^\\s;&|]*|h(?:[^e\\s;&|][^\\s;&|]*|e(?:[^c\\s;&|][^\\s;&|]*|c(?:[^k\\s;&|][^\\s;&|]*|k[^\\s;&|]+)?)?)?)?|j(?:[^s\\s;&|][^\\s;&|]*|s(?:[^o\\s;&|][^\\s;&|]*|o(?:[^n\\s;&|][^\\s;&|]*|n[^\\s;&|]+)?)?)?)?))*\\s*(?:$|[;&|])" }
           ]
         },
         "edit_file": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
@@ -56,6 +57,7 @@ Zed checks each tool call against `tool_permissions` before it runs, and `always
 
 - The first pattern denies any command or path that names `buckets.lock.json` or `buckets.config.json`, or a Windows 8.3 short name such as `BUCKET~1.JSO`. A human owns both files, in every project.
 - The second pattern denies `buckets refresh` unless the next word is exactly `--web` with no other flag after it. `buckets refresh --web > refresh.log 2>&1` passes.
+- The third pattern denies `buckets update` unless one of the words after `update` is exactly `--check` or `--json`, which only report. A human updates the CLI. `buckets update --check` and `npx slopbuckets update --json` pass. The pattern reads words as plain text, so a quoted `"--check"` is denied too.
 
 ## Limits
 
@@ -71,3 +73,4 @@ Rely on `buckets init --git-hook`, which runs `buckets check` before every commi
 1. Add the rules to your user settings and open the project in Zed.
 2. In the agent panel, ask it to "run buckets refresh". Zed should refuse the terminal command.
 3. Ask it to "run buckets refresh --web". Zed should run it, or ask you first, as your other settings say.
+4. Ask it to "run buckets update". Zed should refuse it, and should allow "buckets update --check".

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'no
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { feedbackFor, line, LOCK_DENY_REASON, guardedNames, patch, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { feedbackFor, line, LOCK_DENY_REASON, guardedNames, patch, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
 import { cancelMessage, clineAdapter, clineCommands, clineParameters, powershellScript, unixScript } from './cline.js';
 
 afterEach(cleanupProjects);
@@ -60,10 +60,12 @@ describe('cline pre-tool-use', () => {
     expect(out.errorMessage).toContain('ends the whole task');
   });
 
-  it('cancels for a plain buckets refresh in any command of the list, and allows buckets refresh --web', async () => {
+  it('cancels for a plain buckets refresh or an installing buckets update in any command of the list, and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['npm test', command]), dir)).out).toBe(deny('run_commands'));
     for (const command of REFRESH_ALLOWED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [command]), dir)).out).toBe(ALLOW);
+    for (const command of UPDATE_DENIED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['npm test', command]), dir)).out).toBe(asUpdateDeny(deny('run_commands')));
+    for (const command of UPDATE_ALLOWED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [command]), dir)).out).toBe(ALLOW);
     // `buckets refresh --web` followed by another command in the list stays allowed: each command is judged alone.
     expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['buckets refresh --web', 'git status']), dir)).out).toBe(ALLOW);
     expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [{ command: 'buckets', args: ['refresh'] }]), dir)).out).toBe(deny('run_commands'));

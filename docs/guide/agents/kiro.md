@@ -41,7 +41,7 @@ Kiro CLI 3 reads both the standalone file and the hooks inside agent configs, so
 
 Before each tool call, Kiro runs `buckets hook --agent kiro pre-tool-use` with `tool_name`, `tool_input` and `cwd` on stdin. The hook has no matcher, because Kiro names its tools differently across versions (`fs_write`, `write`, `str_replace`, `fs_append`, `delete_file`, `execute_bash`, `execute_pwsh`, `shell`), so it sees every tool and ignores the ones that neither write nor run a command. It reads the target from `path`, `file_path`, `targetFile`, `paths` and `operations[].path`.
 
-When a call would write any `buckets.lock.json` or `buckets.config.json`, or a command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook writes the reason on stderr and exits with code 2. Kiro blocks the tool and hands the reason to the model. Otherwise it exits with 0 and prints nothing.
+When a call would write any `buckets.lock.json` or `buckets.config.json`, or a command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook writes the reason on stderr and exits with code 2. Kiro blocks the tool and hands the reason to the model. Otherwise it exits with 0 and prints nothing.
 
 ## Limits
 

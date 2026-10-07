@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .augment/settings.json for Au
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` denies `save-file`, `str-replace-editor` and `remove-files` on a lock or a config and a `launch-process` command that names one or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `PreToolUse` denies `save-file`, `str-replace-editor` and `remove-files` on a lock or a config and a `launch-process` command that names one or runs plain `buckets refresh` or an installing `buckets update` |
 | Feedback after edits | yes | `PostToolUse` hands the `buckets check --file` report to the agent after each edit |
 | Block the end of a turn | yes | `Stop` blocks once with the `buckets check` report |
 
@@ -28,7 +28,7 @@ Start a new `auggie` session after `init` so it loads the settings.
 
 Auggie sends Claude Code style JSON on stdin, with `conversation_id` and `workspace_roots`. The hook takes the session folder from the first workspace root.
 
-- `PreToolUse`, with the matcher `launch-process|save-file|str-replace-editor|remove-files`. When a path argument names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}`, writes the reason on stderr and exits with 2. A `str-replace-editor` call with the `view` command only reads, so it passes.
+- `PreToolUse`, with the matcher `launch-process|save-file|str-replace-editor|remove-files`. When a path argument names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}`, writes the reason on stderr and exits with 2. A `str-replace-editor` call with the `view` command only reads, so it passes.
 - `PostToolUse`, with the matcher `save-file|str-replace-editor`. The hook runs `buckets check --file` on the edited file and prints `{"decision": "block", "reason": "<report>"}`.
 - `Stop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and the agent keeps working. When the payload carries `stop_hook_active: true`, the hook lets the stop through. When it carries no such flag, the hook leaves a small mark in the system temp folder and lets the next stop of the same conversation through. It never blocks twice in a row.
 

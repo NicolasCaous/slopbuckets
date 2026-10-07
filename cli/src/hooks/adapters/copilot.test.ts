@@ -17,6 +17,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { copilotAdapter } from './copilot.js';
 
@@ -58,11 +61,13 @@ describe('copilot pre-tool-use', () => {
     expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', ok), dir)).out).toBe('');
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web in bash and powershell', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web in bash and powershell', async () => {
     const dir = violationProject();
     for (const shell of ['bash', 'powershell']) {
       for (const command of REFRESH_DENIED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: DENY, err: '' });
       for (const command of REFRESH_ALLOWED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: '', err: '' });
+      for (const command of UPDATE_DENIED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
+      for (const command of UPDATE_ALLOWED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: '', err: '' });
     }
   });
 });

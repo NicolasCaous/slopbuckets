@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .codex/hooks.json for Codex C
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` denies an `apply_patch` that touches a lock or a config and a `Bash` command that names one or runs plain `buckets refresh`, also with `--yolo` |
+| Block lock writes and plain refresh | yes | `PreToolUse` denies an `apply_patch` that touches a lock or a config and a `Bash` command that names one or runs plain `buckets refresh` or an installing `buckets update`, also with `--yolo` |
 | Feedback after edits | yes | `PostToolUse` adds the `buckets check --file` report to the model's context after each patch |
 | Block the end of a turn | yes | `Stop` and `SubagentStop` block once with the `buckets check` report |
 
@@ -35,7 +35,7 @@ To remove the hooks, delete their entries from `.codex/hooks.json`, or delete th
 
 Codex sends each tool call to the hook as JSON on stdin. File edits arrive as `apply_patch`, with the patch text in `tool_input.command` and no file path, so the hook reads the paths from the patch headers `*** Add File:`, `*** Update File:`, `*** Delete File:` and `*** Move to:`. Shell commands arrive as `Bash`.
 
-- `PreToolUse`, with the matcher `Bash|apply_patch|Edit|Write`. When a patch header names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, the hook denies the call. It does the same when a command names either file or runs `buckets refresh` with anything but exactly `--web`. The answer is `permissionDecision: "deny"` with the full reason. Codex lets a deny without a reason through, so the reason is never empty.
+- `PreToolUse`, with the matcher `Bash|apply_patch|Edit|Write`. When a patch header names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, the hook denies the call. It does the same when a command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`. The answer is `permissionDecision: "deny"` with the full reason. Codex lets a deny without a reason through, so the reason is never empty.
 - `PostToolUse`, with the matcher `apply_patch|Edit|Write`. The hook runs `buckets check --file` on each file the patch added, updated or moved to, and returns the report in `additionalContext`. It does not answer `decision: "block"`, because in Codex that replaces the tool output. Codex keeps about 2500 tokens of added context, so a longer report is cut and ends with a note to run the check by hand.
 - `Stop` and `SubagentStop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and Codex keeps working. The next stop carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { parseJson } from '../../core/json.js';
-import { installSuite, line, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { installSuite, line, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
 import { CRUSH_MATCHER, crushAdapter, crushTarget } from './crush.js';
 
 afterEach(cleanupProjects);
@@ -32,10 +32,12 @@ describe('crush pre-tool-use', () => {
     expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'download', { url: 'https://example.com/x', file_path: 'buckets.lock.json' }), dir)).out).toBe(DENY);
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).out).toBe(DENY);
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).toEqual(SILENT);
+    for (const command of UPDATE_DENIED) expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).out).toBe(asUpdateDeny(DENY));
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).toEqual(SILENT);
   });
 
   it('uses CRUSH_PROJECT_DIR as the session folder', async () => {

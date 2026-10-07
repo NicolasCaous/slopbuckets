@@ -17,6 +17,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { factoryAdapter } from './factory.js';
 
@@ -50,10 +53,12 @@ describe('factory pre-tool-use', () => {
     }
   });
 
-  it('denies plain buckets refresh and stays silent for buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and stays silent for buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Execute', { command }), dir)).toEqual({ code: 0, out: DENY, err: '' });
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Execute', { command }), dir)).toEqual(SILENT);
+    for (const command of UPDATE_DENIED) expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Execute', { command }), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Execute', { command }), dir)).toEqual(SILENT);
   });
 
   it('takes the session folder from FACTORY_PROJECT_DIR', async () => {

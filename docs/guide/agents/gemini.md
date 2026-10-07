@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .gemini/settings.json for Gem
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `BeforeTool` denies `write_file` and `replace` on a lock or a config and a `run_shell_command` that names one or runs plain `buckets refresh`, also with `--yolo` |
+| Block lock writes and plain refresh | yes | `BeforeTool` denies `write_file` and `replace` on a lock or a config and a `run_shell_command` that names one or runs plain `buckets refresh` or an installing `buckets update`, also with `--yolo` |
 | Feedback after edits | yes | `AfterTool` adds the `buckets check --file` report to the model's context after each edit |
 | Block the end of a turn | yes | `AfterAgent` makes the agent retry once with the `buckets check` report |
 
@@ -31,7 +31,7 @@ To remove the hooks, delete the three slopbuckets entries under `hooks`. `contex
 
 Hook timeouts in Gemini CLI are in milliseconds. `init` gives the guard 30 seconds and the checks 5 and 10 minutes.
 
-- `BeforeTool`, with the matcher `write_file|replace|run_shell_command`. When `file_path` is any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"decision": "deny", "reason": "<reason>"}`. The model sees a tool error with the reason and goes on. Every other call gets no output.
+- `BeforeTool`, with the matcher `write_file|replace|run_shell_command`. When `file_path` is any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook prints `{"decision": "deny", "reason": "<reason>"}`. The model sees a tool error with the reason and goes on. Every other call gets no output.
 - `AfterTool`, with the matcher `write_file|replace`. The hook runs `buckets check --file` on the edited file and returns the report in `hookSpecificOutput.additionalContext`. It does not answer `decision: "deny"` there, because that would replace the tool result.
 - `AfterAgent`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "deny", "reason": "<report>"}`, and Gemini CLI makes the agent retry with the report. The retry carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.
 

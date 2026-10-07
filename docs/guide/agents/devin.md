@@ -9,7 +9,7 @@ This page covers Devin Local, the default agent of Devin Desktop. For Cascade, t
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` exits with 2 for a `write`, `edit`, `delete` or `move` of a lock or a config and an `exec` command that names one or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `PreToolUse` exits with 2 for a `write`, `edit`, `delete` or `move` of a lock or a config and an `exec` command that names one or runs plain `buckets refresh` or an installing `buckets update` |
 | Feedback after edits | partial | `PostToolUse` returns the `buckets check --file` report, but the answer format Devin reads after an edit was not verified |
 | Block the end of a turn | yes | `Stop` blocks once with the `buckets check` report |
 
@@ -32,7 +32,7 @@ Devin Local also reads the hooks in `.claude/settings.json`. Its tool names are 
 
 Devin Local sends Claude Code style JSON on stdin: `tool_name`, `tool_input`, `cwd` and, at a stop, `stop_hook_active`.
 
-- `PreToolUse`, with the matcher `write|edit|exec|delete|move`. When a path argument names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook writes the reason on stderr, prints the Claude Code style deny JSON and exits with 2, which blocks the call.
+- `PreToolUse`, with the matcher `write|edit|exec|delete|move`. When a path argument names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook writes the reason on stderr, prints the Claude Code style deny JSON and exits with 2, which blocks the call.
 - `PostToolUse`, with the matcher `write|edit`. The hook runs `buckets check --file` on the edited file and prints `{"decision": "block", "reason": "<report>"}`.
 - `Stop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and the agent keeps working. The next stop carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.
 

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
 import { KIRO_HOOK_FILE, KIRO_V1_HOOK, kiroAdapter } from './kiro.js';
 
 afterEach(cleanupProjects);
@@ -34,11 +34,13 @@ describe('kiro pre-tool-use', () => {
     expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, 'fs_write', { operations: [{ path: 'notes.md' }, { path: 'buckets.lock.json' }] }), dir)).toEqual(DENIED);
   });
 
-  it('denies plain buckets refresh in every shell tool and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update in every shell tool and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const tool of ['execute_bash', 'shell', 'execute_pwsh']) {
       for (const command of REFRESH_DENIED) expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command }), dir)).toEqual(DENIED);
       for (const command of REFRESH_ALLOWED) expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command }), dir)).toEqual(ALLOWED);
+      for (const command of UPDATE_DENIED) expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command }), dir)).toEqual(asUpdateDeny(DENIED));
+      for (const command of UPDATE_ALLOWED) expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command }), dir)).toEqual(ALLOWED);
     }
   });
 

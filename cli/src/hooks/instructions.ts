@@ -22,6 +22,7 @@ export const AGENTS_BLOCK = [
   '- Import internal code through the alias, never with a relative path.',
   "- Code reaches another bucket only through DMZ files, which hold nothing but `export { x } from '<alias>/...'` and `export type { T } from '<alias>/...'`.",
   '- Never write any `buckets.lock.json` or `buckets.config.json`, nested ones included, under any name, and never run `buckets refresh` without exactly the `--web` flag. A human owns both files. Read them with a file reading tool, not a shell command.',
+  '- Never run `buckets update` without `--check` or `--json`. A human updates the CLI. When a notice says a newer slopbuckets version is available, tell the human the version it shows.',
   '- When `access-denied` or `access-ambiguous` blocks a dependency you need, stop and ask the human. Give the exact `access` line you propose, the list it goes in (`allow` or `deny`), and why.',
   '- Run `buckets check` before you finish. With exit code 1, fix what it reports. With exit code 2, run `buckets refresh --web` in the background, send the human the link it prints with a summary of what changed and why, and wait for it to finish. With exit code 3, stop and show the message to the human.',
   '- `buckets inspect --json` prints the buckets, contracts and imports of the project.',

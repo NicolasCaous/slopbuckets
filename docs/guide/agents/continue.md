@@ -26,7 +26,7 @@ Continue reads project rules from `.continue/rules/`. If your version does not l
 
 ## How it works
 
-The `AGENTS.md` block tells the agent the bucket rules, to leave every `buckets.lock.json` and `buckets.config.json` alone, to never run plain `buckets refresh`, and to run `buckets check` before it finishes. Nothing in Continue enforces these.
+The `AGENTS.md` block tells the agent the bucket rules, to leave every `buckets.lock.json` and `buckets.config.json` alone, to never run plain `buckets refresh` or `buckets update` without `--check` or `--json`, and to run `buckets check` before it finishes. Nothing in Continue enforces these.
 
 The Continue CLI loads hooks from `.claude/settings.json`, the file where `buckets init --agent claude` writes the Claude Code hooks. Its code does not appear to ever run them, so slopbuckets does not count on them. If you also use Claude Code in the project, those hooks stay in place for Claude Code.
 

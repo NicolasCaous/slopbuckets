@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { parseJson } from '../../core/json.js';
-import { installSuite, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { installSuite, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
 import { WINDSURF_FILE, WINDSURF_LEGACY_FILE, windsurfAdapter, windsurfTarget } from './windsurf.js';
 
 afterEach(cleanupProjects);
@@ -31,10 +31,12 @@ describe('windsurf hooks', () => {
     for (const [name, as] of guardedNames(dir)) expect(await runAdapter(windsurfAdapter, 'pre-write-code', write(name), dir)).toEqual(as(DENIED));
   });
 
-  it('blocks plain buckets refresh and lets buckets refresh --web through', async () => {
+  it('blocks plain buckets refresh or an installing buckets update and lets buckets refresh --web through', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect(await runAdapter(windsurfAdapter, 'pre-run-command', run(command, dir), dir)).toEqual(DENIED);
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(windsurfAdapter, 'pre-run-command', run(command, dir), dir)).toEqual(ALLOWED);
+    for (const command of UPDATE_DENIED) expect(await runAdapter(windsurfAdapter, 'pre-run-command', run(command, dir), dir)).toEqual(asUpdateDeny(DENIED));
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(windsurfAdapter, 'pre-run-command', run(command, dir), dir)).toEqual(ALLOWED);
     expect(await runAdapter(windsurfAdapter, 'pre-run-command', run('type buckets.lock.json', dir), dir)).toEqual(DENIED);
   });
 

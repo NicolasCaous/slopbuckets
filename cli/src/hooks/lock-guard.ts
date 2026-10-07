@@ -1,6 +1,6 @@
 // The lock guard of the hooks: the text rules for shell commands and the identity rules for file targets. It guards
-// buckets.lock.json and buckets.config.json of every project, nested ones included, because a human owns both.
-// Nothing here knows about a harness. Every function swallows its errors and answers "not guarded", so a hook never
+// buckets.lock.json and buckets.config.json of every project, nested ones included, because a human owns both. It
+// also refuses a `buckets update` that can install, because a human updates the CLI. Nothing here knows about a harness. Every function swallows its errors and answers "not guarded", so a hook never
 // crashes here.
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -26,24 +26,29 @@ const SHELL_NOISE = /["'`^\\]/g;
 /** A token of a command line: stops at whitespace and at shell operators. */
 const ARG = String.raw`[^\s;&|<>()]`;
 
-/** A flag between the program and `refresh`, with an optional value: `--`, `--yes`, `--prefix /tmp/x`. */
+/** A flag between the program and the subcommand, with an optional value: `--`, `--yes`, `--prefix /tmp/x`. */
 const FLAG = String.raw`\s+-${ARG}*(?:\s+[^\s;&|<>()-]${ARG}*)?`;
 
 /**
- * A call that can run the CLI, followed by the `refresh` argument:
+ * A call that can run the CLI, followed by the subcommand, such as `refresh`:
  *
  * - `buckets refresh`, also as `slopbuckets`, with a version (`npx slopbuckets@0.1.0 refresh`) or through a
  *   Windows shim (`buckets.cmd refresh`, `buckets.ps1 refresh`)
  * - a script run by node or tsx whose file name says index, cli or buckets, such as `node cli/dist/index.js refresh`
  *
- * Flags may stand between the program and `refresh`, as in `npm exec slopbuckets -- refresh`, so the package
- * runners (`npm exec`, `npx`, `pnpm dlx`) are covered by the program name they run.
+ * Flags may stand between the program and the subcommand, as in `npm exec slopbuckets -- refresh`, so the package
+ * runners (`npm exec`, `npx`, `pnpm exec`, `pnpm dlx`, `yarn`, `bunx`) are covered by the program name they run.
  */
-const REFRESH_CALL = new RegExp(
-  String.raw`(?:buckets(?:\.[a-z0-9]+)?(?:@${ARG}*)?|(?<!${ARG})${ARG}*?(?:index|cli|buckets)[^\s;&|<>()/]*\.[cm]?[jt]s)` +
-    String.raw`(?:${FLAG})*\s+refresh`,
-  'gi',
-);
+function cliCall(subcommand: string): RegExp {
+  return new RegExp(
+    String.raw`(?:buckets(?:\.[a-z0-9]+)?(?:@${ARG}*)?|(?<!${ARG})${ARG}*?(?:index|cli|buckets)[^\s;&|<>()/]*\.[cm]?[jt]s)` +
+      String.raw`(?:${FLAG})*\s+${subcommand}`,
+    'gi',
+  );
+}
+
+const REFRESH_CALL = cliCall('refresh');
+const UPDATE_CALL = cliCall('update');
 
 /**
  * An output redirection after `--web`, so the agent can run the command in the background and keep its log:
@@ -76,6 +81,35 @@ export function runsForbiddenRefresh(command: string): boolean {
   for (const match of text.matchAll(REFRESH_CALL)) {
     const rest = text.slice(match.index + match[0].length);
     if (!WEB_ONLY.test(rest)) return true;
+  }
+  return false;
+}
+
+/**
+ * An output or input redirection with its target, such as `> log`, `2>&1`, `&> log` or `< in`. The arguments of a
+ * `buckets update` call are read without them, so `> --check` does not count as the `--check` flag.
+ */
+const REDIRECTION = /[0-9*]?(?:&>>?|>>?&|>>?\|?|<<?<?)[ \t]*[^\s;&|<>()]*/g;
+
+/** The end of the arguments of a call: a command separator, a newline or a parenthesis. */
+const ARGS_END = /[;&|\r\n()]/;
+
+/**
+ * True when a shell command runs `buckets update` in a form that can install, that is without `--check` or `--json`
+ * among its arguments. Those two flags only report. Every call in the command must pass, so
+ * `buckets update --check; buckets update` is refused. The command is read as `runsForbiddenRefresh` reads it, after
+ * quotes, backslashes, backticks and carets are removed.
+ */
+export function runsInstallingUpdate(command: string): boolean {
+  const text = command.replace(SHELL_NOISE, '');
+  for (const match of text.matchAll(UPDATE_CALL)) {
+    const rest = text.slice(match.index + match[0].length);
+    // `buckets updates` is another word, not the update command.
+    if (/^[^\s;&|<>()]/.test(rest)) continue;
+    const args = rest.replace(REDIRECTION, ' ');
+    const end = args.search(ARGS_END);
+    const tokens = (end === -1 ? args : args.slice(0, end)).split(/\s+/);
+    if (!tokens.includes('--check') && !tokens.includes('--json')) return true;
   }
   return false;
 }

@@ -16,6 +16,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { qwenAdapter } from './qwen.js';
 
@@ -57,11 +60,13 @@ describe('qwen pre-tool-use', () => {
     expect((await runAdapter(qwenAdapter, 'pre-tool-use', input, makeProject({}, false), { QWEN_PROJECT_DIR: dir })).code).toBe(2);
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const name of ['run_shell_command', 'Bash']) {
       for (const command of REFRESH_DENIED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(DENIED);
       for (const command of REFRESH_ALLOWED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(SILENT);
+      for (const command of UPDATE_DENIED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(asUpdateDeny(DENIED));
+      for (const command of UPDATE_ALLOWED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(SILENT);
     }
   });
 });

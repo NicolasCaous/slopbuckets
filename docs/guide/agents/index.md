@@ -9,7 +9,7 @@ description: Which AI coding agents slopbuckets has hooks for, what each one sup
 
 Each agent also gets the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`, which tell the model the rules. The table shows what the hooks of each agent enforce on top of that, in three columns:
 
-- Lock guard blocks lock writes and plain refresh. The hook refuses a write to any `buckets.lock.json` and a `buckets refresh` without `--web` before the tool runs. The same rules refuse a write to any `buckets.config.json`, which a human owns too.
+- Lock guard blocks lock writes and plain refresh. The hook refuses a write to any `buckets.lock.json` and a `buckets refresh` without `--web` before the tool runs. The same rules refuse a write to any `buckets.config.json`, which a human owns too, and `buckets update` without `--check` or `--json`, because a human updates the CLI.
 - Edit feedback gives feedback after edits. After each edit, the model gets the `buckets check --file` report for the edited file.
 - Turn check blocks the end of a turn. When `buckets check` fails, the agent cannot end its turn the first time it tries, and gets the report instead.
 

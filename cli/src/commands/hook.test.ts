@@ -7,6 +7,7 @@ import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture
 import { approve, fakeIo, testContext } from '../testing/harness.js';
 import type { Context } from '../core/types.js';
 import { hookCommand, LOCK_DENY_REASON, mentionsLock, normalizeTargetPath, runsForbiddenRefresh, touchesLock } from './hook.js';
+import { UPDATE_DENY_REASON } from '../hooks/core.js';
 
 afterEach(cleanupProjects);
 
@@ -475,6 +476,29 @@ describe('pre-tool-use, third review', () => {
     await approve(dir);
     for (const input of [write(path.join(dir, 'buckets.lock.json::$DATA')), write(path.join(dir, 'buckets.lock.json.')), bash('cat bucket*'), bash('buckets.cmd refresh')]) {
       expect((await runHook('pre-tool-use', { cwd: dir, ...input }, dir)).out).toBe(`${DENY}\n`);
+    }
+  });
+});
+
+describe('pre-tool-use and buckets update', () => {
+  const bash = (command: string) => ({ tool_name: 'Bash', tool_input: { command } });
+  const ps = (command: string) => ({ tool_name: 'PowerShell', tool_input: { command } });
+
+  it('denies an update that can install with the update reason, in Bash and PowerShell', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    const deny = `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: UPDATE_DENY_REASON } })}\n`;
+    for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update']) {
+      expect(touchesLock(bash(command)), command).toBe(true);
+      expect((await runHook('pre-tool-use', { cwd: dir, ...bash(command) }, dir)).out).toBe(deny);
+      expect((await runHook('pre-tool-use', { cwd: dir, ...ps(command) }, dir)).out).toBe(deny);
+    }
+  });
+
+  it('allows --check, --json and other commands with the word update', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    for (const command of ['buckets update --check', 'buckets update --json', 'npm update']) {
+      expect(touchesLock(bash(command)), command).toBe(false);
+      expect((await runHook('pre-tool-use', { cwd: dir, ...bash(command) }, dir)).out).toBe('');
     }
   });
 });

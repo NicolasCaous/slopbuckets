@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hookCommand } from '../../commands/hook.js';
 import { approve, fakeIo, testContext } from '../../testing/harness.js';
 import { cleanupProjects, fileExists, LOGGER_PROJECT, makeProject, readFile, writeFile } from '../../testing/fixture.js';
-import { CONFIG_DENY_REASON, LOCK_DENY_REASON } from '../core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON, UPDATE_DENY_REASON } from '../core.js';
 import { PLUGIN_MARKER } from '../plugin-file.js';
 import { LOWERCASE_READ_DENY_REASON, lowercaseReadTool, parsePluginInput } from '../plugin-protocol.js';
 import { findAdapter } from '../registry.js';
@@ -81,6 +81,16 @@ describe.each(CASES)('buckets hook --agent $agent ($name)', ({ agent, write, she
     expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('cat buckets.lock.json') }, dir)).answer.decision).toBe('deny');
     expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('buckets refresh --web > refresh.log 2>&1 &') }, dir)).answer).toEqual({ decision: 'allow' });
     expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('ls') }, dir)).answer).toEqual({ decision: 'allow' });
+  });
+
+  it('denies buckets update without --check or --json with the update reason, and allows the report forms', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update']) {
+      expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell(command) }, dir)).answer).toEqual({ decision: 'deny', reason: UPDATE_DENY_REASON });
+    }
+    for (const command of ['buckets update --check', 'buckets update --json', 'npm update']) {
+      expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell(command) }, dir)).answer).toEqual({ decision: 'allow' });
+    }
   });
 
   it('returns the check of an edited file with a violation, and nothing for a clean one', async () => {

@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .cursor/hooks.json for the Cu
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `preToolUse` denies a `Write` or `Delete` of a lock or a config, and `beforeShellExecution` denies a command that names one or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `preToolUse` denies a `Write` or `Delete` of a lock or a config, and `beforeShellExecution` denies a command that names one or runs plain `buckets refresh` or an installing `buckets update` |
 | Feedback after edits | partial | `postToolUse` returns the `buckets check --file` report, but whether the model sees it depends on the Cursor version |
 | Block the end of a turn | yes | `stop` sends the `buckets check` report as a follow-up message, once per turn |
 
@@ -29,7 +29,7 @@ Cursor also runs the hooks in `.claude/settings.json` by default. If you install
 ## How it works
 
 - `preToolUse`, with the matcher `Write|Delete`. Cursor maps its edit tools to `Write`. When the target is any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, the hook prints `{"permission": "deny", "agent_message": "<reason>", "user_message": "..."}`. Every other call gets an explicit `{"permission": "allow"}`.
-- `beforeShellExecution`. When the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook denies it the same way. Every other command gets `{"permission": "allow"}`.
+- `beforeShellExecution`. When the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook denies it the same way. Every other command gets `{"permission": "allow"}`.
 - A `.cursor/hooks.json` from an older slopbuckets version had `failClosed: true` on the two guards, which made Cursor refuse the call when the hook could not run. `buckets init --agent cursor` removes it from those entries and leaves `failClosed` on your own hooks alone.
 - `postToolUse`, with the matcher `Write`. The hook runs `buckets check --file` on the written file and returns the report in `additional_context`.
 - `stop`, with `loop_limit: 1`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"followup_message": "<report>"}`, which Cursor sends as the next user message, so the agent keeps working. It answers only when `loop_count` is 0, the first stop of the turn, and never when you stopped the turn yourself.

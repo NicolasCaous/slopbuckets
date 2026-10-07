@@ -679,6 +679,8 @@ Every command except <code>buckets hook</code>, <code>buckets check --file</code
 
 ${msgBlock(propValues('cli/src/core/update.ts', 'message'))}
 
+A human runs <code>buckets update</code>. The [agent hooks](./hooks#pre-tool-use) deny an agent's <code>buckets update</code> without <code>--check</code> or <code>--json</code>, and tell it to give the human the version from this line.
+
 The messages of <code>buckets link</code> are on the [Links registry](./links#what-buckets-link-prints) page.
 
 ## Full help text
@@ -1128,7 +1130,8 @@ ${typeSections(decl.filter((d) => d.kind !== 'const'))}
   check(hooks.map((h) => h.event), EXPLAIN_HOOK, 'HOOKS');
   const deny = constString(source('cli/src/hooks/core.ts'), 'LOCK_DENY_REASON');
   const configDeny = constString(source('cli/src/hooks/core.ts'), 'CONFIG_DENY_REASON');
-  if (!deny || !configDeny) throw new Error('LOCK_DENY_REASON or CONFIG_DENY_REASON not found in cli/src/hooks/core.ts');
+  const updateDeny = constString(source('cli/src/hooks/core.ts'), 'UPDATE_DENY_REASON');
+  if (!deny || !configDeny || !updateDeny) throw new Error('LOCK_DENY_REASON, CONFIG_DENY_REASON or UPDATE_DENY_REASON not found in cli/src/hooks/core.ts');
   const stopIntro = recordOf('cli/src/hooks/core.ts', 'STOP_INTRO');
   const setOf = (name) => {
     const { sf: s, obj: o } = objectLiteralOf('cli/src/hooks/adapters/claude.ts', name);
@@ -1177,7 +1180,7 @@ A missing, oversized or malformed record counts as empty, and the next record re
 
 ### pre-tool-use
 
-When a call would write a lock or a config (<code>${LOCK_FILE}</code> or <code>buckets.config.json</code> of any project, nested ones included) or run <code>buckets refresh</code> in any form other than <code>buckets refresh --web</code>, the hook writes a deny decision. Claude Code applies it even in bypass permission mode. Otherwise it writes nothing.
+When a call would write a lock or a config (<code>${LOCK_FILE}</code> or <code>buckets.config.json</code> of any project, nested ones included) or run <code>buckets refresh</code> in any form other than <code>buckets refresh --web</code>, or run <code>buckets update</code> without <code>--check</code> or <code>--json</code>, the hook writes a deny decision. Claude Code applies it even in bypass permission mode. Otherwise it writes nothing.
 
 ${codeBlock('json', JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: '...' } }, null, 2))}
 
@@ -1189,6 +1192,10 @@ The reason for a config:
 
 ${msgBlock([configDeny])}
 
+The reason for <code>buckets update</code>:
+
+${msgBlock([updateDeny])}
+
 The file rule denies a file tool when the target is a lock or a config. The rules below name the lock, and they apply to <code>buckets.config.json</code> the same way:
 
 - by name, after Windows drops a stream suffix (<code>${LOCK_FILE}::$DATA</code>) and trailing dots and spaces (<code>${LOCK_FILE}.</code>)
@@ -1198,6 +1205,7 @@ The shell rule is a text match, after the hook removes quotes, backticks, carets
 
 - it names the lock or a config: literally, through an 8.3 short name, or through a glob whose last part matches the file name but not <code>package.json</code>, such as <code>bucket*</code>, <code>&#42;.lock.json</code>, <code>&#42;.config.json</code> or <code>b[u]ckets.lock.json</code>. So even <code>cat ${LOCK_FILE}</code> is denied, and the agent reads both files with the Read tool.
 - it runs <code>buckets refresh</code> and what follows <code>refresh</code> is not exactly <code>--web</code>, optionally followed by output redirections, then the end of the command or a separator. A redirection goes to a file (<code>&gt; refresh.log</code>, <code>&gt;&gt; refresh.log</code>, <code>&amp;&gt; refresh.log</code>, PowerShell <code>*&gt; refresh.log</code>) or to another stream (<code>2&gt;&amp;1</code>). The separator can be a trailing <code>&amp;</code> or a pipe, as in <code>| tee refresh.log</code>, and <code>nohup</code> in front of the call is allowed too. So an agent can run the command in the background and keep its log. A redirection to the lock names the lock, so the first rule denies it. The program can be <code>buckets</code> or <code>slopbuckets</code>, with a version (<code>npx slopbuckets@0.1.0 refresh</code>), through a Windows shim (<code>buckets.cmd refresh</code>), as a script run by node or tsx (<code>node cli/dist/index.js refresh</code>), or behind a package runner with flags (<code>npm exec slopbuckets -- refresh</code>). Every call in the command must pass, so <code>buckets refresh --web; buckets refresh</code> is denied.
+- it runs <code>buckets update</code>, through the same programs as <code>buckets refresh</code> (<code>npx slopbuckets update</code>, <code>pnpm exec buckets update</code>, <code>yarn buckets update</code>, <code>bunx slopbuckets update</code>), and no argument of that call, up to the next separator, is exactly <code>--check</code> or <code>--json</code>. Those two flags only report, so <code>buckets update --check</code> and <code>buckets update --json &gt; update.log</code> pass. A redirection target is not an argument, so <code>buckets update &gt; --check</code> is denied. Every call in the command must pass, so <code>buckets update --check; buckets update</code> is denied. A human updates the CLI.
 
 When this hook crashes, it allows the call, because a crash here would break every tool call the agent makes. When a stop hook or the post-edit hook crashes, it blocks once with the error, so the agent cannot finish with unchecked work.
 

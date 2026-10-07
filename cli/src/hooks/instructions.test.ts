@@ -15,6 +15,7 @@ describe('the managed block of AGENTS.md', () => {
     expect(AGENTS_BLOCK).toContain('.agents/skills/slopbuckets/SKILL.md');
     expect(AGENTS_BLOCK).toContain('buckets refresh --web');
     expect(AGENTS_BLOCK).toContain('Never write any `buckets.lock.json` or `buckets.config.json`');
+    expect(AGENTS_BLOCK).toContain('Never run `buckets update` without `--check` or `--json`');
     expect(AGENTS_BLOCK).toMatch(/`access-denied` or `access-ambiguous`[^\n]*stop and ask the human/);
     expect(AGENTS_BLOCK).not.toMatch(new RegExp("[\u2013\u2014]"));
   });

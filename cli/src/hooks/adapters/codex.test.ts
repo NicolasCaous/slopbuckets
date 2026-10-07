@@ -16,6 +16,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { codexAdapter } from './codex.js';
 
@@ -63,10 +66,12 @@ describe('codex pre-tool-use', () => {
     expect((await runAdapter(codexAdapter, 'pre-tool-use', bash(dir, `apply_patch <<'EOF'\n${patch(['*** Add File: buckets.lock.json', '+{}'])}\nEOF`), dir)).out).toBe(DENY);
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect(await runAdapter(codexAdapter, 'pre-tool-use', bash(dir, command), dir)).toEqual({ code: 0, out: DENY, err: '' });
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(codexAdapter, 'pre-tool-use', bash(dir, command), dir)).toEqual({ code: 0, out: '', err: '' });
+    for (const command of UPDATE_DENIED) expect(await runAdapter(codexAdapter, 'pre-tool-use', bash(dir, command), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(codexAdapter, 'pre-tool-use', bash(dir, command), dir)).toEqual({ code: 0, out: '', err: '' });
     // An argv array, as older builds sent the shell tool.
     const argv = payload(dir, 'PreToolUse', { tool_name: 'shell', tool_input: { command: ['bash', '-lc', 'buckets refresh'] } });
     expect((await runAdapter(codexAdapter, 'pre-tool-use', argv, dir)).out).toBe(DENY);

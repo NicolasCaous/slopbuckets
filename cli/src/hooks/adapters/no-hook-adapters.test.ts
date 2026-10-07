@@ -8,7 +8,7 @@ import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { fakeIo, testContext } from '../../testing/harness.js';
 import { addAgentsRead, AIDER_CONFIG, aiderAdapter, removeAgentsRead } from './aider.js';
 import { continueAdapter } from './continue.js';
-import { ZED_GUARDED_PATTERN, ZED_REFRESH_PATTERN, ZED_TOOL_PERMISSIONS, zedAdapter } from './zed.js';
+import { ZED_GUARDED_PATTERN, ZED_REFRESH_PATTERN, ZED_TOOL_PERMISSIONS, ZED_UPDATE_PATTERN, zedAdapter } from './zed.js';
 
 afterEach(cleanupProjects);
 
@@ -41,6 +41,16 @@ describe('zed tool permissions', () => {
       expect(refresh.test(command), command).toBe(true);
     }
     for (const command of ['buckets refresh --web', 'buckets refresh --web > refresh.log 2>&1', 'buckets check', 'buckets refresh --web &']) expect(refresh.test(command), command).toBe(false);
+  });
+
+  it('denies buckets update without --check or --json and lets the report forms through', () => {
+    const update = new RegExp(ZED_UPDATE_PATTERN, 'i');
+    for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update', 'buckets.cmd update -y', 'buckets update --checkx', 'buckets update 2>&1']) {
+      expect(update.test(command), command).toBe(true);
+    }
+    for (const command of ['buckets update --check', 'buckets update --json', 'buckets update 1.2.0 --check', 'buckets update --check > update.log 2>&1', 'npx slopbuckets update --json', 'npm update', 'buckets updates', 'buckets link update shared']) {
+      expect(update.test(command), command).toBe(false);
+    }
   });
 
   it('denies the lock and the config by name and by 8.3 short name', () => {

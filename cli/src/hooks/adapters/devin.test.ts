@@ -15,6 +15,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { devinAdapter } from './devin.js';
 
@@ -50,11 +53,13 @@ describe('devin pre-tool-use', () => {
     }
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web, under command or command_line', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web, under command or command_line', async () => {
     const dir = violationProject();
     for (const key of ['command', 'command_line']) {
       for (const command of REFRESH_DENIED) expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'exec', { [key]: command }), dir)).toEqual(DENIED);
       for (const command of REFRESH_ALLOWED) expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'exec', { [key]: command }), dir)).toEqual(SILENT);
+      for (const command of UPDATE_DENIED) expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'exec', { [key]: command }), dir)).toEqual(asUpdateDeny(DENIED));
+      for (const command of UPDATE_ALLOWED) expect(await runAdapter(devinAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'exec', { [key]: command }), dir)).toEqual(SILENT);
     }
   });
 });

@@ -16,6 +16,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { auggieAdapter } from './auggie.js';
 
@@ -52,10 +55,12 @@ describe('auggie pre-tool-use', () => {
     }
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'launch-process', { command, wait: true }), dir)).toEqual(DENIED);
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'launch-process', { command, wait: false }), dir)).toEqual(SILENT);
+    for (const command of UPDATE_DENIED) expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'launch-process', { command, wait: true }), dir)).toEqual(asUpdateDeny(DENIED));
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(auggieAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'launch-process', { command, wait: false }), dir)).toEqual(SILENT);
   });
 });
 

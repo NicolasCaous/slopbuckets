@@ -15,7 +15,7 @@ description: buckets check and buckets inspect are for anyone, buckets refresh -
 | `buckets link add`, `sync`, `update`, `remove` | the AI or a human | link the source of another project into a bucket, and keep the links current. They never write the lock |
 | `buckets init` | a human | sets up a project, or a nested one |
 | `buckets update` | a human | installs a newer slopbuckets, or a given version, the way the CLI was installed |
-| `buckets update --check` | anyone | prints the installed and latest versions and the install command |
+| `buckets update --check`, `buckets update --json` | anyone, the AI included | prints the installed and latest versions and the install command, and installs nothing |
 
 The AI can edit any file, DMZ files included. It cannot write the lock. When the AI changes a contract, `buckets check` fails until a human approves the change.
 
@@ -101,6 +101,6 @@ When the registry has a newer version, every command except `buckets hook`, `buc
 slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.
 ```
 
-It goes to stderr, so the JSON and exports on stdout stay valid, and it comes first, so the link of `buckets refresh --web` stays the last line of a shared log. `buckets check --json` also puts it in its `update` field. The notice never changes an exit code. An agent that sees it finishes its task and leaves the update to the human.
+It goes to stderr, so the JSON and exports on stdout stay valid, and it comes first, so the link of `buckets refresh --web` stays the last line of a shared log. `buckets check --json` also puts it in its `update` field. The notice never changes an exit code. An agent that sees it finishes its task and leaves the update to the human. The agent hooks deny an agent `buckets update` without `--check` or `--json`, and the reason tells the agent to give the human the version from the notice. See [the lock guard](./claude-code#the-lock-guard).
 
 The CLI asks the registry at most once every 24 hours, with a timeout of 1.5 seconds, and keeps the answer in `%LOCALAPPDATA%\slopbuckets` on Windows and in `$XDG_CACHE_HOME/slopbuckets` or `~/.cache/slopbuckets` elsewhere. A failure prints nothing. It never asks when the `CI` variable is set or with `SLOPBUCKETS_NO_UPDATE_CHECK=1`.

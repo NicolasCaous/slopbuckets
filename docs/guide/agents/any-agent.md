@@ -9,7 +9,7 @@ slopbuckets has hooks for a list of agents, and `buckets init --agent <name>` se
 
 ## The rules in AGENTS.md
 
-Every `buckets init` writes a block in `AGENTS.md` at the project folder, between `<!-- slopbuckets:start -->` and `<!-- slopbuckets:end -->`. It lists the essential rules: put code in `_/`, import through the alias, cross buckets only through DMZ files, never write any `buckets.lock.json` or `buckets.config.json`, never run plain `buckets refresh`, and run `buckets check` before finishing. When an `access` rule blocks a dependency the task needs, the agent stops and asks the human for the exact `access` line it proposes, the list it goes in and why. Running `init` again rewrites only the lines between the markers.
+Every `buckets init` writes a block in `AGENTS.md` at the project folder, between `<!-- slopbuckets:start -->` and `<!-- slopbuckets:end -->`. It lists the essential rules: put code in `_/`, import through the alias, cross buckets only through DMZ files, never write any `buckets.lock.json` or `buckets.config.json`, never run plain `buckets refresh` or `buckets update` without `--check` or `--json`, and run `buckets check` before finishing. When an `access` rule blocks a dependency the task needs, the agent stops and asks the human for the exact `access` line it proposes, the list it goes in and why. Running `init` again rewrites only the lines between the markers.
 
 Most agents read `AGENTS.md`. If yours reads another file, such as `CONVENTIONS.md` or a rules folder, point that file at `AGENTS.md`, or copy the block there.
 
@@ -35,7 +35,7 @@ The check in CI holds the rules for every change, whoever made it. Add `buckets 
 
 ## What you give up without hooks
 
-An agent with hooks gets three more things: the lock guard refuses a write to any `buckets.lock.json` or `buckets.config.json` or a plain `buckets refresh` before it happens, each edit gets its `buckets check --file` report right away, and the agent cannot end its turn while `buckets check` fails. Without hooks, the agent can still break a rule or touch the lock or the config, and you find out at the commit or in CI. Review changes to `buckets.lock.json` and `buckets.config.json` in pull requests as you would review a change to the contracts themselves.
+An agent with hooks gets three more things: the lock guard refuses a write to any `buckets.lock.json` or `buckets.config.json`, a plain `buckets refresh` or `buckets update` without `--check` or `--json` before it happens, each edit gets its `buckets check --file` report right away, and the agent cannot end its turn while `buckets check` fails. Without hooks, the agent can still break a rule or touch the lock or the config, and you find out at the commit or in CI. Review changes to `buckets.lock.json` and `buckets.config.json` in pull requests as you would review a change to the contracts themselves.
 
 ## Check that it works
 

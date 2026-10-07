@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Context } from '../core/types.js';
 import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture.js';
 import { approve, testContext } from '../testing/harness.js';
-import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, type ToolAction } from './core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, UPDATE_DENY_REASON, type ToolAction } from './core.js';
 import { readSessionProjects, sessionStateFile } from './session.js';
 
 const stateFiles: string[] = [];
@@ -26,6 +26,7 @@ function newSession(): string {
 const NOWHERE = path.join(path.sep, 'nowhere', 'at', 'all');
 const DENY = { decision: 'deny', reason: LOCK_DENY_REASON };
 const CONFIG_DENY = { decision: 'deny', reason: CONFIG_DENY_REASON };
+const UPDATE_DENY = { decision: 'deny', reason: UPDATE_DENY_REASON };
 const ALLOW = { decision: 'allow' };
 const shell = (command: string): ToolAction => ({ kind: 'shell', command });
 const write = (...paths: string[]): ToolAction => ({ kind: 'write', paths });
@@ -314,6 +315,56 @@ describe('preTool: buckets.config.json', () => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(CONFIG_DENY);
     const dir = makeProject(NESTED);
     expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(CONFIG_DENY);
+  });
+
+  it.each([
+    'buckets update',
+    'buckets update 1.2.0',
+    'buckets update v1.2.0 --yes',
+    'buckets update --yes',
+    'buckets update -y',
+    'npx slopbuckets update',
+    'npx slopbuckets@latest update --yes',
+    'pnpm exec buckets update',
+    'pnpm dlx slopbuckets update',
+    'yarn buckets update',
+    'bunx slopbuckets update',
+    'npm exec slopbuckets -- update',
+    'node node_modules/slopbuckets/dist/index.js update',
+    'buckets.cmd update --yes',
+    'Buckets Update',
+    '"buckets" update',
+    'echo y | buckets update',
+    'buckets update --check; buckets update',
+    'buckets update --json && buckets update --yes',
+    'buckets update > --check',
+    'buckets update $(echo --check)',
+    'buckets update --checkx',
+    'buckets update --CHECK',
+  ])('denies the installing update %j with the update reason', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(UPDATE_DENY);
+    const dir = makeProject(NESTED);
+    expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(UPDATE_DENY);
+  });
+
+  it.each([
+    'buckets update --check',
+    'buckets update --json',
+    'buckets update 1.2.0 --check',
+    'buckets update --yes --json',
+    'npx slopbuckets update --check',
+    'pnpm exec buckets update --json',
+    'buckets update --check > update.log 2>&1 &',
+    'buckets update 2>&1 --json',
+    'buckets update "--check"',
+    'npm update',
+    'apt-get update && buckets check',
+    'git commit -m "Update the access docs"',
+    'buckets check --file root/_/update.ts',
+    'npm run update-deps',
+    'buckets link update shared',
+  ])('allows %j', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
   });
 
   it('gives the lock reason when a command names both files', () => {

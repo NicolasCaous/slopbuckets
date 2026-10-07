@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .github/hooks/slopbuckets.jso
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `preToolUse` denies `create`, `edit` and `apply_patch` on a lock or a config and a `bash` or `powershell` command that names one or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `preToolUse` denies `create`, `edit` and `apply_patch` on a lock or a config and a `bash` or `powershell` command that names one or runs plain `buckets refresh` or an installing `buckets update` |
 | Feedback after edits | yes | `postToolUse` adds the `buckets check --file` report after the tool output, with Copilot CLI 1.0.87 or later |
 | Block the end of a turn | yes | `agentStop` and `subagentStop` block once with the `buckets check` report |
 
@@ -53,7 +53,7 @@ VS Code has two agent engines. The Copilot engine reads the same `.github/hooks/
 
 Copilot sends camelCase JSON on stdin. `toolArgs` is usually a JSON string, and for `apply_patch` it can be the patch text itself. The hook reads all three forms.
 
-- `preToolUse`, with the matcher `edit|create|apply_patch|str_replace_editor|bash|powershell`. When `path` names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or a patch header `*** Add File:`, `*** Update File:`, `*** Delete File:` or `*** Move to:` names one, the hook prints `{"permissionDecision": "deny", "permissionDecisionReason": "<reason>"}`. It does the same for a command that names either file or runs `buckets refresh` with anything but exactly `--web`. Every other call gets no output, so Copilot's own permission rules still apply.
+- `preToolUse`, with the matcher `edit|create|apply_patch|str_replace_editor|bash|powershell`. When `path` names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or a patch header `*** Add File:`, `*** Update File:`, `*** Delete File:` or `*** Move to:` names one, the hook prints `{"permissionDecision": "deny", "permissionDecisionReason": "<reason>"}`. It does the same for a command that names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`. Every other call gets no output, so Copilot's own permission rules still apply.
 - `postToolUse`, with the matcher `edit|create|apply_patch|str_replace_editor`. The hook runs `buckets check --file` on each edited file and returns the report in `additionalContext`. Copilot caps that text at 10 KB, so a longer report is cut and ends with a note to run the check by hand.
 - `agentStop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and Copilot keeps working. The next stop carries `stop_hook_active: true`, and the hook lets it through.
 - `subagentStop` works the same way for a subagent. Its payload has no `stop_hook_active`, so the hook leaves a small mark per `agentId` in the system temp folder and lets the next stop of that subagent through. It never blocks twice in a row.

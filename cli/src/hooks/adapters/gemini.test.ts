@@ -15,6 +15,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { geminiAdapter } from './gemini.js';
 
@@ -44,11 +47,13 @@ describe('gemini before-tool', () => {
     }
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     const run = (command: string) => runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'run_shell_command', { command, description: 'approve', dir_path: '.' }), dir);
     for (const command of REFRESH_DENIED) expect(await run(command)).toEqual({ code: 0, out: DENY, err: '' });
     for (const command of REFRESH_ALLOWED) expect(await run(command)).toEqual({ code: 0, out: '', err: '' });
+    for (const command of UPDATE_DENIED) expect(await run(command)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
+    for (const command of UPDATE_ALLOWED) expect(await run(command)).toEqual({ code: 0, out: '', err: '' });
   });
 
   it('takes the session folder from GEMINI_PROJECT_DIR', async () => {

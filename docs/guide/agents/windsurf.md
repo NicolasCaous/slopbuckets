@@ -30,7 +30,7 @@ Hooks need no switch to turn on. Commit the hook file so everyone who opens the 
 
 ## How it works
 
-Before Cascade writes a file, it runs `buckets hook --agent windsurf pre-write-code` with `tool_info.file_path` on stdin. Before it runs a command, it runs `buckets hook --agent windsurf pre-run-command` with `tool_info.command_line` and `tool_info.cwd`. When the file is any `buckets.lock.json` or `buckets.config.json`, or the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook writes the reason on stderr and exits with code 2. Cascade then skips the action and shows the reason to the model. In every other case the hook exits with 0 and prints nothing.
+Before Cascade writes a file, it runs `buckets hook --agent windsurf pre-write-code` with `tool_info.file_path` on stdin. Before it runs a command, it runs `buckets hook --agent windsurf pre-run-command` with `tool_info.command_line` and `tool_info.cwd`. When the file is any `buckets.lock.json` or `buckets.config.json`, or the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook writes the reason on stderr and exits with code 2. Cascade then skips the action and shows the reason to the model. In every other case the hook exits with 0 and prints nothing.
 
 The hooks set `show_output`, so you also see the reason in the Cascade panel.
 

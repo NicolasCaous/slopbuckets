@@ -1,8 +1,8 @@
 // The decisions of the slopbuckets hooks, for any agent harness. An adapter turns a harness payload into one of the
 // calls below and turns the answer into the harness output. Nothing here reads stdin, writes stdout or knows a tool name.
 //
-// - preTool: before a tool runs. Denies a write to any buckets.lock.json or buckets.config.json and any
-//   `buckets refresh` but `--web`.
+// - preTool: before a tool runs. Denies a write to any buckets.lock.json or buckets.config.json, any
+//   `buckets refresh` but `--web` and any `buckets update` without `--check` or `--json`.
 // - postEdit: after files were written. Returns the `buckets check --file` report of the files with problems.
 // - stop: before the agent (or a subagent) ends its turn. Returns the full check report when it fails.
 //
@@ -25,6 +25,7 @@ import {
   mentionsLock,
   normalizeTargetPath,
   runsForbiddenRefresh,
+  runsInstallingUpdate,
   sameFile,
   type GuardedFile,
 } from './lock-guard.js';
@@ -40,7 +41,15 @@ export const CONFIG_DENY_REASON =
   'Do not edit or write any buckets.config.json under any name (alternative streams, short names, links), and do not run shell commands that mention it, also through wildcards. To read it, use the Read tool. ' +
   'If a task needs a change in it, such as an `access` line that allows a dependency, stop and ask the human to make the change, with the exact lines you need and why.';
 
-const DENY_REASONS: Record<GuardedFile, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON };
+export const UPDATE_DENY_REASON =
+  'Only a human updates the slopbuckets CLI, because the lock of each project records the CLI version that a human approved. ' +
+  'Do not run `buckets update` without `--check` or `--json`, also through npx, pnpm, yarn, bunx or a path to the CLI. `buckets update --check` and `buckets update --json` only report, so you may run them. ' +
+  'If a notice said that a newer slopbuckets version is available, tell the human the version it showed, and ask them to run `buckets update` in their own terminal.';
+
+/** What the guard refuses: a write to a guarded file, or a `buckets update` that can install. */
+export type Guarded = GuardedFile | 'update';
+
+const DENY_REASONS: Record<Guarded, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON, update: UPDATE_DENY_REASON };
 
 /** The first line of a stop report, by exit code. Exit 2 needs a human, so the agent must not try to fix it. */
 export const STOP_INTRO: Record<0 | 1 | 2 | 3, string> = {
@@ -132,13 +141,20 @@ export function isLockWrite(file: string, where?: { projectDir: string; cwd: str
   return guardedWrite(file, where) !== null;
 }
 
-/** The guarded file a shell command names, or `lock` when it runs `buckets refresh` in any form but `--web`. */
-export function guardedShell(command: string): GuardedFile | null {
+/**
+ * What a shell command touches that the guard refuses: the guarded file it names, `lock` when it runs
+ * `buckets refresh` in any form but `--web`, or `update` when it runs `buckets update` without `--check` or `--json`.
+ */
+export function guardedShell(command: string): Guarded | null {
   if (mentionsLock(command) || runsForbiddenRefresh(command)) return 'lock';
-  return mentionsConfig(command) ? 'config' : null;
+  if (mentionsConfig(command)) return 'config';
+  return runsInstallingUpdate(command) ? 'update' : null;
 }
 
-/** True when a shell command names a lock or a config, or runs `buckets refresh` in any form but `--web`. */
+/**
+ * True when a shell command names a lock or a config, runs `buckets refresh` in any form but `--web`, or runs
+ * `buckets update` without `--check` or `--json`.
+ */
 export function isForbiddenShell(command: string): boolean {
   return guardedShell(command) !== null;
 }
@@ -148,7 +164,7 @@ export function isForbiddenShell(command: string): boolean {
  * the agent makes.
  */
 export function preTool(input: PreToolInput): PreToolResult {
-  const deny = (kind: GuardedFile): PreToolResult => ({ decision: 'deny', reason: DENY_REASONS[kind] });
+  const deny = (kind: Guarded): PreToolResult => ({ decision: 'deny', reason: DENY_REASONS[kind] });
   try {
     const { action } = input;
     if (action.kind === 'other') return { decision: 'allow' };

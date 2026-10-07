@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 import { LOGGER_PROJECT, makeProject } from '../../testing/fixture.js';
 import { approve, fakeIo, testContext } from '../../testing/harness.js';
 import type { HookAdapter } from '../adapter.js';
-import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, stop } from '../core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, stop, UPDATE_DENY_REASON } from '../core.js';
 import { parseJson } from '../../core/json.js';
 import { unwrapFailOpen } from './hook-kit.js';
 
@@ -68,15 +68,25 @@ export function configNames(dir: string): string[] {
   return ['buckets.config.json', path.join(dir, 'buckets.config.json'), 'buckets.config.json::$DATA', 'BUCKETS.CONFIG.JSON.', 'root/log/_/engine/buckets.config.json'];
 }
 
-/** The expected answer to a config write: the expected lock answer with the config reason in place of the lock reason. */
-export function asConfigDeny<T>(expected: T): T {
+/** The expected lock answer with `reason` in place of the lock reason, also inside JSON text. */
+function withReason<T>(expected: T, reason: string): T {
   const escaped = (text: string) => JSON.stringify(text).slice(1, -1);
   const swap = (value: unknown): unknown => {
-    if (typeof value === 'string') return value.split(LOCK_DENY_REASON).join(CONFIG_DENY_REASON).split(escaped(LOCK_DENY_REASON)).join(escaped(CONFIG_DENY_REASON));
+    if (typeof value === 'string') return value.split(LOCK_DENY_REASON).join(reason).split(escaped(LOCK_DENY_REASON)).join(escaped(reason));
     if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, swap(v)]));
     return value;
   };
   return swap(expected) as T;
+}
+
+/** The expected answer to a config write: the expected lock answer with the config reason in place of the lock reason. */
+export function asConfigDeny<T>(expected: T): T {
+  return withReason(expected, CONFIG_DENY_REASON);
+}
+
+/** The expected answer to an installing `buckets update`: the expected lock answer with the update reason. */
+export function asUpdateDeny<T>(expected: T): T {
+  return withReason(expected, UPDATE_DENY_REASON);
 }
 
 /**
@@ -94,6 +104,10 @@ export function patch(lines: string[], crlf = false): string {
 
 export const REFRESH_DENIED = ['buckets refresh', 'npx slopbuckets refresh', 'buckets refresh --web --yes', 'buckets.cmd refresh'];
 export const REFRESH_ALLOWED = ['buckets refresh --web', 'buckets refresh --web > refresh.log 2>&1 &', 'npx slopbuckets refresh --web 2>&1 | tee refresh.log'];
+/** `buckets update` forms that can install, which the guard denies with the update reason. */
+export const UPDATE_DENIED = ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update'];
+/** `buckets update` forms that only report, and an unrelated command with the word update. */
+export const UPDATE_ALLOWED = ['buckets update --check', 'buckets update --json', 'npm update'];
 
 export interface InstallFixture {
   /** The config file, relative to the project. */

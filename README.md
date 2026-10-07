@@ -138,7 +138,7 @@ Each command below runs as `buckets <command>`.
 
 `buckets check --no-recursive` skips the nested projects. Every option and message is in the [CLI reference](https://nicolascaous.github.io/slopbuckets/docs/reference/cli.html).
 
-When the npm registry has a newer slopbuckets, every command except `hook`, `check --file` and `update` first prints one line on stderr, such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` `buckets check --json` also puts it in its `update` field. The CLI asks the registry of `npm_config_registry` at most once a day, keeps the answer in the cache folder of the operating system, and never asks when `CI` or `SLOPBUCKETS_NO_UPDATE_CHECK=1` is set. The notice never changes an exit code.
+When the npm registry has a newer slopbuckets, every command except `hook`, `check --file` and `update` first prints one line on stderr, such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` `buckets check --json` also puts it in its `update` field. The CLI asks the registry of `npm_config_registry` at most once a day, keeps the answer in the cache folder of the operating system, and never asks when `CI` or `SLOPBUCKETS_NO_UPDATE_CHECK=1` is set. The notice never changes an exit code. The agent hooks deny an agent's `buckets update` without `--check` or `--json`, so the agent tells the human the version instead.
 
 ## Approving a change
 
@@ -279,7 +279,7 @@ A new or removed link, and a published symbol that was added, removed or changed
 buckets init --agent auto
 ```
 
-Every agent also gets the rules in a block of `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`. On top of that, the hooks of each agent enforce up to three things: the lock guard refuses a write to the lock and a plain `buckets refresh`, edit feedback hands the `buckets check --file` report to the model after each edit, and the turn check blocks the end of a turn while `buckets check` fails.
+Every agent also gets the rules in a block of `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`. On top of that, the hooks of each agent enforce up to three things: the lock guard refuses a write to the lock, a plain `buckets refresh` and a `buckets update` that installs, edit feedback hands the `buckets check --file` report to the model after each edit, and the turn check blocks the end of a turn while `buckets check` fails.
 
 | Agent | `--agent` | Lock guard | Edit feedback | Turn check |
 |---|---|---|---|---|

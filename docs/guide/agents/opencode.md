@@ -46,7 +46,7 @@ The plugin holds no rules. For each guarded tool call it runs `buckets hook --ag
 
 Other tools, such as `read`, run without a call to the CLI.
 
-Before a guarded tool runs, `tool.execute.before` (OpenCode 1) or `ctx.tool.hook("execute.before")` (OpenCode 2) asks for `pre-tool-use`. When the answer is `{"decision": "deny", "reason": "..."}`, the plugin throws an error with the reason. OpenCode refuses the call and shows the reason to the model. That covers a write to any `buckets.lock.json` or `buckets.config.json`, a patch that touches one, a shell command that names one, and `buckets refresh` with anything but exactly `--web`. `buckets refresh --web > refresh.log 2>&1 &` passes.
+Before a guarded tool runs, `tool.execute.before` (OpenCode 1) or `ctx.tool.hook("execute.before")` (OpenCode 2) asks for `pre-tool-use`. When the answer is `{"decision": "deny", "reason": "..."}`, the plugin throws an error with the reason. OpenCode refuses the call and shows the reason to the model. That covers a write to any `buckets.lock.json` or `buckets.config.json`, a patch that touches one, a shell command that names one, `buckets refresh` with anything but exactly `--web`, and `buckets update` without `--check` or `--json`. `buckets refresh --web > refresh.log 2>&1 &` passes.
 
 After an edit tool, `tool.execute.after` or `execute.after` asks for `post-tool-use`. When a file has problems, the answer carries the report in `feedback`, and the plugin appends it to the tool output that the model reads next. After the `task` tool (OpenCode 1) or the `subagent` tool (OpenCode 2), the plugin asks for `subagent-stop` and appends a failing check to the subagent's result, so the main agent sees it.
 

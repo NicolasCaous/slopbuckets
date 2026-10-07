@@ -16,6 +16,9 @@ import {
   runAdapter,
   stopReportFor,
   violationProject,
+  asUpdateDeny,
+  UPDATE_ALLOWED,
+  UPDATE_DENIED,
 } from './adapter-test-kit.js';
 import { cursorAdapter } from './cursor.js';
 
@@ -25,7 +28,7 @@ const ALLOW = line({ permission: 'allow' });
 const DENY = line({
   permission: 'deny',
   agent_message: LOCK_DENY_REASON,
-  user_message: 'slopbuckets blocked this call: only a human may change buckets.lock.json or buckets.config.json, or run `buckets refresh`.',
+  user_message: 'slopbuckets blocked this call: only a human may change buckets.lock.json or buckets.config.json, run `buckets refresh` or install a CLI update with `buckets update`.',
 });
 
 /** Cursor writes a Windows workspace root as /c:/Users/...; the adapter must undo that. */
@@ -71,7 +74,7 @@ describe('cursor pre-tool-use and before-shell-execution', () => {
     expect((await runAdapter(cursorAdapter, 'pre-tool-use', bare, dir)).out).toBe(DENY);
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web, in both events', async () => {
+  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web, in both events', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) {
       expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: DENY, err: '' });
@@ -79,6 +82,12 @@ describe('cursor pre-tool-use and before-shell-execution', () => {
       expect((await runAdapter(cursorAdapter, 'pre-tool-use', asTool, dir)).out).toBe(DENY);
     }
     for (const command of REFRESH_ALLOWED) expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
+    for (const command of UPDATE_DENIED) {
+      expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
+      const asTool = payload(dir, 'preToolUse', { tool_name: 'Shell', tool_input: { command }, cwd: dir });
+      expect((await runAdapter(cursorAdapter, 'pre-tool-use', asTool, dir)).out).toBe(asUpdateDeny(DENY));
+    }
+    for (const command of UPDATE_ALLOWED) expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
     expect((await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, 'cat buckets.lock.json'), dir)).out).toBe(DENY);
   });
 

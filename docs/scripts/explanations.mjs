@@ -80,7 +80,7 @@ export const EXPLAIN_IMPORT_KIND = {
 };
 
 export const EXPLAIN_HOOK = {
-  PreToolUse: 'Denies any write to `buckets.lock.json` or `buckets.config.json`, under any name, any shell command that mentions either file, and any `buckets refresh` other than exactly `buckets refresh --web`, which may run in the background with its output redirected.',
+  PreToolUse: 'Denies any write to `buckets.lock.json` or `buckets.config.json`, under any name, any shell command that mentions either file, any `buckets refresh` other than exactly `buckets refresh --web`, which may run in the background with its output redirected, and any `buckets update` without `--check` or `--json`.',
   PostToolUse: 'Checks the file the agent just edited, in its nearest project, and reports a broken rule right away.',
   Stop: 'Runs the full check, nested projects included, before the agent ends its turn.',
   SubagentStop: 'Runs the full check, nested projects included, before a subagent hands back its work.',

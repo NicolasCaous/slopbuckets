@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { cleanProject, installSuite, line, LOCK_DENY_REASON, guardedNames, newSessionId, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, stopReportFor, violationProject } from './adapter-test-kit.js';
+import { cleanProject, installSuite, line, LOCK_DENY_REASON, guardedNames, newSessionId, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, stopReportFor, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
 import { GOOSE_HOOKS_FILE, GOOSE_MANIFEST, GOOSE_MATCHER, gooseAdapter } from './goose.js';
 
 afterEach(cleanupProjects);
@@ -35,10 +35,12 @@ describe('goose pre-tool-use', () => {
     expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'view', path: 'buckets.lock.json' }), dir)).out).toBe(ALLOW);
   });
 
-  it('blocks plain buckets refresh and allows buckets refresh --web', async () => {
+  it('blocks plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
     const dir = violationProject();
     for (const command of REFRESH_DENIED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command }), dir)).out).toBe(DENY);
     for (const command of REFRESH_ALLOWED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command, timeout_secs: 600 }), dir)).out).toBe(ALLOW);
+    for (const command of UPDATE_DENIED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command }), dir)).out).toBe(asUpdateDeny(DENY));
+    for (const command of UPDATE_ALLOWED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command, timeout_secs: 600 }), dir)).out).toBe(ALLOW);
   });
 
   it('matches only the tools it guards', () => {

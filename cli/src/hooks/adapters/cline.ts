@@ -3,7 +3,7 @@
 // (`PreToolUse.ps1`). Each script here only runs `buckets hook --agent cline <event>`, which reads the JSON Cline sends.
 //
 // Cline has no per-tool deny: `{"cancel": true}` from PreToolUse ends the whole task. So the hook cancels only for a
-// write to the lock or a plain `buckets refresh`, and says in `errorMessage` why the task stopped. PostToolUse hands
+// write to the lock or the config, a plain `buckets refresh` or an installing `buckets update`, and says in `errorMessage` why the task stopped. PostToolUse hands
 // the `buckets check --file` report back in `contextModification`. Nothing can block the end of a turn.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -114,8 +114,8 @@ function clineScope(input: JsonRecord, io: Io): HookScope {
 /** The text Cline shows when the hook ends the task. It has to say why the whole task stopped. */
 export function cancelMessage(tool: string, reason: string): string {
   return (
-    `slopbuckets stopped this task: the ${tool === '' ? 'tool' : `\`${tool}\``} call would write buckets.lock.json or buckets.config.json, or run \`buckets refresh\` without \`--web\`. ` +
-    'Cline hooks cannot refuse a single tool call, so refusing it ends the whole task. Start a new task and tell the agent to leave the lock and the config alone.\n\n' +
+    `slopbuckets stopped this task: the ${tool === '' ? 'tool' : `\`${tool}\``} call would write buckets.lock.json or buckets.config.json, run \`buckets refresh\` without \`--web\`, or run \`buckets update\` without \`--check\` or \`--json\`. ` +
+    'Cline hooks cannot refuse a single tool call, so refusing it ends the whole task. Start a new task and tell the agent to leave the lock, the config and CLI updates to you.\n\n' +
     reason
   );
 }
