@@ -166,10 +166,10 @@ describe('preTool: shell commands', () => {
     'buckets.CMD refresh --yes',
     'buckets.ps1 refresh',
     'slopbuckets.cmd refresh',
-    'node cli/dist/index.js refresh',
+    String.raw`node C:\src\slopbuckets\cli\dist\index.js refresh`,
     'node C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\slopbuckets\\dist\\index.js refresh',
     'node "./node_modules/slopbuckets/dist/index.js" refresh --webx',
-    'npx tsx cli/src/cli.ts refresh',
+    'npx tsx ../slopbuckets/cli/src/cli.ts refresh',
     'npm exec slopbuckets -- refresh',
     'npm exec --yes slopbuckets -- refresh',
     'npm exec --package=slopbuckets -- buckets refresh',
@@ -550,6 +550,25 @@ describe('preTool: shell guard review', () => {
     expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(20)}`) })).toEqual(ALLOW);
     // The same substitution many times is one text.
     expect(preTool({ cwd: NOWHERE, action: shell(`echo ${'"$(echo "$(echo hi)")"'.repeat(2000)}`) })).toEqual(ALLOW);
+  });
+
+  it.each(['node index.js update', 'node scripts/cli.js update', 'npx tsx scripts/cli.ts refresh', 'node src/index.ts update', 'node cli/dist/index.js update', 'node @slopbuckets/adapter-ts/dist/index.js update'])(
+    'allows a script that is not the installed CLI, %j',
+    (command) => {
+      expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+    },
+  );
+
+  it.each([
+    'node node_modules/slopbuckets/dist/index.js update',
+    String.raw`node .\node_modules\slopbuckets\dist\index.js update`,
+    String.raw`node C:\Users\dev\AppData\Roaming\npm\node_modules\SlopBuckets\dist\index.js update --yes`,
+    'node --no-warnings node_modules/.pnpm/slopbuckets@1.2.0/node_modules/slopbuckets/dist/index.js update',
+    'node node_modules/.bin/buckets update',
+    String.raw`node node_modules\.bin\buckets update`,
+    'npx tsx ~/src/slopbuckets/cli/src/index.ts update',
+  ])('denies a script of the installed CLI, %j', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(UPDATE_DENY);
   });
 });
 

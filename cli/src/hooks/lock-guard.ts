@@ -246,8 +246,12 @@ function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
 /** The CLI by its name, also as `slopbuckets`, with a version (`slopbuckets@0.1.0`), a shim (`buckets.cmd`) or a folder. */
 const CLI_NAME = /(?:^|[\\/:])(?:slop)?buckets(?:\.[a-z0-9]+)?(?:@\S*)?$/i;
 
-/** A script whose file name says index, cli or buckets, such as `cli/dist/index.js`. */
-const CLI_ENTRY = /(?:index|cli|buckets)[^\\/]*\.[cm]?[jt]s$/i;
+/**
+ * A script of the installed CLI: a path with a `slopbuckets` folder, such as
+ * `node_modules/slopbuckets/dist/index.js`. Any `index.js` or `cli.ts` elsewhere is another program.
+ * `node_modules/.bin/buckets` matches `CLI_NAME`.
+ */
+const CLI_ENTRY = /(?:^|[\\/])slopbuckets[\\/](?:[^\\/]+[\\/])*[^\\/]+\.[cm]?[jt]s$/i;
 
 function isCli(word: { text: string; raw: string }): boolean {
   return [word.text, word.raw.replace(/["'`^]/g, '')].some((s) => CLI_NAME.test(s) || CLI_ENTRY.test(s));
