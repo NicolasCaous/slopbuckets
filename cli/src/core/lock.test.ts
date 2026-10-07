@@ -164,7 +164,16 @@ describe('check against the lock', () => {
     const { report } = await checkProject(dir);
     expect(report.exitCode).toBe(3);
     expect(report.environment?.code).toBe('cli-version');
-    expect(report.environment?.message).toContain('slopbuckets@0.0.0');
+    expect(report.environment?.message).toContain('`buckets update 0.0.0`');
+    expect(report.environment?.message).toContain('To move the project to 1.0.0, a human runs `buckets refresh`');
+  });
+
+  it('points to buckets update when a newer CLI wrote the lock', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    await approve(dir, { ...testContext(), cliVersion: '1.3.0' });
+    const { report } = await checkProject(dir);
+    expect(report.environment?.code).toBe('cli-version');
+    expect(report.environment?.message).toContain('slopbuckets 1.3.0, a newer version than the installed 1.0.0. A human installs it with `buckets update 1.3.0`.');
   });
 
   it('names the lock format when the lock has a lockVersion this CLI cannot read, even with the same CLI version', async () => {

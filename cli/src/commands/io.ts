@@ -1,4 +1,5 @@
 // The process boundary of a command. index.ts wires the real process; tests pass fakes.
+import type { UpdateDeps } from '../core/update.js';
 import { styleFor, type Style } from '../output/style.js';
 
 export interface Prompt {
@@ -17,6 +18,8 @@ export interface Io {
   env: Record<string, string | undefined>;
   /** Terminal facts used only for styling. Missing means neither stream is a terminal, so output stays plain. */
   terminal?: { stdout: boolean; stderr: boolean; columns?: number };
+  /** The registry, clock, cache folder and process runner of the update check and `buckets update`. Missing turns both off. */
+  updates?: UpdateDeps;
 }
 
 /** The style for text written to stdout: color and wrapping only on a terminal, and never for --json or hooks. */

@@ -303,7 +303,7 @@ async function prepareProject(loaded: LoadedCase, workDir: string): Promise<void
 function runCli(args: string[], workDir: string, stdin: string, claudeProjectDir = workDir): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     cwd: workDir,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: claudeProjectDir, NO_COLOR: '1', FORCE_COLOR: '0' },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: claudeProjectDir, NO_COLOR: '1', FORCE_COLOR: '0', SLOPBUCKETS_NO_UPDATE_CHECK: '1' },
     input: stdin,
     encoding: 'utf8',
     timeout: RUN_TIMEOUT_MS,

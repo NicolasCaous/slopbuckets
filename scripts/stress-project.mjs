@@ -75,7 +75,7 @@ const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
 function buckets(cwd, ...args) {
-  const r = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', CLAUDE_PROJECT_DIR: cwd } });
+  const r = spawnSync(process.execPath, [cli, ...args], { cwd, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', SLOPBUCKETS_NO_UPDATE_CHECK: '1', CLAUDE_PROJECT_DIR: cwd } });
   return { code: r.status, out: r.stdout, err: r.stderr };
 }
 function mustBuckets(cwd, ...args) {
