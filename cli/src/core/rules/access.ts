@@ -1,7 +1,8 @@
 // Access rules: the `access` lines of buckets.config.json decide which bucket may use code that originates in which
 // other bucket. The edges are the ones of the bucket graph (buildEdges), so a symbol counts for its origin bucket
 // whatever DMZ files it passes through.
-import { evaluateAccess, matchesBucket, parseAccessLine, type AccessConfig, type AccessDecision } from '../access-glob.js';
+import { evaluateAccess, parseAccessLine, type AccessConfig, type AccessDecision } from '../access-glob.js';
+import { matchesBucket } from '../bucket-glob.js';
 import { EXTERNAL, PARENT, SELF } from '../dmz-path.js';
 import { resolveOrigin, type Model } from '../model.js';
 import { CONFIG_FILE } from '../paths.js';

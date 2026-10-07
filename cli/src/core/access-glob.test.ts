@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { compareSpecificity, evaluateAccess, matchesBucket, parseAccessLine, parsePattern, type AccessConfig } from './access-glob.js';
+import { evaluateAccess, parseAccessLine, type AccessConfig } from './access-glob.js';
+import { compareSpecificity, matchesBucket, parsePattern } from './bucket-glob.js';
 
 function pattern(text: string) {
   const result = parsePattern(text);
@@ -52,6 +53,14 @@ describe('matchesBucket', () => {
     expect(matches('root/{svc,lib}-*', 'root/lib-x')).toBe(true);
   });
 
+  it('matches several brace groups in one segment', () => {
+    const glob = 'root/repository/{A,B,C}+{A,B,C}';
+    expect(matches(glob, 'root/repository/A+A')).toBe(true);
+    expect(matches(glob, 'root/repository/C+B')).toBe(true);
+    expect(matches(glob, 'root/repository/A+D')).toBe(false);
+    expect(matches(glob, 'root/repository/A')).toBe(false);
+  });
+
   it('treats every other character as literal', () => {
     expect(matches('root/a.b', 'root/a.b')).toBe(true);
     expect(matches('root/a.b', 'root/axb')).toBe(false);
@@ -70,6 +79,12 @@ describe('parsePattern', () => {
 
   it.each(['', 'root//x', '/root', 'root/', 'root/{a', 'root/a}', 'root/{a,{b}}'])('rejects %j', (text) => {
     expect('error' in parsePattern(text)).toBe(true);
+  });
+
+  it.each(['root/{A|B|C}', 'root/a|b', 'root/{a,b}|c'])('rejects the | in %j and asks for commas', (text) => {
+    const result = parsePattern(text);
+    const segment = text.slice('root/'.length);
+    expect(result).toEqual({ error: `has a "|" in "${segment}". Separate alternatives with a comma, as in "{A,B,C}".` });
   });
 });
 

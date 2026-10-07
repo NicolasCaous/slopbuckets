@@ -3,6 +3,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseAccessLine, type AccessConfig } from './access-glob.js';
+import { rootPrefixProblem, type GlobLine, type LineLists } from './bucket-glob.js';
+import { parseLayoutLine, type LayoutConfig } from './layout-glob.js';
 import { canonicalJson, sha256 } from './hash.js';
 import { parseJson } from './json.js';
 import { JsoncText } from './jsonc.js';
@@ -18,13 +20,15 @@ export interface ResolvedConfig {
   maxDepth: number;
   /** Absent when the config has no `access` key, so the hash of a config without it stays the same. */
   access?: AccessConfig;
+  /** Absent when the config has no `layout` key. Then any bucket folder may exist. */
+  layout?: LayoutConfig;
 }
 
 export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', alias: '@root', maxDepth: 2 };
 
 const ADAPTERS = ['ts'];
-const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'maxDepth', 'access']);
-const ACCESS_KEYS = new Set(['default', 'allow', 'deny']);
+const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'maxDepth', 'access', 'layout']);
+const LINES_KEYS = new Set(['default', 'allow', 'deny']);
 
 export type ConfigResult =
   | { kind: 'missing' }
@@ -44,7 +48,7 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!KNOWN_KEYS.has(key)) {
-      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, maxDepth and access.`));
+      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, maxDepth, access and layout.`));
     }
   }
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -96,75 +100,102 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   }
 
   if ('access' in obj) {
-    const access = validateAccess(obj.access, config.root, violations);
+    const access = validateLines(ACCESS_KEY, obj.access, config.root, violations);
     if (access) config.access = access;
+  }
+
+  if ('layout' in obj) {
+    const layout = validateLines(LAYOUT_KEY, obj.layout, config.root, violations);
+    if (layout) config.layout = layout;
   }
 
   return violations.length > 0 ? { violations } : { config, violations };
 }
 
 /**
- * What is wrong with a side of an access line that starts with neither the root path nor `**`, or null. Every bucket
- * path starts with the root path, so such a side would match no bucket. The prefix is compared on whole segments.
+ * A config-invalid violation about `access` or `layout`. An agent reads it too, but only the human may fix the config,
+ * so every such message ends by telling the agent to stop.
  */
-function rootPrefixProblem(side: string, root: string): string | null {
-  const segments = side.split('/');
-  if (segments[0] === '**' || root.split('/').every((s, i) => segments[i] === s)) return null;
-  return `must start with the root path "${root}" or with "**", because every bucket path starts with "${root}", such as "${root}/billing". If the root folder moved, write the new root path at the start of the line.`;
-}
-
-/**
- * A config-invalid violation about `access`. An agent reads it too, but only the human may fix the config, so every
- * such message ends by telling the agent to stop.
- */
-function accessInvalid(message: string): Violation {
+function ownedInvalid(message: string): Violation {
   return invalid(`${message} ${CONFIG_FILE} belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.`);
 }
 
-/** Validates the `access` field and puts every line in canonical form. Pushes the problems into `violations`. */
-function validateAccess(raw: unknown, root: string, violations: Violation[]): AccessConfig | undefined {
+/** What differs between the `access` and `layout` keys when they are validated. */
+interface LinesKey {
+  key: 'access' | 'layout';
+  /** An example line, for the messages. */
+  example: string;
+  /** What `default` decides, for the message about a missing default. */
+  decides: string;
+  parse: (text: string) => { line: GlobLine } | { error: string };
+  /** How a message names pattern `index` of a line, such as `The left side "root/api" of "root/api -> root/log"`. */
+  names: (line: GlobLine, index: number) => string;
+}
+
+const ACCESS_KEY: LinesKey = {
+  key: 'access',
+  example: 'root/api/** -> root/log',
+  decides: 'the imports that no line matches',
+  parse: parseAccessLine,
+  names: (line, index) => `The ${index === 0 ? 'left' : 'right'} side "${line.patterns[index]!.text}" of "${line.text}"`,
+};
+
+const LAYOUT_KEY: LinesKey = {
+  key: 'layout',
+  example: 'root/*/*',
+  decides: 'the bucket folders that no line matches',
+  parse: parseLayoutLine,
+  names: (line) => `The line "${line.text}"`,
+};
+
+/**
+ * Validates the `access` or `layout` field and puts every line in canonical form. Pushes the problems into
+ * `violations`.
+ */
+function validateLines(spec: LinesKey, raw: unknown, root: string, violations: Violation[]): LineLists | undefined {
+  const { key, example } = spec;
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    violations.push(accessInvalid('Field "access" must be an object such as {"default": "deny", "allow": ["** -> root/log"]}. Fix it or remove it.'));
+    violations.push(ownedInvalid(`Field "${key}" must be an object such as {"default": "deny", "allow": ["${example}"]}. Fix it or remove it.`));
     return undefined;
   }
   const obj = raw as Record<string, unknown>;
   const before = violations.length;
-  for (const key of Object.keys(obj)) {
-    if (!ACCESS_KEYS.has(key)) {
-      violations.push(accessInvalid(`Unknown field "access.${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are default, allow and deny.`));
+  for (const field of Object.keys(obj)) {
+    if (!LINES_KEYS.has(field)) {
+      violations.push(ownedInvalid(`Unknown field "${key}.${field}" in ${CONFIG_FILE}. Remove it. The allowed fields are default, allow and deny.`));
     }
   }
   if (obj.default !== 'allow' && obj.default !== 'deny') {
-    violations.push(accessInvalid('Field "access.default" must be "allow" or "deny". Set it, because it decides the imports that no line matches.'));
+    violations.push(ownedInvalid(`Field "${key}.default" must be "allow" or "deny". Set it, because it decides ${spec.decides}.`));
   }
   const lists: Record<'allow' | 'deny', string[]> = { allow: [], deny: [] };
   for (const list of ['allow', 'deny'] as const) {
     if (!(list in obj)) continue;
     const items = obj[list];
     if (!Array.isArray(items)) {
-      violations.push(accessInvalid(`Field "access.${list}" must be an array of lines such as "root/api/** -> root/log".`));
+      violations.push(ownedInvalid(`Field "${key}.${list}" must be an array of lines such as "${example}".`));
       continue;
     }
     for (const item of items) {
       if (typeof item !== 'string') {
-        violations.push(accessInvalid(`Field "access.${list}" must contain only strings, such as "root/api/** -> root/log".`));
+        violations.push(ownedInvalid(`Field "${key}.${list}" must contain only strings, such as "${example}".`));
         continue;
       }
-      const parsed = parseAccessLine(item);
+      const parsed = spec.parse(item);
       if ('error' in parsed) {
-        violations.push(accessInvalid(`Field "access.${list}" has a line that is not valid. ${parsed.error}`));
+        violations.push(ownedInvalid(`Field "${key}.${list}" has a line that is not valid. ${parsed.error}`));
         continue;
       }
       let rootOk = true;
-      for (const [side, pattern] of [['left', parsed.line.from], ['right', parsed.line.to]] as const) {
+      parsed.line.patterns.forEach((pattern, index) => {
         const problem = rootPrefixProblem(pattern.text, root);
-        if (problem === null) continue;
+        if (problem === null) return;
         rootOk = false;
-        violations.push(accessInvalid(`Field "access.${list}" has a line that is not valid. The ${side} side "${pattern.text}" of "${parsed.line.text}" ${problem}`));
-      }
+        violations.push(ownedInvalid(`Field "${key}.${list}" has a line that is not valid. ${spec.names(parsed.line, index)} ${problem}`));
+      });
       if (!rootOk) continue;
       if (lists[list].includes(parsed.line.text)) {
-        violations.push(accessInvalid(`Field "access.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
+        violations.push(ownedInvalid(`Field "${key}.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
       } else {
         lists[list].push(parsed.line.text);
       }
@@ -172,12 +203,12 @@ function validateAccess(raw: unknown, root: string, violations: Violation[]): Ac
   }
   for (const line of lists.deny) {
     if (lists.allow.includes(line)) {
-      violations.push(accessInvalid(`Fields "access.allow" and "access.deny" both list "${line}". Remove it from one of them.`));
+      violations.push(ownedInvalid(`Fields "${key}.allow" and "${key}.deny" both list "${line}". Remove it from one of them.`));
     }
   }
   if (violations.length > before) return undefined;
   // Sorted, so the order of the lines in the file changes neither the lock nor the config hash.
-  return { default: obj.default as AccessConfig['default'], allow: lists.allow.sort(), deny: lists.deny.sort() };
+  return { default: obj.default as LineLists['default'], allow: lists.allow.sort(), deny: lists.deny.sort() };
 }
 
 /**

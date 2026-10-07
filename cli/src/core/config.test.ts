@@ -34,6 +34,19 @@ describe('validateConfig', () => {
     ['access line with an unclosed brace', { access: { default: 'deny', deny: ['root/{a,b -> root/c'] } }],
     ['access line listed twice', { access: { default: 'deny', allow: ['root/a -> root/b', 'root/a->root/b'] } }],
     ['access line in both allow and deny', { access: { default: 'deny', allow: ['root/a -> root/b'], deny: ['root/a->root/b'] } }],
+    ['access line with | between alternatives', { access: { default: 'deny', allow: ['root/{a|b} -> root/c'] } }],
+    ['layout not an object', { layout: ['root/*'] }],
+    ['layout without default', { layout: { allow: ['root/*'] } }],
+    ['layout default outside the enum', { layout: { default: 'maybe' } }],
+    ['unknown field in layout', { layout: { default: 'deny', only: [] } }],
+    ['layout allow not an array', { layout: { default: 'deny', allow: 'root/*' } }],
+    ['layout line not a string', { layout: { default: 'deny', allow: [1] } }],
+    ['layout line with an arrow', { layout: { default: 'deny', allow: ['root/a -> root/b'] } }],
+    ['layout line with an unclosed brace', { layout: { default: 'deny', deny: ['root/{a,b'] } }],
+    ['layout line with | between alternatives', { layout: { default: 'deny', allow: ['root/{a|b}'] } }],
+    ['layout line outside the root path', { layout: { default: 'deny', allow: ['src/*'] } }],
+    ['layout line listed twice', { layout: { default: 'deny', allow: ['root/*', ' root/* '] } }],
+    ['layout line in both allow and deny', { layout: { default: 'deny', allow: ['root/a'], deny: ['root/a'] } }],
   ])('rejects %s', (_name, raw) => {
     const result = validateConfig(raw);
     expect(result.config).toBeUndefined();
@@ -131,6 +144,40 @@ describe('access', () => {
     expect(a.access).toEqual({ default: 'deny', allow: ['** -> root/log', 'root/a -> root/c', 'root/b -> root/c'], deny: ['root/y -> root/c', 'root/z -> root/c'] });
     expect(b.access).toEqual(a.access);
     expect(configHash(b)).toBe(configHash(a));
+  });
+});
+
+describe('layout', () => {
+  it('stores each line trimmed, sorted, and fills in the missing list', () => {
+    const { config } = validateConfig({ layout: { default: 'deny', allow: [' root/*/* ', 'root/gpu/*'] } });
+    expect(config?.layout).toEqual({ default: 'deny', allow: ['root/*/*', 'root/gpu/*'], deny: [] });
+    expect(validateConfig({ layout: { default: 'allow', deny: ['root/legacy/**'] } }).config?.layout).toEqual({ default: 'allow', allow: [], deny: ['root/legacy/**'] });
+  });
+
+  it('accepts lines that start with the root path or with **', () => {
+    expect(validateConfig({ root: 'src/root', layout: { default: 'deny', allow: ['src/root/*', '**/gpu', 'src/root/{a,b}+{c,d}'] } }).violations).toEqual([]);
+  });
+
+  it('tells an agent to stop and show every layout error to the human', () => {
+    const { violations } = validateConfig({ layout: { default: 'maybe', extra: 1, allow: ['rootx/a', 'root/a -> root/b', 'root/{a|b}', 7], deny: 'root/a' } });
+    expect(violations.length).toBeGreaterThanOrEqual(6);
+    for (const v of violations) expect(v.message).toMatch(/^(?:Field|Unknown field) "layout[^"]*".*\. buckets\.config\.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human\.$/);
+    expect(violations.map((v) => v.message)).toContain(
+      'Field "layout.allow" has a line that is not valid. The line "rootx/a" must start with the root path "root" or with "**", because every bucket path starts with "root", such as "root/billing". If the root folder moved, write the new root path at the start of the line. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    );
+    expect(violations.map((v) => v.message)).toContainEqual(expect.stringContaining('"root/{a|b}" has a "|" in "{a|b}". Separate alternatives with a comma, as in "{A,B,C}".'));
+  });
+
+  it('leaves the key out of the resolved config when the file has none', () => {
+    expect('layout' in validateConfig({ root: 'root' }).config!).toBe(false);
+  });
+
+  it('changes the hash when layout changes, but not when only the order of the lines does', () => {
+    const a = configHash(validateConfig({ layout: { default: 'deny', allow: ['root/*/*', 'root/gpu/*'] } }).config!);
+    const b = configHash(validateConfig({ layout: { default: 'deny', allow: ['root/gpu/*', 'root/*/*'] } }).config!);
+    const c = configHash(validateConfig({ layout: { default: 'deny', allow: ['root/*/*'] } }).config!);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
   });
 });
 

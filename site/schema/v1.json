@@ -61,6 +61,34 @@
           "description": "Lines \"A -> B\": code in bucket A may not use code that originates in bucket B."
         }
       }
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "description": "Which bucket folders may exist. A bucket also passes when no deny line matches it and an allow line can match a bucket below it, so its ancestors may exist. Without it, any bucket folder may exist.",
+      "examples": [
+        {
+          "default": "deny",
+          "allow": ["root/gpu/*", "root/*/*"],
+          "deny": ["root/legacy/**"]
+        }
+      ],
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["allow", "deny"],
+          "description": "Outcome for a bucket folder that no deny or allow line matches. When several lines match, the most specific one decides."
+        },
+        "allow": {
+          "$ref": "#/$defs/layoutLines",
+          "description": "Globs of the bucket folders that may exist."
+        },
+        "deny": {
+          "$ref": "#/$defs/layoutLines",
+          "description": "Globs of the bucket folders that may not exist."
+        }
+      }
     }
   },
   "$defs": {
@@ -69,8 +97,17 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^(?:(?!->).)+->(?:(?!->).)+$",
-        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives."
+        "pattern": "^(?:(?!->)[^|])+->(?:(?!->)[^|])+$",
+        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. Alternatives are separated by commas, never by \"|\"."
+      }
+    },
+    "layoutLines": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(?:(?!->)[^|])+$",
+        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. Alternatives are separated by commas, never by \"|\"."
       }
     }
   }
