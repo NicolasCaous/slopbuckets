@@ -148,8 +148,11 @@ function failedReexports(model: Model, access: AccessConfig, reported: Set<strin
   return violations;
 }
 
-/** access-unknown-bucket for each side without wildcards that names no bucket of the project. */
-function unknownBuckets(model: Model, access: AccessConfig): Violation[] {
+/**
+ * access-unknown-bucket for each side without wildcards that names no bucket of the project, on the line of the access
+ * line in buckets.config.json when `lines` knows it.
+ */
+function unknownBuckets(model: Model, access: AccessConfig, lines: ReadonlyMap<string, number>): Violation[] {
   const violations: Violation[] = [];
   const buckets = [...model.layout.buckets.keys()];
   const root = model.config.root;
@@ -159,9 +162,11 @@ function unknownBuckets(model: Model, access: AccessConfig): Violation[] {
       if ('error' in parsed) continue; // validateConfig already rejects it.
       for (const [side, pattern] of [['left', parsed.line.from], ['right', parsed.line.to]] as const) {
         if (!pattern.literal || buckets.some((b) => matchesBucket(pattern, b))) continue;
+        const line = lines.get(`${list} ${parsed.line.text}`);
         violations.push({
           rule: 'access-unknown-bucket',
           file: CONFIG_FILE,
+          ...(line !== undefined ? { line } : {}),
           message: `The line "${parsed.line.text}" in access.${list} names the bucket ${pattern.text} on its ${side} side, but no bucket has that path, so the line matches nothing. A bucket path starts with the root folder "${root}", such as ${root}/billing. This happens when a bucket folder is renamed, moved or deleted, or when the path has a typo. ${OWNER} If you renamed or moved that bucket, move it back, or stop and ask the human to fix the line.`,
         });
       }
@@ -172,12 +177,13 @@ function unknownBuckets(model: Model, access: AccessConfig): Violation[] {
 
 /**
  * The access rules, or nothing when the config has no `access` key. With `dmzFile` (check --file on a DMZ file),
- * each failing edge whose symbol passes through that file is also reported on it.
+ * each failing edge whose symbol passes through that file is also reported on it. `configLines` gives the line of
+ * each access line in buckets.config.json, as `accessLineNumbers` reads it.
  */
-export function checkAccess(model: Model, uses: DmzUse[], dmzFile?: string): Violation[] {
+export function checkAccess(model: Model, uses: DmzUse[], dmzFile?: string, configLines: ReadonlyMap<string, number> = new Map()): Violation[] {
   const access = model.config.access;
   if (access === undefined) return [];
   const reported = new Set<string>();
   const early = failedReexports(model, access, reported);
-  return [...failedImports(model, access, uses, dmzFile, reported), ...early, ...unknownBuckets(model, access)];
+  return [...failedImports(model, access, uses, dmzFile, reported), ...early, ...unknownBuckets(model, access, configLines)];
 }

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { parseAccessLine, type AccessConfig } from './access-glob.js';
 import { canonicalJson, sha256 } from './hash.js';
 import { parseJson } from './json.js';
+import { JsoncText } from './jsonc.js';
 import { CONFIG_FILE, toPosix } from './paths.js';
 import type { Violation } from './types.js';
 
@@ -177,6 +178,31 @@ function validateAccess(raw: unknown, root: string, violations: Violation[]): Ac
   if (violations.length > before) return undefined;
   // Sorted, so the order of the lines in the file changes neither the lock nor the config hash.
   return { default: obj.default as AccessConfig['default'], allow: lists.allow.sort(), deny: lists.deny.sort() };
+}
+
+/**
+ * The line in buckets.config.json of each access line, keyed by `<list> <canonical line>`, such as
+ * `allow root/api -> root/log`. Empty when the file cannot be read or parsed.
+ */
+export function accessLineNumbers(projectDir: string): Map<string, number> {
+  const lines = new Map<string, number>();
+  try {
+    const doc = new JsoncText(readFileSync(path.join(projectDir, CONFIG_FILE), 'utf8'));
+    const access = doc.property(doc.root, 'access')?.value;
+    for (const list of ['allow', 'deny'] as const) {
+      const items = doc.property(access, list)?.value;
+      if (items?.kind !== 'array') continue;
+      for (const item of items.items) {
+        if (item.kind !== 'value' || typeof item.value !== 'string') continue;
+        const parsed = parseAccessLine(item.value);
+        const key = `${list} ${'error' in parsed ? item.value : parsed.line.text}`;
+        if (!lines.has(key)) lines.set(key, doc.text.slice(0, item.start).split('\n').length);
+      }
+    }
+  } catch {
+    // A config that cannot be read here was already reported by loadConfig. The messages just go without a line.
+  }
+  return lines;
 }
 
 /** Reads buckets.config.json from the project folder. */

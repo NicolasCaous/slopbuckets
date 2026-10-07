@@ -180,11 +180,31 @@ describe('access-ambiguous', () => {
 describe('access-unknown-bucket', () => {
   it('reports a side without wildcards that names no bucket', async () => {
     const { report } = await checkProject(loggerProject({ default: 'allow', deny: ['root/billing/invoice -> root/log'] }));
-    expect(where(report.violations)).toEqual(['access-unknown-bucket buckets.config.json']);
+    expect(where(report.violations)).toEqual(['access-unknown-bucket buckets.config.json:6']);
     const message = report.violations.find((v) => v.rule === 'access-unknown-bucket')!.message;
     expect(message).toContain('The line "root/billing/invoice -> root/log" in access.deny names the bucket root/billing/invoice on its left side');
     expect(message).toContain('ask the human');
     expect(report.exitCode).toBe(1);
+  });
+
+  it('names the line of the access line in the file, also with another spelling and Windows line ends', async () => {
+    const text = [
+      '{',
+      '  "root": "root",',
+      '  "access": {',
+      '    "default": "deny",',
+      '    "allow": [',
+      '      "** -> root/log",',
+      '',
+      '      "root/billing/invoice->root/log"',
+      '    ],',
+      '    "deny": ["root/gone -> root/log"]',
+      '  }',
+      '}',
+      '',
+    ].join('\r\n');
+    const { report } = await checkProject(makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': text }));
+    expect(where(report.violations)).toEqual(['access-unknown-bucket buckets.config.json:10', 'access-unknown-bucket buckets.config.json:8']);
   });
 
   it('accepts patterns with wildcards that match nothing', async () => {
@@ -221,6 +241,6 @@ describe('access rules with check --file', () => {
 
   it('reports unknown buckets on buckets.config.json', async () => {
     const { report } = await checkProject(loggerProject(ACCESS), { file: 'buckets.config.json' });
-    expect(where(report.violations)).toEqual(['access-unknown-bucket buckets.config.json']);
+    expect(where(report.violations)).toEqual(['access-unknown-bucket buckets.config.json:10']);
   });
 });

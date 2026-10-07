@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ABI_VERSION, type InfoResponse } from '@slopbuckets/adapter-ts';
 import { analysisKey, diskCache, lookupCache, makeCacheEntry, type CacheEntry, type CacheStore } from './cache.js';
 import { sha256 } from './hash.js';
-import { loadConfig, protocolConfig, type ResolvedConfig } from './config.js';
+import { accessLineNumbers, loadConfig, protocolConfig, type ResolvedConfig } from './config.js';
 import {
   copyDrift,
   folderFingerprint,
@@ -498,7 +498,7 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
     ...checkDmzTargets(model),
     ...imports.violations,
     ...checkCycles(model, imports.uses, dmzTarget),
-    ...checkAccess(model, imports.uses, dmzTarget),
+    ...checkAccess(model, imports.uses, dmzTarget, config.access !== undefined ? accessLineNumbers(projectDir) : undefined),
     ...linkEntries.violations,
     ...linkAnalysisViolations(projectDir, linkEntries.entries, response, info.name),
   ];
