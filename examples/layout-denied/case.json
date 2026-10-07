@@ -1,5 +1,5 @@
 {
-  "description": "a bucket at level 3 (root/billing/invoices/pdf) exceeds the default maxDepth of 2",
+  "description": "a bucket at level 3 (root/billing/invoices/pdf) matches no layout line, because the allow line root/*/* stops at level 2",
   "lock": "fresh",
   "delete": [],
   "args": [
@@ -11,7 +11,7 @@
     "exitCode": 1,
     "violations": [
       {
-        "rule": "folder-max-depth",
+        "rule": "layout-denied",
         "file": "root/billing/invoices/pdf"
       }
     ],

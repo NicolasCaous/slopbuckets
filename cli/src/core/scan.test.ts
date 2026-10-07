@@ -1,19 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../testing/fixture.js';
 import { DEFAULT_CONFIG } from './config.js';
+import type { LayoutConfig } from './layout-glob.js';
 import { scanProject, withoutEmittedFiles } from './scan.js';
 
 afterEach(cleanupProjects);
 
 const options = { extensions: ['.ts', '.tsx'], dmzExtension: '.ts' };
 
-function scan(files: Record<string, string>, maxDepth = 2) {
-  return scanProject(makeProject(files), { ...DEFAULT_CONFIG, maxDepth }, options);
+function scan(files: Record<string, string>, layout?: LayoutConfig, root = DEFAULT_CONFIG.root) {
+  return scanProject(makeProject(files), { ...DEFAULT_CONFIG, root, ...(layout ? { layout } : {}) }, options);
 }
 
-function pairs(files: Record<string, string>, maxDepth = 2): string[] {
-  return scan(files, maxDepth).violations.map((v) => `${v.rule} ${v.file}`).sort();
+function pairs(files: Record<string, string>, layout?: LayoutConfig, root?: string): string[] {
+  return scan(files, layout, root).violations.map((v) => `${v.rule} ${v.file}`).sort();
 }
+
+/** The layout `buckets init` writes: buckets down to two levels below the root. */
+const TWO_LEVELS: LayoutConfig = { default: 'deny', allow: ['root/*/*'], deny: [] };
 
 describe('folder rules', () => {
   it('accepts the SPEC layout', () => {
@@ -72,19 +76,76 @@ describe('folder rules', () => {
     expect(pairs({ 'root/_/a.ts': '', 'root/.cache/_/a.ts': '' })).toEqual(['folder-invalid-name root/.cache']);
   });
 
-  it('reports buckets deeper than maxDepth and does not descend', () => {
+  it('reports the first bucket the layout forbids and does not descend', () => {
     const files = {
       'root/_/a.ts': '',
       'root/dmz/a/.self.ts': '',
       'root/a/_/a.ts': '',
       'root/a/dmz/b/.self.ts': '',
       'root/a/b/_/a.ts': '',
+      'root/a/b/dmz/c/.self.ts': '',
       'root/a/b/c/_/a.ts': '',
+      'root/a/b/c/d/_/a.ts': '',
     };
-    expect(pairs(files, 2)).toEqual(['folder-max-depth root/a/b/c']);
-    expect(pairs(files, 3)).toEqual([]);
-    // The too-deep folder still counts as a child for the DMZ rules, so root/a/dmz/b/.self.ts gives no extra error.
-    expect(pairs(files, 1)).toEqual(['folder-max-depth root/a/b']);
+    const layout = scan(files, TWO_LEVELS);
+    // root/a/b/c/d fails too, but the scan never enters root/a/b/c.
+    expect(layout.violations.map((v) => `${v.rule} ${v.file}`)).toEqual(['layout-denied root/a/b/c']);
+    expect([...layout.buckets.keys()]).toEqual(['root', 'root/a', 'root/a/b']);
+    expect(pairs(files, { default: 'deny', allow: ['root/*/*/*/*'], deny: [] })).toEqual([]);
+    // The forbidden folder still counts as a child for the DMZ rules, so root/a/dmz/b/.self.ts gives no extra error.
+    expect(pairs(files, { default: 'deny', allow: ['root/*'], deny: [] })).toEqual(['layout-denied root/a/b']);
+  });
+
+  it('lets every bucket folder exist when the config has no layout', () => {
+    const files = { 'root/_/a.ts': '', 'root/dmz/a/.self.ts': '', 'root/a/_/a.ts': '', 'root/a/dmz/b/.self.ts': '', 'root/a/b/_/a.ts': '', 'root/a/b/dmz/c/.self.ts': '', 'root/a/b/c/_/a.ts': '' };
+    expect(pairs(files)).toEqual([]);
+    expect(scan(files).buckets.has('root/a/b/c')).toBe(true);
+  });
+
+  it('lets the ancestors of an allowed bucket exist, and nothing beside them', () => {
+    const files = {
+      'root/_/a.ts': '',
+      'root/dmz/gpu/.self.ts': '',
+      'root/gpu/_/a.ts': '',
+      'root/gpu/dmz/cuda/.self.ts': '',
+      'root/gpu/cuda/_/a.ts': '',
+      'root/cpu/_/a.ts': '',
+    };
+    const layout = scan(files, { default: 'deny', allow: ['root/gpu/*'], deny: [] });
+    expect(layout.violations.map((v) => `${v.rule} ${v.file}`)).toEqual(['layout-denied root/cpu']);
+    expect(layout.violations[0]!.message).toBe(
+      'Layout denied: root/cpu/ is a bucket folder, but no line in layout.allow of buckets.config.json matches it or a bucket below it, and layout.default is "deny". buckets.config.json belongs to a human, so an AI agent never edits it. Move this folder into root/_/ if it only organizes code, remove it, or stop and ask the human to change "layout" in buckets.config.json, with the exact line you propose, such as "root/cpu" in layout.allow.',
+    );
+  });
+
+  it('reports a bucket that a deny line matches and names the line', () => {
+    const files = { 'root/_/a.ts': '', 'root/dmz/legacy/.self.ts': '', 'root/legacy/_/a.ts': '', 'root/legacy/dmz/old/.self.ts': '', 'root/legacy/old/_/a.ts': '', 'root/api/_/a.ts': '' };
+    const layout = scan(files, { default: 'deny', allow: ['root/*/*'], deny: ['root/legacy/**'] });
+    expect(layout.violations.map((v) => `${v.rule} ${v.file}`)).toEqual(['layout-denied root/legacy']);
+    expect(layout.violations[0]!.message).toContain('but the line "root/legacy/**" in layout.deny of buckets.config.json is the most specific line that matches it.');
+  });
+
+  it('reports layout-ambiguous when an allow line and a deny line tie', () => {
+    const files = { 'root/_/a.ts': '', 'root/team-api/_/a.ts': '', 'root/web-api/_/a.ts': '' };
+    const layout = scan(files, { default: 'deny', allow: ['root/*-api'], deny: ['root/team-*'] });
+    expect(layout.violations.map((v) => `${v.rule} ${v.file}`)).toEqual(['layout-ambiguous root/team-api']);
+    expect(layout.violations[0]!.message).toBe(
+      'Layout ambiguous: root/team-api/ is a bucket folder, and the allow line "root/*-api" and the deny line "root/team-*" in "layout" of buckets.config.json both match it. Neither is more specific than the other, so the check cannot tell which one decides. A human must add a line to "layout" that is more specific than both. buckets.config.json belongs to a human, so an AI agent never edits it. Move this folder into root/_/ if it only organizes code, remove it, or stop and ask the human to change "layout" in buckets.config.json, with the exact line you propose, such as "root/team-api" in layout.allow.',
+    );
+  });
+
+  it('reports a root bucket the layout forbids and still scans it', () => {
+    const files = { 'root/_/a.ts': '', 'root/dmz/a/.self.ts': '', 'root/a/_/a.ts': '' };
+    const layout = scan(files, { default: 'allow', allow: [], deny: ['root'] });
+    expect(layout.violations.map((v) => `${v.rule} ${v.file}`)).toEqual(['layout-denied root']);
+    expect(layout.violations[0]!.message).toContain('The root bucket always exists, so stop and ask the human to change "layout"');
+    expect([...layout.buckets.keys()]).toEqual(['root', 'root/a']);
+  });
+
+  it('matches the layout against bucket paths under a custom root path', () => {
+    const files = { 'src/buckets/_/a.ts': '', 'src/buckets/dmz/a/.self.ts': '', 'src/buckets/a/_/a.ts': '', 'src/buckets/a/dmz/b/.self.ts': '', 'src/buckets/a/b/_/a.ts': '' };
+    expect(pairs(files, { default: 'deny', allow: ['src/buckets/*/*'], deny: [] }, 'src/buckets')).toEqual([]);
+    expect(pairs(files, { default: 'deny', allow: ['src/buckets/*'], deny: [] }, 'src/buckets')).toEqual(['layout-denied src/buckets/a/b']);
   });
 
   it('reports invalid DMZ paths with dmz-path and leaves them out of the analysis', () => {

@@ -22,7 +22,7 @@
           "container": null,
           "status": "ok",
           "lock": "current",
-          "config": { "root": "root", "alias": "@root", "maxDepth": 2 },
+          "config": { "root": "root", "alias": "@root" },
           "buckets": [
             { "path": "root", "level": 0, "files": 1, "situation": "ok", "dependsOn": ["root/billing"], "dependents": [] },
             { "path": "root/billing", "level": 1, "situation": "ok", "dependsOn": ["root/billing/invoices", "root/billing/payments"], "dependents": ["root"] },

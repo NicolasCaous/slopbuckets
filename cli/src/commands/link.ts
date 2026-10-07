@@ -265,7 +265,7 @@ async function addLink(ctx: Context, io: Io, args: string[]): Promise<number> {
   if (linkState(targetAbs) !== 'missing') throw new LinkError(`${target} already exists on disk. Delete it or choose another name.`);
 
   const buckets = scannedBuckets(ctx, project.dir, project.config, links);
-  if (!buckets.has(bucket)) throw new LinkError(`${bucket}/ is not a bucket that buckets check scans (it may be deeper than maxDepth). Links live in the _/links/ folder of a bucket.`);
+  if (!buckets.has(bucket)) throw new LinkError(`${bucket}/ is not a bucket that buckets check scans (the "layout" of buckets.config.json may forbid it). Links live in the _/links/ folder of a bucket.`);
   const published = publishedFiles(origin.rootAbs, ext);
   const { origin: stored, absolute } = storedOrigin(project.dir, origin.dir);
   let mode: LinkMode;

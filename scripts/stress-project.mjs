@@ -7,7 +7,7 @@
 // outDir defaults to examples/.tmp/stress. It is deleted and created again, so pick a folder of your own. --verify
 // also type checks big-shop with tsc.
 //
-// stress/big-shop      maxDepth 3, about 300 buckets: root has 8 children, root/services has 80, the other level-1
+// stress/big-shop      buckets down to level 3, about 300 buckets: root has 8 children, root/services has 80, the other level-1
 //                      buckets have 10 to 18, and 12 level-2 buckets have 5 to 10 children. Every _/ has 3 files.
 //                      About 600 DMZ contracts: child to parent (.self), parent to child (.self/<child>), siblings,
 //                      chains up through .parent and chains down through dmz/.parent/<child>. Bucket ranks keep the
@@ -366,7 +366,7 @@ write(shop, 'package.json', json({ name: 'big-shop', version: '3.0.0', private: 
 write(shop, 'tsconfig.json', tsconfig('Big shop: about 300 buckets, for measuring buckets inspect.'));
 mustBuckets(shop, 'init', '--yes');
 const config = readJson(path.join(shop, 'buckets.config.json'));
-config.maxDepth = 3;
+config.layout = { default: 'deny', allow: [`${config.root}/*/*/*`] };
 write(shop, 'buckets.config.json', json(config));
 aliasA = config.alias;
 writeShop();

@@ -388,7 +388,7 @@ export function approvalDiff(project: ProjectSnapshot | undefined, track: Timeli
   }
   const before = previous?.lock ?? null;
   const changes = before ? diffLocks(before, point.lock) : [];
-  const config: ResolvedConfig = project?.config ? { adapter: project.config.adapter, root: project.config.root, alias: project.config.alias, maxDepth: project.config.maxDepth } : DEFAULT_CONFIG;
+  const config: ResolvedConfig = project?.config ? { adapter: project.config.adapter, root: project.config.root, alias: project.config.alias } : DEFAULT_CONFIG;
   const review = buildReview({
     projectDir: project?.dir ?? '.',
     previous: before,

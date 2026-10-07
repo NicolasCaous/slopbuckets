@@ -120,14 +120,14 @@ const SKIP_DIRS = new Set(['node_modules']);
 
 /**
  * The projects in and below `dir`, found by looking for buckets.config.json. The scan does not enter a project
- * (its nested projects are listed in its lock), dot folders, node_modules or linked folders, stops at `maxDepth`
+ * (its nested projects are listed in its lock), dot folders, node_modules or linked folders, stops at `levels`
  * levels below `dir` and reads at most `maxDirs` folders, so it stays fast on a large tree.
  */
-export function projectsBelow(dir: string, maxDepth = 3, maxDirs = 500): string[] {
+export function projectsBelow(dir: string, levels = 3, maxDirs = 500): string[] {
   const found: string[] = [];
   let level = [path.resolve(dir)];
   let read = 0;
-  for (let depth = 0; depth <= maxDepth && level.length > 0; depth++) {
+  for (let depth = 0; depth <= levels && level.length > 0; depth++) {
     const next: string[] = [];
     for (const current of level) {
       if (read++ >= maxDirs) return found;

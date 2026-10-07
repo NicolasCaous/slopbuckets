@@ -17,17 +17,16 @@ export interface ResolvedConfig {
   adapter: string;
   root: string;
   alias: string;
-  maxDepth: number;
   /** Absent when the config has no `access` key, so the hash of a config without it stays the same. */
   access?: AccessConfig;
   /** Absent when the config has no `layout` key. Then any bucket folder may exist. */
   layout?: LayoutConfig;
 }
 
-export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', alias: '@root', maxDepth: 2 };
+export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', alias: '@root' };
 
 const ADAPTERS = ['ts'];
-const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'maxDepth', 'access', 'layout']);
+const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'access', 'layout']);
 const LINES_KEYS = new Set(['default', 'allow', 'deny']);
 
 export type ConfigResult =
@@ -47,8 +46,9 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   }
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    if (!KNOWN_KEYS.has(key)) {
-      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, maxDepth, access and layout.`));
+    // maxDepth has a message of its own below, once the root path is known.
+    if (!KNOWN_KEYS.has(key) && key !== 'maxDepth') {
+      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, access and layout.`));
     }
   }
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -90,14 +90,7 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
     }
   }
 
-  if ('maxDepth' in obj) {
-    const depth = obj.maxDepth;
-    if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1) {
-      violations.push(invalid('Field "maxDepth" must be an integer of at least 1. Set it to 2 or remove it.'));
-    } else {
-      config.maxDepth = depth;
-    }
-  }
+  if ('maxDepth' in obj) violations.push(removedMaxDepth(obj.maxDepth, config.root));
 
   if ('access' in obj) {
     const access = validateLines(ACCESS_KEY, obj.access, config.root, violations);
@@ -110,6 +103,18 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   }
 
   return violations.length > 0 ? { violations } : { config, violations };
+}
+
+/**
+ * The config-invalid violation for `maxDepth`, which `layout` replaced. It gives the layout that allows the same bucket
+ * folders: depth N is the line `<root>` followed by N times `/*`, and the ancestors of those buckets pass too.
+ */
+function removedMaxDepth(raw: unknown, root: string): Violation {
+  const valid = typeof raw === 'number' && Number.isInteger(raw) && raw >= 1;
+  const depth = valid ? raw : 2;
+  const layout = `"layout": {"default": "deny", "allow": ["${root}${'/*'.repeat(depth)}"]}`;
+  const same = valid ? `It allows the same bucket folders as "maxDepth": ${depth}.` : `It allows bucket folders down to depth ${depth}, the old default, where the root bucket is depth 0.`;
+  return ownedInvalid(`Field "maxDepth" was removed, and "layout" replaces it. Replace "maxDepth" with ${layout}. ${same} To allow any bucket folder, remove "maxDepth" and leave "layout" out.`);
 }
 
 /**
@@ -297,6 +302,6 @@ export function configHash(config: ResolvedConfig): string {
 }
 
 /** The part of the config the adapter protocol carries. */
-export function protocolConfig(config: ResolvedConfig): { root: string; alias: string; maxDepth: number } {
-  return { root: config.root, alias: config.alias, maxDepth: config.maxDepth };
+export function protocolConfig(config: ResolvedConfig): { root: string; alias: string } {
+  return { root: config.root, alias: config.alias };
 }

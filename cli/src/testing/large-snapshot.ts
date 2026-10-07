@@ -68,7 +68,7 @@ export function largeProject(n = 50): ProjectSnapshot {
     container: null,
     exitCode: 1,
     status: 'violation',
-    config: { root: 'root', alias: '@root', maxDepth: 3, adapter: 'ts' },
+    config: { root: 'root', alias: '@root', adapter: 'ts' },
     lock: 'differs',
     buckets,
     contracts,

@@ -6,7 +6,6 @@ export const ABI_VERSION = 1;
 export interface BucketsConfig {
   root: string;
   alias: string;
-  maxDepth: number;
 }
 
 export interface InfoResponse {

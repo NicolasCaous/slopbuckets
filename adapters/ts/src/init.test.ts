@@ -122,7 +122,7 @@ describe('init', () => {
 
   test('uses the alias and root from the request', async () => {
     const project = fixture({ 'tsconfig.json': {}, 'package.json': { name: 'app', jest: {} } });
-    await init(project.dir, { abi: 1, config: { root: 'src', alias: '~', maxDepth: 2 } });
+    await init(project.dir, { abi: 1, config: { root: 'src', alias: '~' } });
     expect(project.json('tsconfig.json').compilerOptions).toEqual({ paths: { '~/*': ['./src/*'] }, noUnusedLocals: true });
     expect(project.json('package.json').jest.moduleNameMapper).toEqual({ '^~/(.*)$': '<rootDir>/src/$1' });
   });

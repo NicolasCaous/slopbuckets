@@ -399,7 +399,7 @@ describe('symlinks and file: packages', () => {
       'node_modules/real-pkg/index.d.ts': 'export declare const r: number;\n',
       'a/_/use.ts': "import { r } from 'real-pkg';\nexport const copy = r;\n",
     });
-    const response = await analyze(project.dir, { abi: 1, config: { root: '.', alias: '@root', maxDepth: 2 }, files: { dmz: [], code: ['a/_/use.ts'] } });
+    const response = await analyze(project.dir, { abi: 1, config: { root: '.', alias: '@root' }, files: { dmz: [], code: ['a/_/use.ts'] } });
     expect(response.code['a/_/use.ts']!.imports).toEqual([{ kind: 'package', target: 'real-pkg', declared: false, names: ['r'], line: 1 }]);
   });
 

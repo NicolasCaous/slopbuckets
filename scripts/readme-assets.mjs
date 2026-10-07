@@ -253,7 +253,7 @@ async function screensProject(api) {
   // Every project has its own tsconfig.json, and the enclosing one leaves the nested project out, as a nested `buckets init` does.
   json('tsconfig.json', { ...tsconfig, exclude: [NESTED] });
   json(`${NESTED}/package.json`, pkg('payment-gateway'));
-  json(`${NESTED}/buckets.config.json`, { adapter: 'ts', root: 'root', alias: NESTED_ALIAS, maxDepth: 2 });
+  json(`${NESTED}/buckets.config.json`, { adapter: 'ts', root: 'root', alias: NESTED_ALIAS, layout: { default: 'deny', allow: ['root/*/*'] } });
   json(`${NESTED}/tsconfig.json`, { ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, paths: { [`${NESTED_ALIAS}/*`]: ['root/*'] } } });
   write(dir, `${NESTED}/root/_/index.ts`, `import { send } from '${NESTED_ALIAS}/dmz/http/.self';\n\nexport const ready = send('ping');\n`);
   write(dir, `${NESTED}/root/http/_/send.ts`, 'export function send(body: string): number {\n  return body.length;\n}\n');

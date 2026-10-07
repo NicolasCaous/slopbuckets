@@ -3,5 +3,8 @@
   "adapter": "ts",
   "root": "root",
   "alias": "@root",
-  "maxDepth": 2
+  "layout": {
+    "default": "deny",
+    "allow": ["root/*/*"]
+  }
 }

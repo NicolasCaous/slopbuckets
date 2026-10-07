@@ -27,7 +27,7 @@ describe('import rules', () => {
       'logger(invoice + pdf);',
     ].join('\n');
     const extra = {
-      'buckets.config.json': '{ "root": "root", "maxDepth": 3 }',
+      'buckets.config.json': '{ "root": "root" }',
       'root/billing/invoices/_/invoice.ts': 'export const invoice = 1;\n',
       'root/billing/invoices/pdf/_/pdf.ts': 'export const pdf = 1;\n',
       'root/billing/invoices/dmz/pdf/.self.ts': "export { pdf } from '@root/billing/invoices/pdf/_/pdf';\n",

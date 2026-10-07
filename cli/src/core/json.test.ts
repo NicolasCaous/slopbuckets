@@ -18,10 +18,10 @@ describe('UTF-8 byte order mark', () => {
   });
 
   it('reads buckets.config.json saved with a BOM', () => {
-    const dir = makeProject({ 'buckets.config.json': `${BOM}{ "root": "src", "maxDepth": 3 }\n` });
+    const dir = makeProject({ 'buckets.config.json': `${BOM}{ "root": "src", "alias": "~" }\n` });
     const result = loadConfig(dir);
     expect(result.kind).toBe('ok');
-    if (result.kind === 'ok') expect(result.config).toMatchObject({ root: 'src', maxDepth: 3 });
+    if (result.kind === 'ok') expect(result.config).toMatchObject({ root: 'src', alias: '~' });
   });
 
   it('reads a lock saved with a BOM and finds no difference', async () => {

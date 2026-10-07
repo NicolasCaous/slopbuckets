@@ -8,7 +8,7 @@ afterEach(cleanupProjects);
 describe('validateConfig', () => {
   it('fills in the defaults', () => {
     expect(validateConfig({}).config).toEqual(DEFAULT_CONFIG);
-    expect(validateConfig({ $schema: 'x', root: 'src/root', maxDepth: 3 }).config).toEqual({ ...DEFAULT_CONFIG, root: 'src/root', maxDepth: 3 });
+    expect(validateConfig({ $schema: 'x', root: 'src/root' }).config).toEqual({ ...DEFAULT_CONFIG, root: 'src/root' });
   });
 
   it.each([
@@ -19,8 +19,7 @@ describe('validateConfig', () => {
     ['root leaving the project', { root: '../x' }],
     ['root naming the project', { root: '.' }],
     ['empty alias', { alias: '' }],
-    ['maxDepth below 1', { maxDepth: 0 }],
-    ['maxDepth not an integer', { maxDepth: 1.5 }],
+    ['maxDepth', { maxDepth: 2 }],
     ['$schema not a string', { $schema: 1 }],
     ['not an object', []],
     ['access not an object', { access: ['** -> **'] }],
@@ -122,9 +121,9 @@ describe('access', () => {
     expect('access' in validateConfig({ root: 'root' }).config!).toBe(false);
   });
 
-  it('keeps the hash of a config without access', () => {
-    // The hash of the default config as slopbuckets 1.0.0 computed it. Existing locks store this value.
-    expect(configHash(validateConfig({}).config!)).toBe('sha256:1e52c01b7e7348f85ebf85ecd87641bd6907f46ef1dc377ff8795d6f06f63c28');
+  it('keeps the hash of a config without access or layout', () => {
+    // The hash of the default config since maxDepth was removed. Locks of earlier versions store another value.
+    expect(configHash(validateConfig({}).config!)).toBe('sha256:2ebdbde24ef44adf88e49a7ecf3538a289b8b738b0335487d588fd311fffc4f8');
   });
 
   it('changes the hash when access changes, but not when only the spelling of a line does', () => {
@@ -144,6 +143,20 @@ describe('access', () => {
     expect(a.access).toEqual({ default: 'deny', allow: ['** -> root/log', 'root/a -> root/c', 'root/b -> root/c'], deny: ['root/y -> root/c', 'root/z -> root/c'] });
     expect(b.access).toEqual(a.access);
     expect(configHash(b)).toBe(configHash(a));
+  });
+});
+
+describe('maxDepth', () => {
+  it('is config-invalid and gives the layout line that allows the same buckets', () => {
+    const { config, violations } = validateConfig({ root: 'src/buckets', maxDepth: 3 });
+    expect(config).toBeUndefined();
+    expect(violations.map((v) => v.message)).toEqual([
+      'Field "maxDepth" was removed, and "layout" replaces it. Replace "maxDepth" with "layout": {"default": "deny", "allow": ["src/buckets/*/*/*"]}. It allows the same bucket folders as "maxDepth": 3. To allow any bucket folder, remove "maxDepth" and leave "layout" out. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+  });
+
+  it('falls back to the old default of 2 when the value was not valid', () => {
+    expect(validateConfig({ maxDepth: 'two' }).violations[0]!.message).toContain('"allow": ["root/*/*"]}. It allows bucket folders down to depth 2, the old default');
   });
 });
 
@@ -193,10 +206,10 @@ describe('loadConfig', () => {
 
   it('hashes the resolved config, ignoring $schema and formatting', () => {
     const a = loadConfig(makeProject({ 'buckets.config.json': '{"$schema":"x"}' }, false));
-    const b = loadConfig(makeProject({ 'buckets.config.json': '{\n  "root": "root",\n  "maxDepth": 2\n}\n' }, false));
+    const b = loadConfig(makeProject({ 'buckets.config.json': '{\n  "root": "root",\n  "adapter": "ts"\n}\n' }, false));
     if (a.kind !== 'ok' || b.kind !== 'ok') throw new Error('expected valid configs');
     expect(configHash(a.config)).toBe(configHash(b.config));
-    expect(configHash({ ...a.config, maxDepth: 3 })).not.toBe(configHash(a.config));
+    expect(configHash({ ...a.config, alias: '@other' })).not.toBe(configHash(a.config));
   });
 });
 
@@ -208,7 +221,7 @@ describe('check with a bad config', () => {
   });
 
   it('exits 1 with config-invalid and does not call the adapter', async () => {
-    const dir = makeProject({ 'buckets.config.json': '{"maxDepth": "two"}', 'root/_/a.ts': '' });
+    const dir = makeProject({ 'buckets.config.json': '{"alias": 2}', 'root/_/a.ts': '' });
     const { report } = await checkProject(dir);
     expect(report.exitCode).toBe(1);
     expect(report.violations.map((v) => v.rule)).toEqual(['config-invalid']);

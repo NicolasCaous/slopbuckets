@@ -58,7 +58,7 @@ export function removeFolder(dir: string): void {
   }
 }
 
-export const CONFIG: BucketsConfig = { root: 'root', alias: '@root', maxDepth: 2 };
+export const CONFIG: BucketsConfig = { root: 'root', alias: '@root' };
 
 export const TSCONFIG = {
   compilerOptions: {

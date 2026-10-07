@@ -1,5 +1,5 @@
 {
-  "description": "a misspelled field (maxdepth) in buckets.config.json is outside the schema",
+  "description": "a misspelled field (layuot) in buckets.config.json is outside the schema",
   "lock": "none",
   "delete": [],
   "args": [

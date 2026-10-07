@@ -60,7 +60,7 @@ describe('renderReviewPage', () => {
     writeFile(dir, 'root/mail/_/m.ts', "import { level } from '@root/dmz/log/mail';\nexport const m = level;\n");
     writeFile(dir, 'root/dmz/log/mail.ts', "export { level } from '@root/log/_/logger';\n");
     removeFile(dir, 'root/billing/payments');
-    writeFile(dir, 'buckets.config.json', '{ "root": "root", "maxDepth": 3 }\n');
+    writeFile(dir, 'buckets.config.json', '{ "root": "root", "access": { "default": "allow" } }\n');
 
     const r = await review(dir);
     const page = renderReviewPage(CTX, r);
@@ -71,7 +71,7 @@ describe('renderReviewPage', () => {
     expect(text).toMatch(/Toolchain typescript@5\.8\.0 typescript@5\.9\.3/);
     expect(text).toContain('+ bucket created root/mail');
     expect(text).toContain('- bucket removed root/billing/payments');
-    expect(text).toContain('~ maxDepth 2 to 3');
+    expect(text).toContain('+ access added "default": "allow"');
     expect(text).toContain('+ root/dmz/log/mail.ts new file');
     expect(text).toContain('root/mail uses these symbols from root/log.');
     expect(text).toContain('+ level exported');
@@ -91,15 +91,14 @@ describe('renderReviewPage', () => {
   it('lists each access line and value that changed in buckets.config.json', async () => {
     const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', access: { default: 'allow', deny: ['root/billing/** -> root/zz*'] } }) });
     await approve(dir);
-    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: { default: 'allow', deny: ['root/log/** -> root/zz*'] } }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', access: { default: 'allow', deny: ['root/log/** -> root/zz*'] } }));
     const r = await review(dir);
     expect(r.config).toMatchObject({ changed: true, recorded: true });
     const page = renderReviewPage(CTX, r);
     const text = textOf(page);
-    expect(text).toContain('buckets.config.json 3 changes Config');
+    expect(text).toContain('buckets.config.json 2 changes Config');
     expect(text).toContain('- deny line removed root/billing/** -> root/zz*');
     expect(text).toContain('+ deny line added root/log/** -> root/zz*');
-    expect(text).toContain('~ maxDepth 2 to 3');
     expect(page).toContain('<ul class="diff" aria-label="Config changes">');
   });
 
@@ -107,10 +106,10 @@ describe('renderReviewPage', () => {
     const dir = makeProject(LOGGER_PROJECT);
     const lock = await approve(dir);
     writeFile(dir, 'buckets.lock.json', serializeLock({ ...lock, lockVersion: 3, config: lockConfigHash(lock.config) }));
-    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3 }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', access: { default: 'allow' } }));
     const text = textOf(renderReviewPage(CTX, await review(dir)));
     expect(text).toContain('so the old values were not recorded. These are the values approving records:');
-    expect(text).toContain('maxDepth 3');
+    expect(text).toContain('access.default "allow"');
   });
 
   it('lists the whole state for a first lock', async () => {

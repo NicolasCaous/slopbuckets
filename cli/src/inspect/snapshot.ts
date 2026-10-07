@@ -61,7 +61,7 @@ export interface ProjectSnapshot {
   exitCode: ExitCode;
   status: ProjectStatus;
   environment?: { code: string; message: string };
-  config: { root: string; alias: string; maxDepth: number; adapter: string } | null;
+  config: { root: string; alias: string; adapter: string } | null;
   /** `current` matches the lock, `differs` needs an approval, `missing` has no lock yet, `unknown` when the check could not run. */
   lock: 'current' | 'differs' | 'missing' | 'unknown';
   /** In tree order. */
@@ -401,7 +401,7 @@ function projectSnapshot(run: Run, runs: Run[], parents: Map<string, { project: 
     exitCode: report.exitCode,
     status,
     ...(report.environment ? { environment: { code: report.environment.code, message: report.environment.message } } : {}),
-    config: config ? { root: config.root, alias: config.alias, maxDepth: config.maxDepth, adapter: config.adapter } : null,
+    config: config ? { root: config.root, alias: config.alias, adapter: config.adapter } : null,
     lock,
     buckets: [],
     contracts: [],

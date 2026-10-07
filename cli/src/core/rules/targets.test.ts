@@ -6,7 +6,7 @@ afterEach(cleanupProjects);
 
 // root has children log and billing; billing has children invoices and payments; invoices has child pdf.
 const BASE: Record<string, string> = {
-  'buckets.config.json': '{ "root": "root", "maxDepth": 3 }',
+  'buckets.config.json': '{ "root": "root" }',
   'root/_/main.ts': 'export const main = 1;\n',
   'root/log/_/logger.ts': 'export const logger = 1;\n',
   'root/billing/_/billing.module.ts': 'export const billingModule = 1;\n',

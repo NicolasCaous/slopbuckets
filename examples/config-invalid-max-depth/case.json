@@ -1,0 +1,29 @@
+{
+  "description": "the removed maxDepth field is config-invalid, and the message gives the layout line that replaces it",
+  "lock": "none",
+  "delete": [],
+  "args": [
+    "check",
+    "--json"
+  ],
+  "stdin": null,
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "exitCode": 1,
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "file": "buckets.config.json",
+          "message": "Field \"maxDepth\" was removed, and \"layout\" replaces it. Replace \"maxDepth\" with \"layout\": {\"default\": \"deny\", \"allow\": [\"root/*/*/*\"]}. It allows the same bucket folders as \"maxDepth\": 3. To allow any bucket folder, remove \"maxDepth\" and leave \"layout\" out. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human."
+        }
+      ]
+    }
+  }
+}

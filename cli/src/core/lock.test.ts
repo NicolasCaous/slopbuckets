@@ -154,7 +154,7 @@ describe('check against the lock', () => {
     await approve(dir);
     writeFile(dir, 'buckets.config.json', '{\n  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",\n  "root": "root",\n  "alias": "@root"\n}\n');
     expect((await checkProject(dir)).report.exitCode).toBe(0);
-    writeFile(dir, 'buckets.config.json', '{ "root": "root", "maxDepth": 3 }');
+    writeFile(dir, 'buckets.config.json', '{ "root": "root", "access": { "default": "allow" } }');
     expect((await checkProject(dir)).report.lockChanges.map((c) => c.kind)).toEqual(['config-changed']);
   });
 

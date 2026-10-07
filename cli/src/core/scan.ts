@@ -4,6 +4,7 @@ import path from 'node:path';
 import type { ResolvedConfig } from './config.js';
 import { classifyDmzPath, EXTERNAL, type DmzFile } from './dmz-path.js';
 import { listDir, listFilesRecursive } from './fs-walk.js';
+import { layoutViolation } from './rules/layout.js';
 import { CONFIG_FILE } from './paths.js';
 import type { Violation } from './types.js';
 
@@ -122,6 +123,9 @@ export function scanProject(projectDir: string, config: ResolvedConfig, options:
     });
     return layout;
   }
+  // The root bucket always exists, so a layout that forbids it is reported and the scan goes on.
+  const rootDenied = layoutViolation(config, config.root, null);
+  if (rootDenied !== null) layout.violations.push(rootDenied);
   visitBucket(projectDir, config, options, layout, config.root, null, 0);
   layout.codeFiles.sort();
   layout.otherFiles.sort();
@@ -143,8 +147,8 @@ function visitBucket(
   const bucket: Bucket = { path: bucketPath, name, level, parent, children: [], hasCode: false, hasDmz: false };
   layout.buckets.set(bucketPath, bucket);
   const childNames: string[] = [];
-  // Folders past maxDepth and linked folders are not buckets, but they still count as children for the DMZ rules,
-  // so a single misplaced folder gives one violation (folder-max-depth or folder-symlink) instead of a cascade of DMZ errors.
+  // Folders the layout forbids and linked folders are not buckets, but they still count as children for the DMZ rules,
+  // so a single misplaced folder gives one violation (layout-denied or folder-symlink) instead of a cascade of DMZ errors.
   const notBuckets: string[] = [];
   let linkedCode = false;
 
@@ -154,7 +158,7 @@ function visitBucket(
       layout.violations.push(symlinkViolation(config, entryPath));
       // A linked _/ still counts as present, so the link gives one violation instead of a second folder-missing-code.
       if (entry.name === '_') linkedCode = true;
-      // A linked folder that looks like a child bucket still counts as one for the DMZ rules, like a too-deep folder.
+      // A linked folder that looks like a child bucket still counts as one for the DMZ rules, like a forbidden folder.
       else if (entry.name !== 'dmz' && !entry.name.startsWith('.') && pointsToDir(path.join(abs, entry.name))) notBuckets.push(entry.name);
     } else if (!entry.isDir && entry.name === CONFIG_FILE) {
       layout.violations.push(misplacedViolation(config, entryPath));
@@ -175,18 +179,18 @@ function visitBucket(
         message: `${entryPath}/ is treated as a child bucket, but bucket names cannot start with ".". Rename it, or move its contents into ${bucketPath}/_/ if it is not meant to be a bucket.`,
       });
     } else if (existsSync(path.join(abs, entry.name, CONFIG_FILE))) {
-      // A project folder at bucket level is opaque, like a too-deep folder: one violation, and it still counts as a child.
+      // A project folder at bucket level is opaque, like a folder the layout forbids: one violation, and it still counts as a child.
       layout.violations.push(misplacedViolation(config, `${entryPath}/${CONFIG_FILE}`));
       notBuckets.push(entry.name);
-    } else if (level + 1 > config.maxDepth) {
-      layout.violations.push({
-        rule: 'folder-max-depth',
-        file: entryPath,
-        message: `${entryPath}/ is a bucket at depth ${level + 1}, but maxDepth is ${config.maxDepth} (the root bucket is depth 0). Move this folder into ${bucketPath}/_/ if it only organizes code. A deeper bucket tree needs a human to raise maxDepth.`,
-      });
-      notBuckets.push(entry.name);
     } else {
-      childNames.push(entry.name);
+      // A folder the layout forbids is opaque too: one violation for it, and none for the folders inside it.
+      const denied = layoutViolation(config, entryPath, bucketPath);
+      if (denied === null) {
+        childNames.push(entry.name);
+      } else {
+        layout.violations.push(denied);
+        notBuckets.push(entry.name);
+      }
     }
   }
 

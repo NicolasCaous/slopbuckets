@@ -78,7 +78,7 @@ export function configDiff(previous: Lock['config'], current: Lock['config']): C
   return { recorded: true, changes };
 }
 
-/** The label of a config change, the name of what changed: `access.allow`, `access.default`, `maxDepth`. */
+/** The label of a config change, the name of what changed: `access.allow`, `access.default`, `alias`. */
 export function configChangeLabel(change: ConfigChange): string {
   switch (change.kind) {
     case 'access':

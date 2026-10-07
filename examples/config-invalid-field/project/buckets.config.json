@@ -3,5 +3,5 @@
   "adapter": "ts",
   "root": "root",
   "alias": "@root",
-  "maxdepth": 3
+  "layuot": { "default": "deny" }
 }

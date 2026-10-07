@@ -26,29 +26,29 @@ const withAccess = (access: ResolvedConfig['access'], extra: Partial<ResolvedCon
 
 describe('lock version 4', () => {
   it('stores the resolved config with sorted keys and reads it back unchanged', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ maxDepth: 3, root: 'root', access: ACCESS }) });
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ adapter: 'ts', root: 'root', access: ACCESS }) });
     const lock = await approve(dir);
     expect(LOCK_VERSION).toBe(4);
     expect(lock.lockVersion).toBe(4);
-    expect(lock.config).toEqual({ access: { allow: [], default: 'allow', deny: ['root/billing/** -> root/zz*'] }, adapter: 'ts', alias: '@root', maxDepth: 3, root: 'root' });
+    expect(lock.config).toEqual({ access: { allow: [], default: 'allow', deny: ['root/billing/** -> root/zz*'] }, adapter: 'ts', alias: '@root', root: 'root' });
     const read = readLock(dir);
     expect(read.kind).toBe('ok');
     if (read.kind !== 'ok') return;
     expect(read.lock).toEqual(lock);
     expect(serializeLock(read.lock)).toBe(serializeLock(lock));
-    expect(Object.keys(read.lock.config as object)).toEqual(['access', 'adapter', 'alias', 'maxDepth', 'root']);
+    expect(Object.keys(read.lock.config as object)).toEqual(['access', 'adapter', 'alias', 'root']);
     expect((await checkProject(dir)).report).toEqual({ exitCode: 0, violations: [], lockChanges: [] });
   });
 
   it('lists each config change under the config-changed row of the check text report', async () => {
     const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', access: ACCESS }) });
     await approve(dir);
-    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: { ...ACCESS, allow: ['** -> root/log'] } }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', access: { ...ACCESS, allow: ['** -> root/log'] } }));
     const io = fakeIo({ cwd: dir });
     expect(await main(testContext(), io, ['check'])).toBe(2);
     const lines = io.out.split('\n');
     const row = lines.findIndex((line) => line.includes('config-changed'));
-    expect(lines.slice(row + 1, row + 3)).toEqual(['    + access.allow  ** -> root/log', '    ~ maxDepth      2 to 3']);
+    expect(lines.slice(row + 1, row + 3)).toEqual(['    + access.allow  ** -> root/log', '']);
   });
 
   it('finds no lock difference when two access lines swap places', async () => {
@@ -109,7 +109,7 @@ describe('reading locks of version 3', () => {
   it('reports one config-changed when the config changed, and says the old values are unknown', async () => {
     const dir = makeProject(LOGGER_PROJECT);
     await approvedAsVersion3(dir);
-    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: ACCESS }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', access: ACCESS }));
     const { report } = await checkProject(dir);
     expect(report.exitCode).toBe(2);
     expect(report.lockChanges.map((c) => c.kind)).toEqual(['config-changed']);
@@ -119,14 +119,14 @@ describe('reading locks of version 3', () => {
   it('shows the current config in the text diff, the review and the dialog', async () => {
     const dir = makeProject(LOGGER_PROJECT);
     await approvedAsVersion3(dir);
-    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: ACCESS }));
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', access: ACCESS }));
     const state = await evaluateLockState(testContext(), dir);
     if (state.kind !== 'review') throw new Error(`expected a review, got ${state.kind}`);
-    expect(state.review.config).toMatchObject({ changed: true, recorded: false, changes: [], current: { maxDepth: 3, access: { default: 'allow' } } });
+    expect(state.review.config).toMatchObject({ changed: true, recorded: false, changes: [], current: { alias: '@root', access: { default: 'allow' } } });
     const text = formatLockDiff(state.previous, state.lock, state.changes);
     expect(text).toContain('~ config changed');
     expect(text).toContain('The approved lock (version 3) stored only a hash of buckets.config.json, so the old values are unknown. Approving records these values:');
-    expect(text).toMatch(/\n {6}maxDepth +3\n/);
+    expect(text).toMatch(/\n {6}alias +"@root"\n/);
     expect(text).toMatch(/\n {6}access\.deny +root\/billing\/\*\* -> root\/zz\*\n/);
     const items = dialogItems(state.review);
     expect(items).toContain('~ buckets.config.json changed, its old values were not recorded. Approving records:');
@@ -136,7 +136,7 @@ describe('reading locks of version 3', () => {
 
 describe('config changes between locks of version 4', () => {
   const before = withAccess({ default: 'deny', allow: ['** -> root/log', 'root/api/** -> root/billing/**'], deny: [] });
-  const after = withAccess({ default: 'deny', allow: ['** -> root/log', 'root/web/** -> root/billing/**'], deny: ['root/billing/payments/** -> root/sql/**'] }, { maxDepth: 3 });
+  const after = withAccess({ default: 'deny', allow: ['** -> root/log', 'root/web/** -> root/billing/**'], deny: ['root/billing/payments/** -> root/sql/**'] }, { alias: '@other' });
 
   it('finds no change for the same config', () => {
     expect(configDiff(before, lockConfig(before))).toBeNull();
@@ -150,13 +150,13 @@ describe('config changes between locks of version 4', () => {
         { kind: 'access-line', sign: '-', list: 'allow', line: 'root/api/** -> root/billing/**' },
         { kind: 'access-line', sign: '+', list: 'allow', line: 'root/web/** -> root/billing/**' },
         { kind: 'access-line', sign: '+', list: 'deny', line: 'root/billing/payments/** -> root/sql/**' },
-        { kind: 'value', key: 'maxDepth', before: '2', after: '3' },
+        { kind: 'value', key: 'alias', before: '"@root"', after: '"@other"' },
       ],
     });
     const changes = diffLocks(lockWith(before), lockWith(after));
     expect(changes.map((c) => c.kind)).toEqual(['config-changed']);
     expect(changes[0]!.message).toBe(
-      'buckets.config.json changed since the lock was approved: removed the "access.allow" line "root/api/** -> root/billing/**"; added the "access.allow" line "root/web/** -> root/billing/**"; added the "access.deny" line "root/billing/payments/** -> root/sql/**"; changed "maxDepth" from 2 to 3. A human must review this and run `buckets refresh`.',
+      'buckets.config.json changed since the lock was approved: removed the "access.allow" line "root/api/** -> root/billing/**"; added the "access.allow" line "root/web/** -> root/billing/**"; added the "access.deny" line "root/billing/payments/** -> root/sql/**"; changed "alias" from "@root" to "@other". A human must review this and run `buckets refresh`.',
     );
   });
 
@@ -181,7 +181,7 @@ describe('config changes between locks of version 4', () => {
       '    - access.allow  root/api/** -> root/billing/**',
       '    + access.allow  root/web/** -> root/billing/**',
       '    + access.deny   root/billing/payments/** -> root/sql/**',
-      '    ~ maxDepth      2 to 3',
+      '    ~ alias         "@root" to "@other"',
       '',
     ]);
   });
@@ -197,7 +197,7 @@ describe('config changes between locks of version 4', () => {
       '- config access.allow: root/api/** -> root/billing/**',
       '+ config access.allow: root/web/** -> root/billing/**',
       '+ config access.deny: root/billing/payments/** -> root/sql/**',
-      '~ config maxDepth: 2 to 3',
+      '~ config alias: "@root" to "@other"',
     ]);
   });
 

@@ -43,7 +43,7 @@ describe('adapter results', () => {
     expect(ctx.adapter.analyzeCalls).toHaveLength(1);
     expect(ctx.adapter.analyzeCalls[0]).toEqual({
       abi: 1,
-      config: { root: 'root', alias: '@root', maxDepth: 2 },
+      config: { root: 'root', alias: '@root' },
       files: {
         dmz: ['root/billing/dmz/.parent/invoices.ts', 'root/dmz/log/billing.ts'],
         code: [
