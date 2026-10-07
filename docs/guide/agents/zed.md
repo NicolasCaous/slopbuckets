@@ -58,7 +58,7 @@ Zed checks each tool call against `tool_permissions` before it runs, and `always
 - The first pattern denies any command or path that names `buckets.lock.json` or `buckets.config.json`, or a Windows 8.3 short name such as `BUCKET~1.JSO`. A human owns both files, in every project.
 - The second pattern denies `buckets refresh` unless the next word is exactly `--web` with no other flag after it. `buckets refresh --web > refresh.log 2>&1` passes.
 - The third pattern denies `buckets update` unless one of the words after `update` is exactly `--check` or `--json`, which only report. A human updates the CLI. `buckets update --check` and `npx slopbuckets update --json` pass. The pattern reads words as plain text, so a quoted `"--check"` is denied too. A `#` or `<#` ends the command, so `buckets update --yes # --check` is denied.
-- The second and third patterns match `buckets` only where a command starts: at the start, after `;`, `&`, `|` or `(`, after a runner such as `npx`, `pnpm exec` or `node`, or after a shell that runs its command text, such as `bash -c`, `cmd /c` or `pwsh -Command`. A `)` ends a command, so `(cd sub && buckets refresh)` and `$(buckets update)` are denied. So `gcloud storage buckets update` and `git commit -m "explain buckets update"` pass.
+- The second and third patterns match `buckets` only where a command starts: at the start, after `;`, `&`, `|` or `(`, after a runner such as `npx`, `pnpm exec` or `node`, or after a shell that runs its command text, such as `bash -c`, `cmd /c` or `pwsh -Command`. `gcloud storage buckets update` and `git commit -m "explain buckets update"` pass. A `)` ends a command, so `(cd sub && buckets refresh)` and `$(buckets update)` are denied.
 
 ## Limits
 
