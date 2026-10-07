@@ -9,27 +9,33 @@ const TITLE = 'Zed';
 
 /**
  * The CLI in program position, followed by its flags: at the start of a command or after `;`, `&`, `|`, `(`, a
- * newline or a backtick, past runners such as `npx`, `pnpm exec` or `node`, their flags and `NAME=value` words. A
- * folder, quotes and a `$(which buckets)` lookup may wrap the name. So `gcloud storage buckets update` and
+ * newline or a backtick, past runners such as `npx`, `pnpm exec` or `node`, their flags and `NAME=value` words, and
+ * past a shell that runs its command text (`bash -c`, `cmd /c`, `pwsh -Command`). A folder, quotes and a
+ * `$(which buckets)` lookup may wrap the name. So `gcloud storage buckets update` and
  * `git commit -m "explain buckets update"` do not match.
  */
 const ZED_CLI =
-  String.raw`(?:^|[;&|(\n\x60])\s*(?:(?:[\w.-]+=\S*|(?:\S*[\\/])?(?:npx|pnpx|bunx|npm|pnpm|yarn|bun|exec|dlx|x|env|nohup|sudo|time|command|xargs|node|tsx)(?:\.exe|\.cmd)?)\s+(?:-\S*\s+(?:[^-\s]\S*\s+)?)*)*` +
+  String.raw`(?:^|[;&|(\n\x60])\s*(?:(?:[\w.-]+=\S*|['"]?(?:\S*[\\/])?(?:npx|pnpx|bunx|npm|pnpm|yarn|bun|exec|dlx|x|env|nohup|sudo|time|command|xargs|node|tsx)(?:\.exe|\.cmd)?` +
+  String.raw`|(?:\S*[\\/])?(?:bash|sh|zsh|cmd|pwsh|powershell)(?:\.exe)?(?:\s+[-/]\S*(?:\s+[^-/\s]\S*)?)*?\s+(?:-[a-z]*c|/c|-command))\s+(?:-\S*\s+(?:[^-\s]\S*\s+)?)*)*` +
   String.raw`(?:\$\((?:which|command\s+-v)\s+)?(?:\S*[\\/])?['"]?(?:slop)?buckets(?:\.cmd|\.exe|\.ps1)?(?:@\S*)?['"\x60)]?\s+(?:--?[\w-]+\s+)*`;
+/** The end of a command: the end of the text, a separator or a closing parenthesis, after an optional closing quote. */
+const ZED_END = String.raw`\s*["']?\s*(?:$|[;&|)])`;
 /** A plain `buckets refresh`: no flag after it, or a first argument that is not exactly `--web`, or a flag after `--web`. */
-export const ZED_REFRESH_PATTERN = `${ZED_CLI}refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))`;
-/** One shell word: no whitespace and no command separator. */
-const ZED_WORD = String.raw`[^\s;&|]`;
+export const ZED_REFRESH_PATTERN = String.raw`${ZED_CLI}refresh(?:${ZED_END}|\s+(?:[^-\s)]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web[^\s)"']|--web\s+-))`;
+/** One shell word: no whitespace, no command separator and no closing parenthesis. */
+const ZED_WORD = String.raw`[^\s;&|)]`;
+/** The rest of a word after `--check` or `--json` that makes it another word: a character, or a quote and more. */
+const ZED_MORE = String.raw`(?:[^\s;&|)"']${ZED_WORD}*|["']${ZED_WORD}+)`;
 /** A word that is not exactly `--check` or `--json`, spelled out letter by letter, because Rust regex has no look-ahead. */
 const ZED_NOT_REPORT_FLAG =
-  String.raw`(?:[^-\s;&|]${ZED_WORD}*|-(?:[^-\s;&|]${ZED_WORD}*)?|--(?:[^cj\s;&|]${ZED_WORD}*` +
-  String.raw`|c(?:[^h\s;&|]${ZED_WORD}*|h(?:[^e\s;&|]${ZED_WORD}*|e(?:[^c\s;&|]${ZED_WORD}*|c(?:[^k\s;&|]${ZED_WORD}*|k${ZED_WORD}+)?)?)?)?` +
-  String.raw`|j(?:[^s\s;&|]${ZED_WORD}*|s(?:[^o\s;&|]${ZED_WORD}*|o(?:[^n\s;&|]${ZED_WORD}*|n${ZED_WORD}+)?)?)?)?)`;
+  String.raw`(?:[^-\s;&|)]${ZED_WORD}*|-(?:[^-\s;&|)]${ZED_WORD}*)?|--(?:[^cj\s;&|)]${ZED_WORD}*` +
+  String.raw`|c(?:[^h\s;&|)]${ZED_WORD}*|h(?:[^e\s;&|)]${ZED_WORD}*|e(?:[^c\s;&|)]${ZED_WORD}*|c(?:[^k\s;&|)]${ZED_WORD}*|k${ZED_MORE})?)?)?)?` +
+  String.raw`|j(?:[^s\s;&|)]${ZED_WORD}*|s(?:[^o\s;&|)]${ZED_WORD}*|o(?:[^n\s;&|)]${ZED_WORD}*|n${ZED_MORE})?)?)?)?)`;
 /**
  * A `buckets update` that can install: no word after `update`, up to the end of the command, is `--check` or `--json`.
  * A `#` or `<#` ends the command, because the shell reads the rest as a comment.
  */
-export const ZED_UPDATE_PATTERN = String.raw`${ZED_CLI}update(?:\s+${ZED_NOT_REPORT_FLAG})*\s*(?:$|[;&|#]|<#)`;
+export const ZED_UPDATE_PATTERN = String.raw`${ZED_CLI}update(?:\s+${ZED_NOT_REPORT_FLAG})*\s*["']?\s*(?:$|[;&|#)]|<#)`;
 /** The lock or the config under its own name, or a Windows 8.3 short name such as `BUCKET~1.JSO`. */
 export const ZED_GUARDED_PATTERN = 'buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso';
 

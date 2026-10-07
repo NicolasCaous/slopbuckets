@@ -76,6 +76,34 @@ describe('zed tool permissions', () => {
     }
   });
 
+  it('denies a call inside parentheses or a substitution, and a call that a shell runs with -c, /c or -Command', () => {
+    const update = new RegExp(ZED_UPDATE_PATTERN, 'i');
+    for (const command of ['(cd sub && buckets refresh)', 'cd sub && (buckets refresh)', '(cd packages/api; buckets refresh) && echo done', 'bash -c "buckets refresh"', 'echo "$(buckets refresh)"']) {
+      expect(refresh.test(command), command).toBe(true);
+    }
+    for (const command of [
+      '(buckets update)',
+      '(cd sub && buckets update)',
+      '$(buckets update)',
+      'echo "$(buckets update --yes)"',
+      'bash -c "buckets update"',
+      "bash -c 'buckets update --yes'",
+      'sh -lc "buckets update"',
+      'cmd /c buckets update',
+      'cmd.exe /C "buckets update"',
+      'cmd /s /c "buckets update"',
+      "pwsh -c 'buckets update'",
+      'powershell -NoProfile -Command "buckets update"',
+      'pwsh -NoProfile -NonInteractive -c "npx slopbuckets update"',
+    ]) {
+      expect(update.test(command), command).toBe(true);
+    }
+    for (const command of ['(cd sub && buckets refresh --web)', 'bash -c "buckets refresh --web"', '(buckets refresh --web > refresh.log 2>&1 &)']) expect(refresh.test(command), command).toBe(false);
+    for (const command of ['(buckets update --check)', 'bash -c "buckets update --check"', "pwsh -c 'buckets update --json'", 'cmd /c buckets update --json', 'bash -c "gcloud storage buckets update gs://b"', 'bash script.sh buckets update']) {
+      expect(update.test(command), command).toBe(false);
+    }
+  });
+
   it('denies the lock and the config by name and by 8.3 short name', () => {
     for (const target of ['buckets.lock.json', 'C:\\shop\\BUCKETS.LOCK.JSON', 'cat BUCKET~1.JSO', 'buckets.config.json', 'root/log/_/engine/Buckets.Config.json']) {
       expect(guarded.test(target), target).toBe(true);
