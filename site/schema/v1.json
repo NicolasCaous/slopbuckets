@@ -92,7 +92,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->)[^|])+->(?:(?!->)[^|])+$",
-        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. Alternatives are separated by commas, never by \"|\"."
+        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. \"<a,b>\" matches one of the alternatives too, but the \"<...>\" groups of one name match values that differ from each other, so \"<A,B>+<A,B>\" matches \"A+B\" and \"B+A\" but not \"A+A\". Alternatives are separated by commas, never by \"|\"."
       }
     },
     "layoutLines": {
@@ -101,7 +101,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->)[^|])+$",
-        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. Alternatives are separated by commas, never by \"|\"."
+        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives. \"<a,b>\" matches one of the alternatives too, but the \"<...>\" groups of one name match values that differ from each other, so \"<A,B>+<A,B>\" matches \"A+B\" and \"B+A\" but not \"A+A\". Alternatives are separated by commas, never by \"|\"."
       }
     }
   }

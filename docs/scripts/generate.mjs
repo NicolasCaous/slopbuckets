@@ -962,6 +962,13 @@ A malformed line, a line listed twice in one list, the same line in both lists a
 A malformed line, a line listed twice in one list, the same line in both lists and an unknown field inside <code>layout</code> are <a href="./rules#config-invalid"><code>config-invalid</code></a>. The lines use the patterns of access lines, and the most specific matching line decides in the same way. How the parents of an allowed bucket pass, and what the agent does when a folder is denied, are in [Layout](../guide/concepts#layout). The violations are on the [rules reference](./rules#layout).
 ` : ''}`;
   }).join('');
+  // The syntax of bucket path patterns, as cli/src/core/bucket-glob.ts parses it.
+  const PATTERN_ROWS = [
+    ['<code>**</code>', 'zero or more bucket names, as a whole segment', '<code>root/teams/**</code> matches <code>root/teams</code> and every bucket below it'],
+    ['<code>*</code>', 'any characters inside one name', '<code>root/team-*</code> matches <code>root/team-a</code>'],
+    ['<code>{a,b}</code>', 'one of the alternatives, separated by commas', '<code>root/{api,web}</code> matches <code>root/api</code> and <code>root/web</code>'],
+    ['<code>&lt;a,b&gt;</code>', 'one of the alternatives, and the <code>&lt;...&gt;</code> groups of one name match values that differ from each other', '<code>root/&lt;A,B,C&gt;+&lt;A,B,C&gt;</code> matches <code>root/A+B</code> and <code>root/B+A</code>, not <code>root/A+A</code>'],
+  ];
   pages['config.md'] = front('Config reference', 'Every field of buckets.config.json, from the published JSON Schema.') +
 `# Config reference
 
@@ -982,6 +989,11 @@ The lock stores the config with the defaults filled in, its keys sorted and with
 The default of <code>alias</code> applies only to a config that leaves the field out. <code>buckets init</code> always writes an alias of its own: <code>@</code>, the name of the root bucket folder, a dash and 8 random lowercase letters and digits, such as <code>@root-k3x9pm2a</code>. The 8 characters leave out <code>0</code>, <code>o</code>, <code>1</code>, <code>l</code> and <code>i</code>, which are easy to confuse. Projects that link each other import through each other's alias, so no two projects should share one. Older projects with <code>@root</code> keep working, but <code>buckets link add</code> refuses to link two projects with the same alias.
 
 A nested project has its own <code>buckets.config.json</code> in a subfolder of a bucket's <code>_/</code>. Its <code>alias</code> must differ from the alias of every project around it: the same alias as an enclosing project is <a href="./rules#config-invalid"><code>config-invalid</code></a>. See [Projects and links](../guide/projects-and-links).
+## Bucket path patterns
+
+Each side of an <code>access</code> line and each <code>layout</code> line is a pattern over bucket paths, such as <code>root/billing</code>. A pattern starts with the root path or with <code>**</code>. See [Patterns](../guide/concepts#patterns).
+
+${table(['Pattern', 'Matches', 'Example'], PATTERN_ROWS)}
 ${nested}`;
 }
 

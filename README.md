@@ -226,6 +226,7 @@ Access and layout lines use the same patterns over bucket paths. Each pattern st
 | `**` | zero or more bucket names | `root/teams/**` matches `root/teams` and every bucket below it |
 | `*` | any characters inside one name | `root/team-*` matches `root/team-a` |
 | `{a,b}` | one of the alternatives, separated by commas, never by `\|` | `root/{api,web}` matches `root/api` and `root/web` |
+| `<a,b>` | one of the alternatives, and the `<...>` groups of one name match different values | `root/<A,B,C>+<A,B,C>` matches `root/A+B` and `root/B+A`, not `root/A+A` |
 
 Every rule id, with what it means and how to fix it, is in the [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html).
 

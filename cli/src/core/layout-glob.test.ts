@@ -33,6 +33,11 @@ describe('parseLayoutLine', () => {
     expect('line' in result && result.line.text).toBe('root/*/*');
   });
 
+  it('keeps a line with groups as written', () => {
+    const result = parseLayoutLine(' root/repository/<A,B>+{A,B} ');
+    expect('line' in result && result.line.text).toBe('root/repository/<A,B>+{A,B}');
+  });
+
   it.each(['', 'root//a', 'root/{a', 'root/a -> root/b', 'root/{a|b}'])('rejects %j', (text) => {
     expect('error' in parseLayoutLine(text)).toBe(true);
   });

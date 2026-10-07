@@ -43,6 +43,8 @@ describe('validateConfig', () => {
     ['layout line with an arrow', { layout: { default: 'deny', allow: ['root/a -> root/b'] } }],
     ['layout line with an unclosed brace', { layout: { default: 'deny', deny: ['root/{a,b'] } }],
     ['layout line with | between alternatives', { layout: { default: 'deny', allow: ['root/{a|b}'] } }],
+    ['layout line with * inside <...>', { layout: { default: 'deny', allow: ['root/<a,*>'] } }],
+    ['access line with an unclosed <', { access: { default: 'deny', allow: ['root/<a,b -> root/c'] } }],
     ['layout line outside the root path', { layout: { default: 'deny', allow: ['src/*'] } }],
     ['layout line listed twice', { layout: { default: 'deny', allow: ['root/*', ' root/* '] } }],
     ['layout line in both allow and deny', { layout: { default: 'deny', allow: ['root/a'], deny: ['root/a'] } }],

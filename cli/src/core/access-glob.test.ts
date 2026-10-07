@@ -88,6 +88,59 @@ describe('parsePattern', () => {
   });
 });
 
+describe('<...> groups', () => {
+  const all = (glob: string, names: string[]): boolean[] => names.map((name) => matches(glob, name));
+
+  it('matches only values that differ from each other across the <...> groups of a segment', () => {
+    const three = 'root/repository/<A,B,C>+<A,B,C>+<A,B,C>';
+    const perms = ['A+B+C', 'A+C+B', 'B+A+C', 'B+C+A', 'C+A+B', 'C+B+A'];
+    expect(all(three, perms.map((p) => `root/repository/${p}`))).toEqual(perms.map(() => true));
+    const others = ['A+A+B', 'A+B+A', 'B+A+A', 'A+B', 'A+B+D'];
+    expect(all(three, others.map((p) => `root/repository/${p}`))).toEqual(others.map(() => false));
+    const two = 'root/repository/<A,B,C>+<A,B,C>';
+    expect(all(two, ['root/repository/A+B', 'root/repository/B+A', 'root/repository/A+A'])).toEqual([true, true, false]);
+  });
+
+  it('matches like {...} when the segment has a single <...> group', () => {
+    const names = ['root/a', 'root/b', 'root/c', 'root/x-a-y', 'root/x-b-y', 'root/x--y', 'root/ab'];
+    expect(all('root/<a,b>', names)).toEqual(all('root/{a,b}', names));
+    expect(all('root/x-<a,b>-y', names)).toEqual(all('root/x-{a,b}-y', names));
+  });
+
+  it('lets {...} groups repeat a value in a segment with <...> groups', () => {
+    const glob = 'root/r/<A,B>+{A,B}+<A,B>';
+    expect(all(glob, ['root/r/A+A+B', 'root/r/B+B+A', 'root/r/A+B+A', 'root/r/A+A+A'])).toEqual([true, true, false, false]);
+    expect(matches('root/r/<A,B>-*-<A,B>', 'root/r/A-anything-B')).toBe(true);
+    expect(matches('root/r/<A,B>-*-<A,B>', 'root/r/A-anything-A')).toBe(false);
+  });
+
+  it('compares whole values, not prefixes', () => {
+    const glob = 'root/<A,AB><B,AB>';
+    expect(all(glob, ['root/AB', 'root/ABAB', 'root/AAB'])).toEqual([true, false, true]);
+  });
+
+  it('counts as a partial wildcard and is not literal', () => {
+    expect(pattern('root/<a,b>').literal).toBe(false);
+    expect(pattern('root/<a,b>').specificity).toEqual([1, 1, 0, 0]);
+    expect(compareSpecificity(pattern('root/<a,b>+<a,b>'), pattern('root/{a,b}'))).toBe(0);
+  });
+
+  it.each([
+    ['root/<A,*>', 'has a "*" inside "<...>" in "<A,*>". This group must list exact values, so write each value instead of "*".'],
+    ['root/<A,{B,C}>', 'nests "{" inside "<" in "<A,{B,C}>". A group of alternatives cannot contain another group.'],
+    ['root/{A,<B,C>}', 'nests "<" inside "{" in "{A,<B,C>}". A group of alternatives cannot contain another group.'],
+    ['root/<A,<B>>', 'nests "<" inside "<" in "<A,<B>>". A group of alternatives cannot contain another group.'],
+    ['root/<A,B', 'has a "<" without a ">" in "<A,B".'],
+    ['root/A>', 'has a ">" without a "<" in "A>".'],
+    ['root/<A|B>', 'has a "|" in "<A|B>". Separate alternatives with a comma, as in "{A,B,C}".'],
+    ['root/<A,B>>', 'closes "<" with ">>" in "<A,B>>". Close it with ">".'],
+    ['root/{A,B>', 'closes "{" with ">" in "{A,B>". Close it with "}".'],
+    ['root/{A}}', 'closes "{" with "}}" in "{A}}". Close it with "}".'],
+  ])('rejects %j', (text, error) => {
+    expect(parsePattern(text)).toEqual({ error });
+  });
+});
+
 describe('parseAccessLine', () => {
   it('puts the line in canonical form', () => {
     const result = parseAccessLine('  root/api/**->root/log ');

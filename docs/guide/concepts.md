@@ -182,6 +182,7 @@ Each side of a line is a pattern over bucket paths. A bucket path is the folder 
 - `**` as a whole segment matches zero or more bucket names. `root/teams/**` matches `root/teams` and every bucket below it, and `**` alone matches every bucket.
 - `*` matches any characters inside one name. `root/teams/*` matches each child of `root/teams` but not `root/teams` itself, and `root/team-*` matches `root/team-a`.
 - `{a,b}` matches one of the alternatives, as in `root/{api,web}`. Commas separate the alternatives, and alternatives cannot nest. A `|`, as in `{api|web}`, is [`config-invalid`](../reference/rules#config-invalid), because no folder name may contain it on Windows. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/A+A` and `root/repository/C+B`, but not `root/repository/A+D` or `root/repository/A`.
+- `<a,b>` matches one of the alternatives, like `{a,b}`, but the `<...>` groups of one name must match values that differ from each other. `root/repository/<A,B,C>+<A,B,C>+<A,B,C>` matches the six orders `A+B+C`, `A+C+B`, `B+A+C`, `B+C+A`, `C+A+B` and `C+B+A`, but not `A+A+B`. The order still matters, so `A+B` and `B+A` are different buckets that both match `<A,B,C>+<A,B,C>`. A `{a,b}` group in the same name may repeat a value. A `<...>` group lists exact values, so a `*` inside it is `config-invalid`, and so is a group inside another group.
 - Every other character is literal. `root/teams` matches only that bucket.
 
 Each side starts with the root path or with `**`. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
@@ -246,7 +247,7 @@ The check counts the segments of each pattern by kind:
 | Count | Segment | Example |
 |---|---|---|
 | 1st | a literal name | `teams` |
-| 2nd | a name with `*` or `{}` mixed in | `team-*`, `{api,web}` |
+| 2nd | a name with `*` or a group mixed in | `team-*`, `{api,web}`, `<a,b>` |
 | 3rd | exactly `*` | `*` |
 | 4th | `**`, counted as minus one each | `**` |
 
