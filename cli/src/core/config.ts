@@ -143,6 +143,11 @@ function validateAccess(raw: unknown, violations: Violation[]): AccessConfig | u
       }
     }
   }
+  for (const line of lists.deny) {
+    if (lists.allow.includes(line)) {
+      violations.push(invalid(`Fields "access.allow" and "access.deny" both list "${line}". Remove it from one of them.`));
+    }
+  }
   if (violations.length > before) return undefined;
   return { default: obj.default as AccessConfig['default'], allow: lists.allow, deny: lists.deny };
 }
