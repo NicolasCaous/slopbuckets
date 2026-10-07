@@ -75,6 +75,9 @@ export interface CheckResult {
   stateKey?: string;
 }
 
+/** The rules that report on a bucket folder that may not exist. A single-file check reports them on the files inside. */
+const LAYOUT_RULES: ReadonlySet<Violation['rule']> = new Set(['layout-denied', 'layout-ambiguous']);
+
 export function exitCodeFor(report: Pick<CheckReport, 'violations' | 'lockChanges' | 'environment'>): 0 | 1 | 2 | 3 {
   if (report.environment) return 3;
   if (report.violations.length > 0) return 1;
@@ -511,7 +514,9 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
   ];
 
   if (singleFile) {
-    violations = target === null ? [] : violations.filter((v) => v.file === target);
+    // The layout rules report on a folder, and the scan does not look inside a folder that fails them, so a file in
+    // such a folder gets the violation of the folder.
+    violations = target === null ? [] : violations.filter((v) => v.file === target || (LAYOUT_RULES.has(v.rule) && target.startsWith(`${v.file}/`)));
     violations.sort(compareViolations);
     const report: CheckReport = { exitCode: 0, violations, lockChanges: [] };
     report.exitCode = exitCodeFor(report);

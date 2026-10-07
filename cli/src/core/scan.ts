@@ -136,6 +136,11 @@ export function scanProject(projectDir: string, config: ResolvedConfig, options:
   return layout;
 }
 
+/** True when `dir` holds a folder that would be a child bucket: a folder other than _/, dmz/ and hidden ones. */
+function hasChildFolders(dir: string): boolean {
+  return listDir(dir).some((entry) => entry.isDir && entry.name !== '_' && entry.name !== 'dmz' && !entry.name.startsWith('.'));
+}
+
 function visitBucket(
   projectDir: string,
   config: ResolvedConfig,
@@ -187,7 +192,7 @@ function visitBucket(
       notBuckets.push(entry.name);
     } else {
       // A folder the layout forbids is opaque too: one violation for it, and none for the folders inside it.
-      const denied = layoutViolation(config, entryPath, bucketPath, options.scripts);
+      const denied = layoutViolation(config, entryPath, bucketPath, options.scripts, () => hasChildFolders(path.join(abs, entry.name)));
       if (denied === null) {
         childNames.push(entry.name);
       } else {

@@ -142,6 +142,52 @@ describe('folder rules', () => {
     expect([...layout.buckets.keys()]).toEqual(['root', 'root/a']);
   });
 
+  describe('the change a layout violation proposes', () => {
+    const message = (files: Record<string, string>, layout: LayoutConfig): string => {
+      const found = scan(files, layout).violations.filter((v) => v.rule.startsWith('layout-'));
+      expect(found).toHaveLength(1);
+      return found[0]!.message;
+    };
+    const legacy = { 'root/_/a.ts': '', 'root/dmz/legacy/.self.ts': '', 'root/legacy/_/a.ts': '' };
+    const nested = { ...legacy, 'root/legacy/dmz/old/.self.ts': '', 'root/legacy/old/_/a.ts': '', 'root/legacy/old/deep/_/a.ts': '' };
+
+    it('proposes to remove a deny line that names the folder, and the folder passes without it', () => {
+      expect(message(legacy, { default: 'allow', allow: [], deny: ['root/legacy'] })).toContain(
+        'Move this folder into root/_/ if it only organizes code, remove it, or stop and ask the human to change "layout" in buckets.config.json: propose to remove the line "root/legacy" from layout.deny.',
+      );
+      expect(pairs(legacy, { default: 'allow', allow: [], deny: [] })).toEqual([]);
+      expect(message(nested, { default: 'deny', allow: ['root/*/*/*'], deny: ['root/legacy/**'] })).toContain('propose to remove the line "root/legacy/**" from layout.deny.');
+    });
+
+    it('proposes one line for a folder with folders below it, and that line lets all of them pass', () => {
+      expect(message(nested, { default: 'deny', allow: ['root/api'], deny: [] })).toContain(
+        'with the exact line you propose, such as "root/legacy/**" in layout.allow, which allows root/legacy/ and every folder below it.',
+      );
+      expect(pairs(nested, { default: 'deny', allow: ['root/api', 'root/legacy/**'], deny: [] })).toEqual([]);
+      expect(message(nested, { default: 'deny', allow: ['root/*'], deny: ['root/l*/**'] })).toContain('such as "root/legacy/**" in layout.allow');
+      expect(pairs(nested, { default: 'deny', allow: ['root/*', 'root/legacy/**'], deny: ['root/l*/**'] })).toEqual([]);
+    });
+
+    it('proposes the folder alone when it has no folders below it, or when the deny line is as specific as the subtree line', () => {
+      expect(message(legacy, { default: 'deny', allow: ['root/api'], deny: [] })).toContain('such as "root/legacy" in layout.allow.');
+      const tie = message(nested, { default: 'deny', allow: ['root/*/*/*'], deny: ['root/**/legacy'] });
+      expect(tie).toContain('such as "root/legacy" in layout.allow.');
+      expect(pairs(nested, { default: 'deny', allow: ['root/*/*/*', 'root/legacy'], deny: ['root/**/legacy'] })).toEqual([]);
+    });
+
+    it.each([
+      ['x{1}', '{'],
+      ['a,b', ','],
+      ['tick`s', '`'],
+      ['v}2', '}'],
+    ])('says that no line can name the folder %j and that it needs another name', (name, char) => {
+      const files = { 'root/_/a.ts': '', [`root/${name}/_/a.ts`]: '' };
+      expect(message(files, { default: 'deny', allow: ['root/api'], deny: [] })).toContain(
+        `No layout line can name this folder literally, because "${name}" holds "${char}", which a line reads as glob syntax. Move this folder into root/_/ if it only organizes code, remove it, or rename it without the characters { } < > * \` , and |.`,
+      );
+    });
+  });
+
   it('matches the layout against bucket paths under a custom root path', () => {
     const files = { 'src/buckets/_/a.ts': '', 'src/buckets/dmz/a/.self.ts': '', 'src/buckets/a/_/a.ts': '', 'src/buckets/a/dmz/b/.self.ts': '', 'src/buckets/a/b/_/a.ts': '' };
     expect(pairs(files, { default: 'deny', allow: ['src/buckets/*/*'], deny: [] }, 'src/buckets')).toEqual([]);

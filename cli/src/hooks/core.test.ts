@@ -584,6 +584,15 @@ describe('postEdit', () => {
     expect(await postEdit(ctx, { projectDir: dir, cwd: dir, paths: [] })).toEqual({});
   });
 
+  it('reports a file written into a folder that layout denies', async () => {
+    const config = JSON.stringify({ root: 'root', layout: { default: 'deny', allow: ['root/*'] } });
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': config, 'root/log/old/_/x.ts': 'export const x = 1;\n' });
+    const result = await postEdit(testContext(), { projectDir: dir, cwd: dir, paths: ['root/log/old/_/x.ts'] });
+    expect(result.feedback).toContain('buckets check --file root/log/old/_/x.ts found problems');
+    expect(result.feedback).toContain('layout-denied');
+    expect(result.feedback).toContain('Layout denied: root/log/old/ is a bucket folder');
+  });
+
   it('joins the reports of several files, as an apply_patch call produces', async () => {
     const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n", 'root/log/_/logger.ts': "import y from './y';\nexport function logger() {}\n" });
     const result = await postEdit(testContext(), { projectDir: dir, cwd: dir, paths: ['root/_/main.ts', 'root/log/_/logger.ts'] });

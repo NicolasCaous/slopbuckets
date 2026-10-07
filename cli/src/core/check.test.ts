@@ -99,6 +99,26 @@ describe('check --file', () => {
     expect(pairs(report.violations)).toEqual(['import-relative root/_/main.ts']);
   });
 
+  it('reports the layout violation of the folder that holds the file', async () => {
+    const config = JSON.stringify({ root: 'root', layout: { default: 'deny', allow: ['root/*'], deny: ['root/legacy'] } });
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': config, 'root/legacy/_/old.ts': 'export const old = 1;\n', 'root/legacy/deep/_/d.ts': 'export const d = 1;\n' });
+    for (const file of ['root/legacy/_/old.ts', 'root/legacy/deep/_/d.ts', 'root/billing/invoices/_/create-invoice.ts']) {
+      const { report } = await checkProject(dir, { file });
+      expect(report.exitCode, file).toBe(1);
+      expect(pairs(report.violations), file).toEqual([file.startsWith('root/legacy') ? 'layout-denied root/legacy' : 'layout-denied root/billing/invoices']);
+    }
+    // A file next to the folder, or in a folder whose name only starts the same way, stays clean.
+    const clean = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': config, 'root/legacy/_/old.ts': '', 'root/legacy2/_/n.ts': 'export const n = 1;\n' });
+    expect((await checkProject(clean, { file: 'root/legacy2/_/n.ts' })).report.violations).toEqual([]);
+    expect((await checkProject(clean, { file: 'root/_/main.ts' })).report.violations).toEqual([]);
+  });
+
+  it('reports a layout-ambiguous folder on the files inside it', async () => {
+    const config = JSON.stringify({ root: 'root', layout: { default: 'deny', allow: ['root/*', 'root/le*'], deny: ['root/*y'] } });
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': config, 'root/legacy/_/old.ts': 'export const old = 1;\n' });
+    expect(pairs((await checkProject(dir, { file: 'root/legacy/_/old.ts' })).report.violations)).toEqual(['layout-ambiguous root/legacy']);
+  });
+
   // On Windows and macOS the file system ignores case, so a path typed with other case names the same file.
   it.skipIf(!caseInsensitiveFs())('finds the file when the path differs from the disk only in case', async () => {
     const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import y from './y';\n" });
