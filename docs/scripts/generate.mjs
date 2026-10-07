@@ -868,6 +868,7 @@ ${table(['Field', 'Holds'], [
   ['<code>cli</code>', 'The CLI version that wrote the lock. <code>buckets check</code> refuses to run with another version and exits with code 3. CI installs this version.'],
   ['<code>adapter</code>', 'The adapter name and version, and <code>toolchain</code>: the tools whose version can change signature hashes, such as <code>typescript@5.9.3</code>. A different toolchain alone is not a problem. The check exits with code 3 only when the toolchain changed and a signature hash changed too.'],
   ['<code>config</code>', '<code>buckets.config.json</code> with the defaults filled in, its keys sorted and without <code>$schema</code>, so a formatting change is not a difference. <code>access</code> and <code>layout</code> are there only when the config has them, with <code>allow</code> and <code>deny</code> always present and sorted. Each access line is in the form <code>A -&gt; B</code>. Locks of versions 1 to 3 hold a <code>sha256:</code> hash of the same object instead.'],
+  ['<code>scriptValues</code>', 'The output of each script of <code>scripts</code> in the config, by script name: the values it printed, sorted and without repeats. Other values are a <a href="./lock#config-changed"><code>config-changed</code></a> difference. Left out when the config has no scripts.'],
   ['<code>buckets</code>', 'Every bucket folder, sorted.'],
   ['<code>dmz</code>', 'For each DMZ file, <code>.external.ts</code> files included, a hash of its text and a hash of the type signature of each symbol it re-exports. The text hash ignores line endings (CRLF counts as LF) and a leading byte order mark, so an editor that adds or drops either one does not change it.'],
   ['<code>projects</code>', 'Nested projects, relative to this project. Each one has its own lock. Left out when there are none.'],
@@ -970,6 +971,7 @@ A malformed line, a line listed twice in one list, the same line in both lists a
     ['<code>{{a,b}}</code>', 'one of the alternatives, and the <code>{{...}}</code> groups of one name match values that never decrease, by character code', '<code>root/{{A,B,C}}+{{A,B,C}}</code> matches <code>root/A+A</code> and <code>root/A+B</code>, not <code>root/B+A</code>'],
     ['<code>&lt;a,b&gt;</code>', 'one of the alternatives, and the <code>&lt;...&gt;</code> groups of one name match values that differ from each other', '<code>root/&lt;A,B,C&gt;+&lt;A,B,C&gt;</code> matches <code>root/A+B</code> and <code>root/B+A</code>, not <code>root/A+A</code>'],
     ['<code>&lt;&lt;a,b&gt;&gt;</code>', 'one of the alternatives, and the <code>&lt;&lt;...&gt;&gt;</code> groups of one name match values in strictly increasing order, by character code, so uppercase sorts before lowercase', '<code>root/&lt;&lt;A,B,C&gt;&gt;+&lt;&lt;A,B,C&gt;&gt;</code> matches <code>root/A+B</code>, <code>root/A+C</code> and <code>root/B+C</code>, not <code>root/B+A</code>'],
+    ['<code>&#96;name&#96;</code>', 'the values that the script <code>name</code> of <code>scripts</code> prints, as one value of a group of any kind, or alone as <code>{&#96;name&#96;}</code>', '<code>root/{shared,&#96;repos&#96;}</code> matches <code>root/shared</code> and each repository name that <code>repos</code> prints'],
   ];
   pages['config.md'] = front('Config reference', 'Every field of buckets.config.json, from the published JSON Schema.') +
 `# Config reference
@@ -986,7 +988,7 @@ ${schema.additionalProperties === false ? 'Unknown fields are not allowed. The c
 
 A human owns this file. The agent hooks deny every write to any <code>buckets.config.json</code>, nested ones included, as they do for the lock, and the reason they return tells the agent to ask the human for the change. See [Claude Code hooks](./hooks#pre-tool-use).
 
-The lock stores the config with the defaults filled in, its keys sorted and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>. The review lists each change: every <code>access</code> or <code>layout</code> line added or removed, a changed <code>access.default</code> or <code>layout.default</code>, and every other key with its old and new value. Locks older than version 4 store only a hash of the config. See [Lock file](./lockfile).
+The lock stores the config with the defaults filled in, its keys sorted and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>. The review lists each change: every <code>access</code> or <code>layout</code> line added or removed, a changed <code>access.default</code> or <code>layout.default</code>, every other key with its old and new value, and each value a script prints that it did not print before, or no longer prints. Locks older than version 4 store only a hash of the config. See [Lock file](./lockfile).
 
 The default of <code>alias</code> applies only to a config that leaves the field out. <code>buckets init</code> always writes an alias of its own: <code>@</code>, the name of the root bucket folder, a dash and 8 random lowercase letters and digits, such as <code>@root-k3x9pm2a</code>. The 8 characters leave out <code>0</code>, <code>o</code>, <code>1</code>, <code>l</code> and <code>i</code>, which are easy to confuse. Projects that link each other import through each other's alias, so no two projects should share one. Older projects with <code>@root</code> keep working, but <code>buckets link add</code> refuses to link two projects with the same alias.
 
@@ -1000,6 +1002,16 @@ ${table(['Pattern', 'Matches', 'Example'], PATTERN_ROWS)}
 <p v-pre>The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right. One name may use only one of <code>{{...}}</code>, <code>&lt;...&gt;</code> and <code>&lt;&lt;...&gt;&gt;</code>, and <code>{...}</code> mixes with any of them. Those three list exact values, without <code>*</code>. Groups never nest, and a <code>|</code> is <a href="./rules#config-invalid"><code>config-invalid</code></a>: separate the values with commas.</p>
 
 ${table(['', 'Repeats allowed', 'No repeats'], [['Any order', '<code>{a,b}</code>', '<code>&lt;a,b&gt;</code>'], ['Sorted, left to right', '<code>{{a,b}}</code>', '<code>&lt;&lt;a,b&gt;&gt;</code>']])}
+
+## Scripts
+
+<p><code>scripts</code> maps a script name to a Node script, relative to the folder of <code>buckets.config.json</code>. A name starts with a letter or <code>_</code> and holds only letters, digits, <code>_</code> and <code>-</code>. A line names a script in backticks, and the values the script prints join the group that names it.</p>
+
+${codeBlock('json', JSON.stringify({ scripts: { repos: 'tools/repos.mjs' }, layout: { default: 'deny', allow: ['root/repository/{shared,`repos`}'] } }, null, 2))}
+
+${codeBlock('js', "// tools/repos.mjs prints the name of each repository in repos.json, one per line.\nimport { readFileSync } from 'node:fs';\n\nfor (const repo of JSON.parse(readFileSync('repos.json', 'utf8'))) console.log(repo.name);")}
+
+The check runs each script as <code>node &lt;file&gt;</code> in the project folder, once per process, with a 10 second timeout. Each non-empty output line is one value and must be a valid bucket name. A non-zero exit, a timeout, an empty output, an invalid value, a missing file and a line that names an unknown script are <a href="./rules#config-invalid"><code>config-invalid</code></a>. The lock stores the output in <code>scriptValues</code>, so other values are <a href="./lock#config-changed"><code>config-changed</code></a>. See [Scripts](../guide/concepts#scripts).
 ${nested}`;
 }
 

@@ -48,7 +48,7 @@ export const EXPLAIN_LOCK = {
   'lock-missing': '`buckets.lock.json` does not exist yet, or cannot be read.',
   'bucket-added': 'A bucket folder exists that the lock does not have.',
   'bucket-removed': 'A bucket in the lock no longer exists.',
-  'config-changed': 'A value in `buckets.config.json` changed. The message, `buckets refresh` and `buckets refresh --web` list each `access` or `layout` line added or removed, a changed default, and every other key with its old and new value. When the lock is older than version 4, they show the current values only, because that lock kept only a hash.',
+  'config-changed': 'A value in `buckets.config.json` changed, or a script of its `scripts` key prints other values. The message, `buckets refresh` and `buckets refresh --web` list each `access` or `layout` line added or removed, a changed default, every other key with its old and new value, and each value a script added or dropped. When the lock is older than version 4, they show the current values only, because that lock kept only a hash.',
   'dmz-added': 'A DMZ file exists that the lock does not have.',
   'dmz-removed': 'A DMZ file in the lock was deleted.',
   'dmz-changed': 'The text of a DMZ file changed. Line endings and a leading byte order mark do not count.',

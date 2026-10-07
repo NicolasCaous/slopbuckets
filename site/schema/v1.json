@@ -28,6 +28,17 @@
       "default": "@root",
       "description": "Import prefix for every internal import."
     },
+    "scripts": {
+      "type": "object",
+      "description": "Node scripts by name, each a path relative to the folder of buckets.config.json. Access and layout lines name a script in backticks, and the values it prints, one bucket name per line, join the group that names it. The check runs each script once per process, as node <file> in the project folder, with a 10 second timeout. The lock stores the output, so other values are a config-changed difference.",
+      "examples": [{ "repos": "tools/repos.mjs" }],
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Path of a Node script relative to the folder of buckets.config.json, such as \"tools/repos.mjs\"."
+      }
+    },
     "access": {
       "type": "object",
       "additionalProperties": false,
@@ -91,8 +102,8 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^(?:(?!->)[^|])+->(?:(?!->)[^|])+$",
-        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\"."
+        "pattern": "^[^|]+->[^|]+$",
+        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\". A script name of \"scripts\" between two backticks stands for the values that script prints. Inside a group it is one value between commas, and alone in a name it is a group of its own."
       }
     },
     "layoutLines": {
@@ -100,8 +111,8 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^(?:(?!->)[^|])+$",
-        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\"."
+        "pattern": "^[^|]+$",
+        "description": "A line is one glob over bucket paths, such as \"root/*/*\". It starts with the root path or with \"**\". \"**\" matches zero or more buckets and \"*\" any characters inside a name. A group matches one of its values, separated by commas, never by \"|\". Within one name, \"{a,b}\" groups match any values, \"{{a,b}}\" groups match values that never decrease, \"<a,b>\" groups match values that differ from each other, and \"<<a,b>>\" groups match values that strictly increase, from left to right and by character code. One name may use only one of \"{{...}}\", \"<...>\" and \"<<...>>\", which list exact values without \"*\". A script name of \"scripts\" between two backticks stands for the values that script prints. Inside a group it is one value between commas, and alone in a name it is a group of its own."
       }
     }
   }

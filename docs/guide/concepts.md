@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules, the layout and the lock.
+description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules, the layout, scripts and the lock.
 ---
 
 # Concepts
@@ -199,6 +199,8 @@ A group of alternatives matches one of its values, as in `root/{api,web}`. Comma
 The sorted kinds compare values by plain character code, as JavaScript compares strings without a locale, so uppercase letters sort before lowercase ones: `<<a,B>>+<<a,B>>` matches `B+a`, not `a+B`. A name with a single group of any kind matches as if the group were `{a,b}`. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and mixing two of them is [`config-invalid`](../reference/rules#config-invalid). `{...}` mixes with any of them: `root/r/<<A,B>>-{x,y}-<<A,B>>` matches `root/r/A-x-B` but not `root/r/B-x-A`.
 
 `{{...}}`, `<...>` and `<<...>>` list exact values, so a `*` inside them is `config-invalid`. A value of `{a,b}` may hold a `*`, as in `{api,web-*}`. Groups cannot nest. A `|`, as in `{api|web}`, is `config-invalid` too, because no folder name may contain it on Windows. Separate the values with commas.
+
+A script name in backticks stands for the values that [a script](#scripts) prints. Inside a group of any kind, it is one value between commas, and the script's values join the group and follow its rules: `` root/{shared,`repos`} `` matches `root/shared` and every name that `repos` prints, and `` root/<`repos`>+<`repos`> `` matches two different names it prints. Outside a group, `` `repos` `` means `` {`repos`} ``, so `` root/repository/`repos` `` matches each printed name. A script name mixed with other text in one value, as in `` {a`repos`} ``, is `config-invalid`, and so is a name that `scripts` does not list.
 :::
 
 Each side starts with the root path or with `**`. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
@@ -264,7 +266,7 @@ The check counts the segments of each pattern by kind:
 | Count | Segment | Example |
 |---|---|---|
 | 1st | a literal name | `teams` |
-| 2nd | a name with `*` or a group mixed in | `team-*`, `{api,web}`, `{{a,b}}`, `<a,b>`, `<<a,b>>` |
+| 2nd | a name with `*`, a group or a script mixed in | `team-*`, `{api,web}`, `{{a,b}}`, `<a,b>`, `<<a,b>>`, `` `repos` `` |
 | 3rd | exactly `*` | `*` |
 | 4th | `**`, counted as minus one each | `**` |
 :::
@@ -391,6 +393,43 @@ The check reports `layout-denied` or `layout-ambiguous` on the bucket folder. A 
 
 The agent cannot change the layout. It moves the folder into the `_/` of its parent when the folder only organizes code, removes it, or stops and asks the human for the exact line it proposes, such as "add `root/billing/invoices/pdf` to `layout.allow`". Every rule id and its messages are on the [rules reference](../reference/rules#layout).
 
+## Scripts
+
+A list of names that changes often, such as the repositories of a team, can live in a file instead of the config. A script prints the list, and access and layout lines name the script in backticks. The `scripts` key of `buckets.config.json` maps each script name to a Node script, relative to the folder of the config:
+
+```json
+{
+  "scripts": { "repos": "tools/repos.mjs" },
+  "layout": {
+    "default": "deny",
+    "allow": ["root/repository/{shared,`repos`}"]
+  }
+}
+```
+
+```js
+// tools/repos.mjs prints the name of each repository in repos.json, one per line.
+import { readFileSync } from 'node:fs';
+
+for (const repo of JSON.parse(readFileSync('repos.json', 'utf8'))) console.log(repo.name);
+```
+
+A script name starts with a letter or `_` and holds only letters, digits, `_` and `-`. The file must exist, and the paths of `scripts` are part of the config like any other value.
+
+The check runs each script before it matches any line, as `node <file>` with the project folder as the current folder, no arguments and a 10 second timeout. Each script runs once per process, so the check, `buckets check --file` and each agent hook run it once. There is no sandbox: a script can do anything a Node program can, so keep it small and read only files of the project.
+
+Each line of the output is one value. The check strips a trailing `\r` and skips empty lines. A value must be a valid bucket name: no `/` or `\`, no `*`, `{`, `}`, `<`, `>`, `,`, `|` or backtick, no character that Windows forbids in a folder name, no space at either end, no leading `.`, and not `_` or `dmz`. The order of the lines and repeated lines do not matter.
+
+The check reports [`config-invalid`](../reference/rules#config-invalid) with the script name and the first lines of its stderr when a script exits with a code other than 0, runs longer than 10 seconds, prints no value or prints an invalid value. It matches no line until every script works.
+
+The lock stores the output of each script in `scriptValues`, sorted and without repeats, next to the config. A script that prints other values, for example after `repos.json` changed, is a `config-changed` lock difference even when `buckets.config.json` is the same, so a new value waits for a human approval like a new line. The review lists the values added and removed per script:
+
+```text
+~ config changed          buckets.config.json
+    + `repos` output  billing-api
+    - `repos` output  old-web
+```
+
 ## The lock
 
 `buckets.lock.json` records the last state a human approved:
@@ -398,6 +437,7 @@ The agent cannot change the layout. It moves the folder into the `_/` of its par
 - the CLI version, and the adapter name, version and toolchain (such as `typescript@5.9.3`) that wrote it
 - the bucket tree
 - the config with the defaults filled in and its keys sorted, `access` included, so a change in formatting alone does not count. Locks older than version 4 kept only a hash of it
+- the values each script of the config printed
 - for every DMZ file, `.external.ts` files included, a hash of its text and a hash of the type signature of each symbol it re-exports. Line endings and a leading byte order mark do not change the text hash
 - the nested projects
 - every link, with its origin, mode, the alias of the origin and the signature hash of each symbol the origin publishes

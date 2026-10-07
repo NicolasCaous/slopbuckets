@@ -132,7 +132,7 @@ The agent then asks the human to run `buckets refresh` in their own terminal.
 
 Only a human edits `buckets.config.json`. When an agent needs a change in it, such as an `access` line that allows a dependency or a `layout` line that allows a bucket folder, it stops and asks, with the exact line it proposes. The hooks deny any write to the file, also through a shell command that names it.
 
-The lock stores the whole config, with the defaults filled in, so a change to it is a `config-changed` lock difference and waits for an approval like a contract change. The review lists what changed, one row per change: each `access` or `layout` line added or removed with its list, a changed `access.default` or `layout.default`, and every other key with its old and new value.
+The lock stores the whole config, with the defaults filled in, so a change to it is a `config-changed` lock difference and waits for an approval like a contract change. The review lists what changed, one row per change: each `access` or `layout` line added or removed with its list, a changed `access.default` or `layout.default`, and every other key with its old and new value. The lock also stores the output of each [script](./concepts#scripts) of the config, so a script that prints other values is `config-changed` too, and the review lists each value it added or dropped.
 
 ```text
 ~ config changed          buckets.config.json

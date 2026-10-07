@@ -229,6 +229,7 @@ Access and layout lines use the same patterns over bucket paths. Each pattern st
 | `{{a,b}}` | one of the alternatives, and the `{{...}}` groups of one name match values that never decrease | `root/{{A,B,C}}+{{A,B,C}}` matches `root/A+A` and `root/A+B`, not `root/B+A` |
 | `<a,b>` | one of the alternatives, and the `<...>` groups of one name match different values | `root/<A,B,C>+<A,B,C>` matches `root/A+B` and `root/B+A`, not `root/A+A` |
 | `<<a,b>>` | one of the alternatives, and the `<<...>>` groups of one name match values in strictly increasing order | `root/<<A,B,C>>+<<A,B,C>>` matches `root/A+B`, `root/A+C` and `root/B+C`, not `root/B+A` |
+| `` `name` `` | the values the script `name` of `scripts` prints, as one value of a group or, alone, as `` {`name`} `` | `` root/{shared,`repos`} `` matches `root/shared` and each repository name that `repos` prints |
 
 The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right:
 
@@ -238,6 +239,8 @@ The four kinds of group differ in whether the groups of one name may repeat a va
 | Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
 
 The sorted kinds compare values by character code, so uppercase letters sort before lowercase ones. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and `{...}` mixes with any of them. Those three list exact values, without `*`. Groups never nest.
+
+A script lists names that change often, such as the repositories of a team. `"scripts": {"repos": "tools/repos.mjs"}` maps the name to a Node script, and the check runs it as `node tools/repos.mjs` in the project folder, once per process, with a 10 second timeout. The script prints one bucket name per line, for example the names it reads from `repos.json`. Inside a group, `` `repos` `` is one value between commas, and its values follow the rules of that group. A failing script, an empty output or an invalid name is `config-invalid`. The lock stores the output, so a new value is a `config-changed` difference that a human approves. The [scripts guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#scripts) has the details.
 
 Every rule id, with what it means and how to fix it, is in the [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html).
 
@@ -403,6 +406,7 @@ npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
 | `adapter` | `"ts"` | language adapter the CLI uses to read the project |
 | `root` | `"root"` | folder of the root bucket |
 | `alias` | `"@root"` | import prefix for internal imports. `buckets init` writes a unique one. A nested project and each linked project need an alias of their own |
+| `scripts` | not set | Node scripts by name, relative to the config, such as `{"repos": "tools/repos.mjs"}`. Access and layout lines name them in backticks. See [scripts](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#scripts) |
 | `layout` | not set | which bucket folders may exist, as patterns in `allow` and `deny` with a `default`. `buckets init` writes `"allow": ["<root>/*/*"]` under `"default": "deny"`. See [layout](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#layout) |
 | `access` | not set | which buckets may use code from which other buckets, as `"A -> B"` lines in `allow` and `deny` with a `default`. See [access rules](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) |
 

@@ -81,6 +81,7 @@ A line `A -> B` means code in bucket A uses code declared in bucket B's `_/`, wh
 | `{{a,b}}` | one of the alternatives, and the `{{...}}` groups of one name match values that never decrease | `root/{{A,B,C}}+{{A,B,C}}` matches `root/A+A` and `root/A+B`, not `root/B+A` |
 | `<a,b>` | one of the alternatives, and the `<...>` groups of one name match different values | `root/<A,B,C>+<A,B,C>` matches `root/A+B` and `root/B+A`, not `root/A+A` |
 | `<<a,b>>` | one of the alternatives, and the `<<...>>` groups of one name match values in strictly increasing order | `root/<<A,B,C>>+<<A,B,C>>` matches `root/A+B`, `root/A+C` and `root/B+C`, not `root/B+A` |
+| `` `name` `` | the values the script `name` of `scripts` prints, as one value of a group or, alone, as `` {`name`} `` | `` root/{shared,`repos`} `` matches `root/shared` and each repository name that `repos` prints |
 
 The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right:
 
@@ -90,6 +91,8 @@ The four kinds of group differ in whether the groups of one name may repeat a va
 | Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
 
 Separate alternatives with commas. A `|` is `config-invalid`, so never write `{api|web}`. A `{{...}}`, `<...>` or `<<...>>` group lists exact values, without `*`, and groups never nest. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and `{...}` mixes with any of them. The sorted kinds compare values by character code, so uppercase letters sort before lowercase ones. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/C+B`. Write the lines you propose to the human in this syntax.
+
+A script name in backticks stands for the names that a script listed in the `scripts` key prints, one per line. The check runs each script once per process. When a script fails, prints nothing or prints an invalid name, the check reports `config-invalid` with its stderr. Fix a mistake you made in the script or in the file it reads, or stop and ask the human. A script that prints other values than the lock recorded is `config-changed`, so a human approves the new values with `buckets refresh`. The file a script reads decides what the lines match, like the config, so never change it to make a denied import or folder pass. Ask the human instead.
 
 When several lines match, the most specific one decides, and `default` decides when none matches. A pattern with more literal bucket names is more specific. On a tie, more names with `*` or a group mixed in win, then more segments that are exactly `*`, then fewer `**`. Where a segment sits does not matter, so `root/**/payments` and `root/teams/**` are equally specific. Read the lines before you add a dependency between buckets, and pick a path they allow.
 
