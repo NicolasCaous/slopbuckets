@@ -2,6 +2,7 @@
 // so the CLI has no runtime dependency.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseAccessLine, type AccessConfig } from './access-glob.js';
 import { canonicalJson, sha256 } from './hash.js';
 import { parseJson } from './json.js';
 import { CONFIG_FILE, toPosix } from './paths.js';
@@ -14,12 +15,15 @@ export interface ResolvedConfig {
   root: string;
   alias: string;
   maxDepth: number;
+  /** Absent when the config has no `access` key, so the hash of a config without it stays the same. */
+  access?: AccessConfig;
 }
 
 export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', alias: '@root', maxDepth: 2 };
 
 const ADAPTERS = ['ts'];
-const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'maxDepth']);
+const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'maxDepth', 'access']);
+const ACCESS_KEYS = new Set(['default', 'allow', 'deny']);
 
 export type ConfigResult =
   | { kind: 'missing' }
@@ -39,7 +43,7 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (!KNOWN_KEYS.has(key)) {
-      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias and maxDepth.`));
+      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, maxDepth and access.`));
     }
   }
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -90,7 +94,57 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
     }
   }
 
+  if ('access' in obj) {
+    const access = validateAccess(obj.access, violations);
+    if (access) config.access = access;
+  }
+
   return violations.length > 0 ? { violations } : { config, violations };
+}
+
+/** Validates the `access` field and puts every line in canonical form. Pushes the problems into `violations`. */
+function validateAccess(raw: unknown, violations: Violation[]): AccessConfig | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    violations.push(invalid('Field "access" must be an object such as {"default": "deny", "allow": ["** -> root/log"]}. Fix it or remove it.'));
+    return undefined;
+  }
+  const obj = raw as Record<string, unknown>;
+  const before = violations.length;
+  for (const key of Object.keys(obj)) {
+    if (!ACCESS_KEYS.has(key)) {
+      violations.push(invalid(`Unknown field "access.${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are default, allow and deny.`));
+    }
+  }
+  if (obj.default !== 'allow' && obj.default !== 'deny') {
+    violations.push(invalid('Field "access.default" must be "allow" or "deny". Set it, because it decides the imports that no line matches.'));
+  } else if (obj.default === 'allow' && 'allow' in obj) {
+    violations.push(invalid('Field "access.allow" does nothing when "access.default" is "allow". Remove it, or set "access.default" to "deny".'));
+  }
+  const lists: Record<'allow' | 'deny', string[]> = { allow: [], deny: [] };
+  for (const list of ['allow', 'deny'] as const) {
+    if (!(list in obj)) continue;
+    const items = obj[list];
+    if (!Array.isArray(items)) {
+      violations.push(invalid(`Field "access.${list}" must be an array of lines such as "root/api/** -> root/log".`));
+      continue;
+    }
+    for (const item of items) {
+      if (typeof item !== 'string') {
+        violations.push(invalid(`Field "access.${list}" must contain only strings, such as "root/api/** -> root/log".`));
+        continue;
+      }
+      const parsed = parseAccessLine(item);
+      if ('error' in parsed) {
+        violations.push(invalid(`Field "access.${list}": ${parsed.error}`));
+      } else if (lists[list].includes(parsed.line.text)) {
+        violations.push(invalid(`Field "access.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
+      } else {
+        lists[list].push(parsed.line.text);
+      }
+    }
+  }
+  if (violations.length > before) return undefined;
+  return { default: obj.default as AccessConfig['default'], allow: lists.allow, deny: lists.deny };
 }
 
 /** Reads buckets.config.json from the project folder. */

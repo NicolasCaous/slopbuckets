@@ -23,11 +23,49 @@ describe('validateConfig', () => {
     ['maxDepth not an integer', { maxDepth: 1.5 }],
     ['$schema not a string', { $schema: 1 }],
     ['not an object', []],
+    ['access not an object', { access: ['** -> **'] }],
+    ['access without default', { access: { deny: ['root/a -> root/b'] } }],
+    ['access default outside the enum', { access: { default: 'maybe' } }],
+    ['access allow with default allow', { access: { default: 'allow', allow: [] } }],
+    ['unknown field in access', { access: { default: 'deny', only: [] } }],
+    ['access deny not an array', { access: { default: 'deny', deny: 'root/a -> root/b' } }],
+    ['access line not a string', { access: { default: 'deny', allow: [1] } }],
+    ['access line without an arrow', { access: { default: 'deny', allow: ['root/a'] } }],
+    ['access line with two arrows', { access: { default: 'deny', allow: ['root/a -> root/b -> root/c'] } }],
+    ['access line with an unclosed brace', { access: { default: 'deny', deny: ['root/{a,b -> root/c'] } }],
+    ['access line listed twice', { access: { default: 'deny', allow: ['root/a -> root/b', 'root/a->root/b'] } }],
   ])('rejects %s', (_name, raw) => {
     const result = validateConfig(raw);
     expect(result.config).toBeUndefined();
     expect(result.violations.length).toBeGreaterThan(0);
     expect(result.violations.every((v) => v.rule === 'config-invalid' && v.file === 'buckets.config.json')).toBe(true);
+  });
+});
+
+describe('access', () => {
+  it('stores each line in canonical form and fills in the missing list', () => {
+    const { config } = validateConfig({ access: { default: 'deny', allow: ['root/api/**->root/log', '  ** ->   root/sql '] } });
+    expect(config?.access).toEqual({ default: 'deny', allow: ['root/api/** -> root/log', '** -> root/sql'], deny: [] });
+    expect(validateConfig({ access: { default: 'allow', deny: ['root/a -> root/b'] } }).config?.access).toEqual({ default: 'allow', allow: [], deny: ['root/a -> root/b'] });
+  });
+
+  it('leaves the key out of the resolved config when the file has none', () => {
+    expect('access' in validateConfig({ root: 'root' }).config!).toBe(false);
+  });
+
+  it('keeps the hash of a config without access', () => {
+    // The hash of the default config as slopbuckets 1.0.0 computed it. Existing locks store this value.
+    expect(configHash(validateConfig({}).config!)).toBe('sha256:1e52c01b7e7348f85ebf85ecd87641bd6907f46ef1dc377ff8795d6f06f63c28');
+  });
+
+  it('changes the hash when access changes, but not when only the spelling of a line does', () => {
+    const base = configHash(validateConfig({}).config!);
+    const a = configHash(validateConfig({ access: { default: 'deny', allow: ['root/a -> root/b'] } }).config!);
+    const b = configHash(validateConfig({ access: { default: 'deny', allow: ['root/a->root/b'] } }).config!);
+    const c = configHash(validateConfig({ access: { default: 'deny', allow: ['root/a -> root/c'] } }).config!);
+    expect(a).not.toBe(base);
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
   });
 });
 
