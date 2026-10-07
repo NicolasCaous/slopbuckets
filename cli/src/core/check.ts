@@ -21,6 +21,7 @@ import {
 import { computeLockFromModel, diffLocks, isSupportedLockVersion, readLock, toolchainChanged } from './lock.js';
 import { buildModel, type Model } from './model.js';
 import { CONFIG_FILE, diskCase, LOCK_FILE, relativeToProject, toPosix } from './paths.js';
+import { checkAccess } from './rules/access.js';
 import { checkCycles } from './rules/cycles.js';
 import { checkImports, type DmzUse } from './rules/imports.js';
 import { checkOrphans, type OrphanChain } from './rules/orphans.js';
@@ -474,7 +475,7 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
   const model = buildModel(config, layout, response, info.dmzExtension, linkSet, linkInfo, removedLinks(singleFile ? readLock(projectDir) : lockRead, requests));
   const imports = checkImports(model);
   const target = singleFile ? normalizeTarget(projectDir, options.file!) : null;
-  // When the single file is a DMZ file, cycles whose edges pass through its re-exports are reported on it too.
+  // When the single file is a DMZ file, cycles and denied edges that pass through its re-exports are reported on it too.
   const dmzTarget = target !== null && model.exports.has(target) ? target : undefined;
   let violations: Violation[] = [
     ...(manifest.kind === 'invalid'
@@ -493,6 +494,7 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
     ...checkDmzTargets(model),
     ...imports.violations,
     ...checkCycles(model, imports.uses, dmzTarget),
+    ...checkAccess(model, imports.uses, dmzTarget),
     ...linkEntries.violations,
     ...linkAnalysisViolations(projectDir, linkEntries.entries, response, info.name),
   ];

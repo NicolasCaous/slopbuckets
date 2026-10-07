@@ -40,6 +40,8 @@ export const RULE_IDS = [
   'import-undeclared-package',
   'import-global',
   'graph-cycle',
+  'access-denied',
+  'access-unknown-bucket',
   'project-misplaced',
   'link-missing',
   'link-forbidden-import',

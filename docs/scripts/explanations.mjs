@@ -8,6 +8,7 @@ export const RULE_GROUPS = [
   ['dmz-', 'DMZ files'],
   ['import-', 'Imports'],
   ['graph-', 'Bucket graph'],
+  ['access-', 'Access rules'],
   ['link-', 'Links'],
 ];
 
@@ -32,6 +33,8 @@ export const EXPLAIN_RULE = {
   'import-undeclared-package': 'An import of a package that is not in `package.json`.',
   'import-global': 'A file in `_/` shares code without an import: a file that is not a module, `declare global`, `export as namespace` or a `/// <reference>`.',
   'graph-cycle': 'The bucket graph has a cycle. The check reports it once for each file that adds an edge of the cycle.',
+  'access-denied': 'An import uses code that originates in a bucket the `access` lines of `buckets.config.json` deny to the importing bucket. Also a DMZ re-export whose symbol the `access` lines deny to every bucket that may import that DMZ file.',
+  'access-unknown-bucket': 'A side of an `access` line names, without wildcards, a bucket that does not exist.',
   'project-misplaced': "A `buckets.config.json` sits inside the root bucket folder somewhere other than a subfolder of a bucket's `_/`. Nested projects may live only there.",
   'link-missing': 'A link registered in `buckets.links.json` is not on disk, its target is gone, or a file sits where the link folder should be. `buckets link sync` recreates it.',
   'link-forbidden-import': 'Code, or a DMZ re-export, reaches a file of a linked project other than its published `.external.ts` files.',
