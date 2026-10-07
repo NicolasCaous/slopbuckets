@@ -272,7 +272,9 @@ ${review.dmz.map((row) => html`${dmzFile(row)}\n`)}</div>`,
         next(),
         'buckets.lock.json',
         'format',
-        html`<h${level}>Lock format</h${level}><p class="intro">The approved values are the same, but ${code('buckets.lock.json')} is not in the format the CLI writes, for example after a hand edit. Approving rewrites the file with the same values.</p>`,
+        review.formatVersions
+          ? html`<h${level}>Lock format</h${level}><p class="intro">The approved values are the same, but ${code('buckets.lock.json')} uses lock format version ${String(review.formatVersions.before)}, and this CLI writes version ${String(review.formatVersions.after)}. Approving rewrites the file in the new format with the same values.</p>`
+          : html`<h${level}>Lock format</h${level}><p class="intro">The approved values are the same, but ${code('buckets.lock.json')} is not in the format the CLI writes, for example after a hand edit. Approving rewrites the file with the same values.</p>`,
       ),
     );
   }

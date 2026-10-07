@@ -6,7 +6,7 @@ import { CONFIG_FILE, LOCK_FILE } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { joinReports } from '../core/recursive.js';
 import type { Context } from '../core/types.js';
-import { diffSummary, formatLockDiff, formatReport, plural } from '../output/text.js';
+import { diffSummary, formatLockDiff, formatOnlyNote, formatReport, plural } from '../output/text.js';
 import { detectDialog, type DialogSupport } from '../web/dialog.js';
 import { evaluateTree, projectName, type ProjectState, type ReviewState } from '../web/lock-review.js';
 import { startRefreshApp, type RefreshOutcome } from '../web/refresh-app.js';
@@ -102,7 +102,7 @@ export async function refreshWebCommand(ctx: Context, io: Io, deps: RefreshWebDe
       if (review.fresh) {
         io.stdout(`${diff}\n`);
       } else {
-        const body = diff === '' ? '  (formatting only)\n' : diff.replace(/^/gm, '  ').replace(/ +$/, '');
+        const body = diff === '' && state.previous !== null ? `  ${formatOnlyNote(state.previous, state.lock)}\n` : diff.replace(/^/gm, '  ').replace(/ +$/, '');
         io.stdout(`${out.bold(`${plural(review.counts.total, 'change')} since the last approved ${lockName}${counts !== '' ? ` (${counts})` : ''}`)}\n\n${body}\n`);
       }
     }

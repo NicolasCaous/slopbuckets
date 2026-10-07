@@ -76,6 +76,8 @@ export interface LockReview {
   links: ItemRow[];
   /** True when the lock differs only in formatting, for example after a hand edit that kept the values. */
   formatOnly: boolean;
+  /** With `formatOnly`, the lock format versions when the new lock moves to another one, such as 3 to 4. */
+  formatVersions?: { before: number; after: number };
   counts: { added: number; removed: number; changed: number; total: number };
   /**
    * Identifies the lock file on disk and the state being approved. The page sends it back on approve, and the
@@ -329,6 +331,7 @@ export function buildReview(options: {
     projects,
     links,
     formatOnly,
+    ...(formatOnly && previous.lockVersion !== next.lockVersion ? { formatVersions: { before: previous.lockVersion, after: next.lockVersion } } : {}),
     counts,
     hash,
     code: confirmationCode(hash),

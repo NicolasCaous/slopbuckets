@@ -247,6 +247,16 @@ function describeChange(change: LockChange): [label: string, path: string] {
   }
 }
 
+/**
+ * What `buckets refresh` prints when the approved values stay the same and only the lock file differs: the move to a
+ * newer lock format, or formatting only, for example after a hand edit.
+ */
+export function formatOnlyNote(previous: Lock, next: Lock): string {
+  return previous.lockVersion !== next.lockVersion
+    ? `(same values, the lock format moves from version ${previous.lockVersion} to ${next.lockVersion})`
+    : '(formatting only)';
+}
+
 /** Wide enough for the longest label ("nested project removed") plus one space before the path. */
 const LABEL_WIDTH = 24;
 

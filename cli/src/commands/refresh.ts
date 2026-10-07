@@ -3,7 +3,7 @@ import { CONFIG_FILE, LOCK_FILE } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { joinReports, runRecursiveCheck } from '../core/recursive.js';
 import type { Context } from '../core/types.js';
-import { diffSummary, formatLockDiff, formatReport } from '../output/text.js';
+import { diffSummary, formatLockDiff, formatOnlyNote, formatReport } from '../output/text.js';
 import { stderrStyle, stdoutStyle, type Io } from './io.js';
 import { refreshWebCommand, type RefreshWebDeps } from './refresh-web.js';
 
@@ -61,7 +61,7 @@ export async function refreshCommand(ctx: Context, io: Io, args: string[], webDe
     pending++;
     if (many) io.stdout(`${out.bold(out.phos(`== Project ${run.path === '.' ? '.' : run.path}`))}\n\n`);
     if (previous) {
-      const body = diff === '' ? '  (formatting only)\n' : diff.replace(/^/gm, '  ').replace(/ +$/, '');
+      const body = diff === '' ? `  ${formatOnlyNote(previous, next)}\n` : diff.replace(/^/gm, '  ').replace(/ +$/, '');
       const counts = diffSummary(diff);
       io.stdout(`${out.bold(`Changes since the last approved ${lockName}`)}\n\n${body}\n${counts !== '' ? `${out.dim(`  ${counts}.`)}\n\n` : ''}`);
     } else {

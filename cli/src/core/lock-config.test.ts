@@ -73,6 +73,20 @@ describe('lock version 4', () => {
     expect(parseLockText(JSON.stringify({ ...lockWith(DEFAULT_CONFIG), config }))).toEqual({ kind: 'invalid', reason });
   });
 
+  it('says that the lock format moves from version 3 to 4 when the values stay the same', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    const lock = await approve(dir);
+    writeFile(dir, 'buckets.lock.json', serializeLock({ ...lock, lockVersion: 3, config: lockConfigHash(lock.config) }));
+    const io = fakeIo({ cwd: dir, interactive: true, answers: ['n'] });
+    expect(await main(testContext(), io, ['refresh'])).toBe(1);
+    expect(io.out).toContain('  (same values, the lock format moves from version 3 to 4)\n');
+    expect(io.out).not.toContain('formatting only');
+    const state = await evaluateLockState(testContext(), dir);
+    if (state.kind !== 'review') throw new Error(`expected a review, got ${state.kind}`);
+    expect(state.review.formatVersions).toEqual({ before: 3, after: 4 });
+    expect(dialogItems(state.review)).toContain('~ buckets.lock.json format version 3 to 4, same values');
+  });
+
   it('refuses a version 3 lock whose config is not a hash string', () => {
     expect(parseLockText(JSON.stringify(lockWith(DEFAULT_CONFIG, 3)))).toEqual({ kind: 'invalid', reason: 'config is missing' });
   });

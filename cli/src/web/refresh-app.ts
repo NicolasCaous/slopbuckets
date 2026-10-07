@@ -130,7 +130,10 @@ function otherItems(review: LockReview, name: (text: string) => string): string[
     const more = row.symbols.length > shown.length ? `, ${row.symbols.length - shown.length} more` : '';
     lines.push(`${sign} ${what} ${name(row.path)}${shown.length > 0 ? `: ${shown.join(', ')}${more}` : ''}`);
   }
-  if (review.formatOnly) lines.push(`~ ${LOCK_FILE} format only, same values`);
+  if (review.formatOnly) {
+    const versions = review.formatVersions;
+    lines.push(versions ? `~ ${LOCK_FILE} format version ${versions.before} to ${versions.after}, same values` : `~ ${LOCK_FILE} format only, same values`);
+  }
   return lines.map((line) => sanitizeDialogText(line, 160));
 }
 
