@@ -48,13 +48,21 @@ describe('access-denied on imports', () => {
     expect(access(report.violations)).toEqual([]);
   });
 
-  it('lets a deny line win over a matching allow line', async () => {
-    const { report } = await checkProject(loggerProject({ default: 'deny', allow: ['** -> root/log'], deny: ['root/billing/invoices -> root/log'] }));
-    // root/dmz/log/billing.ts serves all of root/billing, and root/billing may still use root/log, so only the
-    // importer and the DMZ file that serves invoices alone are reported.
-    expect(where(report.violations)).toEqual(['access-denied root/billing/dmz/.parent/invoices.ts:1', `access-denied ${IMPORTER}:1`]);
+  it('lets a more specific deny line win over a broader allow line', async () => {
+    const { report } = await checkProject(loggerProject({ default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing/** -> root/log'] }));
+    expect(where(report.violations)).toEqual([
+      'access-denied root/billing/dmz/.parent/invoices.ts:1',
+      `access-denied ${IMPORTER}:1`,
+      'access-denied root/dmz/log/billing.ts:1',
+    ]);
     const message = report.violations.find((v) => v.file === IMPORTER)!.message;
-    expect(message).toContain('The line "root/billing/invoices -> root/log" in access.deny of buckets.config.json matches this edge.');
+    expect(message).toContain('The line "root/billing/** -> root/log" in access.deny of buckets.config.json is the most specific line that matches this edge.');
+  });
+
+  it('lets a more specific allow line win over a broader deny line', async () => {
+    const { report } = await checkProject(loggerProject({ default: 'allow', allow: ['root/billing/invoices -> root/log'], deny: ['root/billing/** -> root/log'] }));
+    // root/billing/invoices may use root/log, so neither its import nor the DMZ files that serve it are reported.
+    expect(where(report.violations)).toEqual([]);
   });
 
   it('denies only what a deny line matches under default allow', async () => {
@@ -108,6 +116,45 @@ describe('access-denied on DMZ files', () => {
     const { report } = await checkProject(dir);
     expect(where(report.violations)).toEqual(['access-denied root/billing/dmz/invoices/.self.ts:1']);
     expect(report.violations.find((v) => v.rule === 'access-denied')!.message).toContain('but its consumer root/billing may not use code from root/billing/invoices');
+  });
+});
+
+describe('access-ambiguous', () => {
+  // The allow line is more specific on the left, the deny line on the right, so neither decides root/billing/invoices -> root/log.
+  const CROSSED = { default: 'deny', allow: ['root/billing/invoices -> root/**'], deny: ['root/** -> root/log'] };
+
+  it('reports an import that an allow line and a deny line match with no line more specific than both', async () => {
+    const { report } = await checkProject(loggerProject(CROSSED));
+    expect(report.exitCode).toBe(1);
+    expect(where(report.violations)).toEqual([
+      'access-ambiguous root/billing/dmz/.parent/invoices.ts:1',
+      `access-ambiguous ${IMPORTER}:1`,
+      'access-ambiguous root/dmz/log/billing.ts:1',
+    ]);
+    const message = report.violations.find((v) => v.file === IMPORTER)!.message;
+    expect(message).toContain('Access ambiguous: root/billing/invoices -> root/log.');
+    expect(message).toContain('The allow line "root/billing/invoices -> root/**" and the deny line "root/** -> root/log" of buckets.config.json both match this edge');
+    expect(message).toContain('A human must add a line to "access" in buckets.config.json that is more specific than both');
+    expect(message).toContain('The re-export chain is root/billing/dmz/.parent/invoices.ts -> root/dmz/log/billing.ts -> root/log/_/logger.ts.');
+  });
+
+  it('reports a DMZ re-export as ambiguous when its consumers are denied or ambiguous', async () => {
+    const { report } = await checkProject(loggerProject(CROSSED));
+    const message = report.violations.find((v) => v.file === 'root/dmz/log/billing.ts')!.message;
+    expect(message).toContain('Access ambiguous for every consumer of this DMZ file');
+    expect(message).toContain('For root/billing/invoices -> root/log, the allow line "root/billing/invoices -> root/**" and the deny line "root/** -> root/log" both match');
+    expect(message).toContain('The line "root/** -> root/log" in access.deny of buckets.config.json is the most specific line that matches root/billing -> root/log, root/billing/payments -> root/log.');
+  });
+
+  it('is settled by a line more specific than both', async () => {
+    const { report } = await checkProject(loggerProject({ ...CROSSED, allow: [...CROSSED.allow, 'root/billing/invoices -> root/log'] }));
+    expect(where(report.violations)).toEqual([]);
+  });
+
+  it('is reported with check --file on the importer and on a DMZ file of the chain', async () => {
+    const dir = loggerProject(CROSSED);
+    expect(where((await checkProject(dir, { file: IMPORTER })).report.violations)).toEqual([`access-ambiguous ${IMPORTER}:1`]);
+    expect(where((await checkProject(dir, { file: 'root/dmz/log/billing.ts' })).report.violations)).toEqual(['access-ambiguous root/dmz/log/billing.ts:1']);
   });
 });
 

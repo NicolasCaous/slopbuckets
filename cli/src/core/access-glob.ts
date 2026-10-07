@@ -16,6 +16,11 @@ export interface AccessPattern {
   literal: boolean;
   /** One entry per `/` segment: `**`, or a regular expression for the whole segment. */
   segments: Array<'**' | RegExp>;
+  /**
+   * The specificity rank of each segment: 3 for a literal name, 2 for a name with `*` or `{}` in it (such as `team-*`
+   * or `{api,web}`), 1 for exactly `*`, 0 for `**`.
+   */
+  ranks: number[];
 }
 
 /** A parsed access line: code in a bucket that `from` matches uses code that originates in a bucket that `to` matches. */
@@ -46,17 +51,20 @@ export function parseAccessLine(text: string): { line: AccessLine } | { error: s
 export function parsePattern(text: string): { pattern: AccessPattern } | { error: string } {
   if (text === '') return { error: 'is empty. Write a bucket path such as "root/billing", or "**" for every bucket.' };
   const segments: AccessPattern['segments'] = [];
+  const ranks: number[] = [];
   for (const segment of text.split('/')) {
     if (segment === '') return { error: `has an empty segment in "${text}". Remove the extra "/".` };
     if (segment === '**') {
       segments.push('**');
+      ranks.push(0);
       continue;
     }
     const source = segmentSource(segment);
     if (typeof source !== 'string') return source;
     segments.push(new RegExp(`^${source}$`, 'u'));
+    ranks.push(segment === '*' ? 1 : /[*{]/.test(segment) ? 2 : 3);
   }
-  return { pattern: { text, literal: !/[*{]/.test(text), segments } };
+  return { pattern: { text, literal: !/[*{]/.test(text), segments, ranks } };
 }
 
 function segmentSource(segment: string): string | { error: string } {
@@ -96,12 +104,13 @@ function matchSegments(pattern: AccessPattern['segments'], p: number, names: str
   return n < names.length && segment.test(names[n]!) && matchSegments(pattern, p + 1, names, n + 1);
 }
 
-/** The outcome for one edge. `line` is the canonical access line that decided, absent when `default` decided. */
-export interface AccessDecision {
-  allowed: boolean;
-  by: 'deny' | 'allow' | 'default';
-  line?: string;
-}
+/**
+ * The outcome for one edge. `line` is the access line that decided, absent when `default` decided. An ambiguous edge
+ * fails, and names the allow line and the deny line that match it with no line more specific than both.
+ */
+export type AccessDecision =
+  | { allowed: boolean; by: 'deny' | 'allow' | 'default'; line?: string }
+  | { allowed: false; by: 'ambiguous'; allowLine: string; denyLine: string };
 
 const compiled = new WeakMap<AccessConfig, { allow: AccessLine[]; deny: AccessLine[] }>();
 
@@ -120,18 +129,44 @@ function compile(access: AccessConfig): { allow: AccessLine[]; deny: AccessLine[
   return lines;
 }
 
+/** Rank of a position past the end of a pattern. It beats `**`, the only segment it can meet on the same path. */
+const ENDED = 0.5;
+
 /**
- * Decides whether code in the bucket `from` may use code that originates in the bucket `to`. A matching `deny` line
- * always fails the edge. Otherwise `"default": "allow"` passes it, and `"default": "deny"` passes it only when an
- * `allow` line matches. The first matching line of the list decides.
+ * Compares two patterns that match the same bucket: positive when `a` is more specific, negative when `b` is, 0 when
+ * they are equally specific. The first position where the segment ranks differ decides.
+ */
+export function compareSpecificity(a: AccessPattern, b: AccessPattern): number {
+  for (let i = 0; i < Math.max(a.ranks.length, b.ranks.length); i++) {
+    const ra = a.ranks[i] ?? ENDED;
+    const rb = b.ranks[i] ?? ENDED;
+    if (ra !== rb) return ra - rb;
+  }
+  return 0;
+}
+
+/** True when `a` is at least as specific as `b` on both sides and more specific on at least one. */
+function dominates(a: AccessLine, b: AccessLine): boolean {
+  const from = compareSpecificity(a.from, b.from);
+  const to = compareSpecificity(a.to, b.to);
+  return from >= 0 && to >= 0 && (from > 0 || to > 0);
+}
+
+/**
+ * Decides whether code in the bucket `from` may use code that originates in the bucket `to`. Of the lines that match
+ * the edge, a line that another matching line dominates drops out. When none is left, `default` decides. When the
+ * lines left come from one list, that list decides and the first of them is named. When both lists still have a
+ * line, the edge is ambiguous and fails.
  */
 export function evaluateAccess(access: AccessConfig, from: string, to: string): AccessDecision {
   const lines = compile(access);
   const matches = (line: AccessLine): boolean => matchesBucket(line.from, from) && matchesBucket(line.to, to);
-  const denied = lines.deny.find(matches);
-  if (denied !== undefined) return { allowed: false, by: 'deny', line: denied.text };
-  if (access.default === 'allow') return { allowed: true, by: 'default' };
-  const allowed = lines.allow.find(matches);
-  if (allowed !== undefined) return { allowed: true, by: 'allow', line: allowed.text };
-  return { allowed: false, by: 'default' };
+  const matching = [...lines.allow.filter(matches).map((line) => ({ line, list: 'allow' as const })), ...lines.deny.filter(matches).map((line) => ({ line, list: 'deny' as const }))];
+  const left = matching.filter((m) => !matching.some((other) => dominates(other.line, m.line)));
+  const allow = left.find((m) => m.list === 'allow');
+  const deny = left.find((m) => m.list === 'deny');
+  if (allow !== undefined && deny !== undefined) return { allowed: false, by: 'ambiguous', allowLine: allow.line.text, denyLine: deny.line.text };
+  if (allow !== undefined) return { allowed: true, by: 'allow', line: allow.line.text };
+  if (deny !== undefined) return { allowed: false, by: 'deny', line: deny.line.text };
+  return { allowed: access.default === 'allow', by: 'default' };
 }

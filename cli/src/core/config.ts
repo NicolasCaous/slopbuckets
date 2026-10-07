@@ -95,15 +95,25 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   }
 
   if ('access' in obj) {
-    const access = validateAccess(obj.access, violations);
+    const access = validateAccess(obj.access, config.root, violations);
     if (access) config.access = access;
   }
 
   return violations.length > 0 ? { violations } : { config, violations };
 }
 
+/**
+ * What is wrong with a side of an access line that starts with neither the root path nor `**`, or null. Every bucket
+ * path starts with the root path, so such a side would match no bucket. The prefix is compared on whole segments.
+ */
+function rootPrefixProblem(side: string, root: string): string | null {
+  const segments = side.split('/');
+  if (segments[0] === '**' || root.split('/').every((s, i) => segments[i] === s)) return null;
+  return `must start with the root path "${root}" or with "**", because every bucket path starts with "${root}", such as "${root}/billing". If the root folder moved, write the new root path at the start of the line.`;
+}
+
 /** Validates the `access` field and puts every line in canonical form. Pushes the problems into `violations`. */
-function validateAccess(raw: unknown, violations: Violation[]): AccessConfig | undefined {
+function validateAccess(raw: unknown, root: string, violations: Violation[]): AccessConfig | undefined {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     violations.push(invalid('Field "access" must be an object such as {"default": "deny", "allow": ["** -> root/log"]}. Fix it or remove it.'));
     return undefined;
@@ -117,8 +127,6 @@ function validateAccess(raw: unknown, violations: Violation[]): AccessConfig | u
   }
   if (obj.default !== 'allow' && obj.default !== 'deny') {
     violations.push(invalid('Field "access.default" must be "allow" or "deny". Set it, because it decides the imports that no line matches.'));
-  } else if (obj.default === 'allow' && 'allow' in obj) {
-    violations.push(invalid('Field "access.allow" does nothing when "access.default" is "allow". Remove it, or set "access.default" to "deny".'));
   }
   const lists: Record<'allow' | 'deny', string[]> = { allow: [], deny: [] };
   for (const list of ['allow', 'deny'] as const) {
@@ -136,7 +144,17 @@ function validateAccess(raw: unknown, violations: Violation[]): AccessConfig | u
       const parsed = parseAccessLine(item);
       if ('error' in parsed) {
         violations.push(invalid(`Field "access.${list}": ${parsed.error}`));
-      } else if (lists[list].includes(parsed.line.text)) {
+        continue;
+      }
+      let rootOk = true;
+      for (const [side, pattern] of [['left', parsed.line.from], ['right', parsed.line.to]] as const) {
+        const problem = rootPrefixProblem(pattern.text, root);
+        if (problem === null) continue;
+        rootOk = false;
+        violations.push(invalid(`Field "access.${list}": the ${side} side "${pattern.text}" of "${parsed.line.text}" ${problem}`));
+      }
+      if (!rootOk) continue;
+      if (lists[list].includes(parsed.line.text)) {
         violations.push(invalid(`Field "access.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
       } else {
         lists[list].push(parsed.line.text);

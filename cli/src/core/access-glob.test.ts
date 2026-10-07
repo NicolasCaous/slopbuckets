@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateAccess, matchesBucket, parseAccessLine, parsePattern, type AccessConfig } from './access-glob.js';
+import { compareSpecificity, evaluateAccess, matchesBucket, parseAccessLine, parsePattern, type AccessConfig } from './access-glob.js';
 
 function pattern(text: string) {
   const result = parsePattern(text);
@@ -86,6 +86,33 @@ describe('parseAccessLine', () => {
   });
 });
 
+describe('compareSpecificity', () => {
+  const more = (a: string, b: string): void => {
+    expect(compareSpecificity(pattern(a), pattern(b)), `${a} beats ${b}`).toBeGreaterThan(0);
+    expect(compareSpecificity(pattern(b), pattern(a)), `${b} loses to ${a}`).toBeLessThan(0);
+  };
+
+  it('ranks a literal segment over a partial wildcard, over *, over **', () => {
+    more('root/log', 'root/**');
+    more('root/billing', 'root/billing/**');
+    more('root/teams/team-*', 'root/teams/*');
+    more('root/{api,web}', 'root/*');
+    more('root/api', 'root/{api,web}');
+    more('root/*', 'root/**');
+    more('root/billing/**', '**');
+  });
+
+  it('decides at the first position where the ranks differ', () => {
+    more('root/billing/*', 'root/*/payments');
+    more('root/a/**', 'root/*/b');
+  });
+
+  it('finds patterns with the same ranks equally specific', () => {
+    expect(compareSpecificity(pattern('root/a'), pattern('root/b'))).toBe(0);
+    expect(compareSpecificity(pattern('root/team-*/**'), pattern('root/{a,b}/**'))).toBe(0);
+  });
+});
+
 describe('evaluateAccess', () => {
   const access: AccessConfig = {
     default: 'deny',
@@ -99,25 +126,66 @@ describe('evaluateAccess', () => {
     expect(evaluateAccess(access, 'root/web', 'root/billing/invoices')).toEqual({ allowed: true, by: 'allow', line: 'root/{api,web}/** -> root/billing/*/**' });
   });
 
-  it('lets a deny line win over a matching allow line', () => {
+  it('lets a line more specific on one side and equal on the other win', () => {
+    // root/billing/payments/** beats root/billing/** on the left, and both have root/sql/** on the right.
     expect(evaluateAccess(access, 'root/billing/payments', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/billing/payments/** -> root/sql/**' });
     expect(evaluateAccess(access, 'root/billing/payments', 'root/log')).toEqual({ allowed: true, by: 'allow', line: '** -> root/log' });
   });
 
-  it('fails an edge that no allow line matches under "default": "deny"', () => {
-    expect(evaluateAccess(access, 'root/api', 'root/billing')).toEqual({ allowed: false, by: 'default' });
-    expect(evaluateAccess(access, 'root/sql', 'root/billing/invoices')).toEqual({ allowed: false, by: 'default' });
+  it('lets root/log beat root/** whichever list each line is in', () => {
+    const allowLog: AccessConfig = { default: 'deny', allow: ['root/api -> root/log'], deny: ['root/api -> root/**'] };
+    expect(evaluateAccess(allowLog, 'root/api', 'root/log')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/log' });
+    expect(evaluateAccess(allowLog, 'root/api', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/api -> root/**' });
+    const denyLog: AccessConfig = { default: 'deny', allow: ['root/api -> root/**'], deny: ['root/api -> root/log'] };
+    expect(evaluateAccess(denyLog, 'root/api', 'root/log')).toEqual({ allowed: false, by: 'deny', line: 'root/api -> root/log' });
+    expect(evaluateAccess(denyLog, 'root/api', 'root/sql')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/**' });
   });
 
-  it('passes every edge that no deny line matches under "default": "allow"', () => {
+  it('lets root/billing beat root/billing/**', () => {
+    const open: AccessConfig = { default: 'allow', allow: ['root/api -> root/billing'], deny: ['root/api -> root/billing/**'] };
+    expect(evaluateAccess(open, 'root/api', 'root/billing')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/billing' });
+    expect(evaluateAccess(open, 'root/api', 'root/billing/payments')).toEqual({ allowed: false, by: 'deny', line: 'root/api -> root/billing/**' });
+  });
+
+  it('lets a partial wildcard beat *', () => {
+    const teams: AccessConfig = { default: 'deny', allow: ['root/teams/* -> root/log'], deny: ['root/teams/legacy-* -> root/log'] };
+    expect(evaluateAccess(teams, 'root/teams/legacy-a', 'root/log')).toEqual({ allowed: false, by: 'deny', line: 'root/teams/legacy-* -> root/log' });
+    expect(evaluateAccess(teams, 'root/teams/payments', 'root/log')).toEqual({ allowed: true, by: 'allow', line: 'root/teams/* -> root/log' });
+  });
+
+  it('fails as ambiguous when each line is more specific on a different side', () => {
+    const crossed: AccessConfig = { default: 'deny', allow: ['root/api -> root/**'], deny: ['root/** -> root/sql'] };
+    expect(evaluateAccess(crossed, 'root/api', 'root/sql')).toEqual({ allowed: false, by: 'ambiguous', allowLine: 'root/api -> root/**', denyLine: 'root/** -> root/sql' });
+    expect(evaluateAccess(crossed, 'root/api', 'root/log')).toEqual({ allowed: true, by: 'allow', line: 'root/api -> root/**' });
+    expect(evaluateAccess(crossed, 'root/web', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/** -> root/sql' });
+  });
+
+  it('fails as ambiguous when lines of both lists are equally specific', () => {
+    const same: AccessConfig = { default: 'allow', allow: ['root/*-api -> root/sql'], deny: ['root/team-* -> root/sql'] };
+    expect(evaluateAccess(same, 'root/team-api', 'root/sql')).toEqual({ allowed: false, by: 'ambiguous', allowLine: 'root/*-api -> root/sql', denyLine: 'root/team-* -> root/sql' });
+    expect(evaluateAccess(same, 'root/team-web', 'root/sql')).toEqual({ allowed: false, by: 'deny', line: 'root/team-* -> root/sql' });
+  });
+
+  it('lets default decide when no line matches', () => {
+    expect(evaluateAccess(access, 'root/api', 'root/billing')).toEqual({ allowed: false, by: 'default' });
+    expect(evaluateAccess(access, 'root/sql', 'root/billing/invoices')).toEqual({ allowed: false, by: 'default' });
     const open: AccessConfig = { default: 'allow', allow: [], deny: ['root/web/** -> root/sql/**'] };
     expect(evaluateAccess(open, 'root/api', 'root/sql')).toEqual({ allowed: true, by: 'default' });
     expect(evaluateAccess(open, 'root/web/admin', 'root/sql/pg')).toEqual({ allowed: false, by: 'deny', line: 'root/web/** -> root/sql/**' });
   });
 
-  it('reports the first matching line of the list', () => {
-    const twice: AccessConfig = { default: 'deny', allow: ['root/a -> root/b', '** -> **'], deny: [] };
-    expect(evaluateAccess(twice, 'root/a', 'root/b').line).toBe('root/a -> root/b');
-    expect(evaluateAccess(twice, 'root/c', 'root/b').line).toBe('** -> **');
+  it('opens an exception inside a deny line under "default": "allow"', () => {
+    const open: AccessConfig = { default: 'allow', allow: ['root/web/admin -> root/sql'], deny: ['root/web/** -> root/sql/**'] };
+    expect(evaluateAccess(open, 'root/web/admin', 'root/sql')).toEqual({ allowed: true, by: 'allow', line: 'root/web/admin -> root/sql' });
+    expect(evaluateAccess(open, 'root/web/admin', 'root/sql/pg')).toEqual({ allowed: false, by: 'deny', line: 'root/web/** -> root/sql/**' });
+  });
+
+  it('names the most specific matching line, and the first one when several are left', () => {
+    const lines: AccessConfig = { default: 'deny', allow: ['** -> **', 'root/a -> root/b', 'root/* -> root/b', 'root/a -> root/*'], deny: [] };
+    expect(evaluateAccess(lines, 'root/a', 'root/b')).toEqual({ allowed: true, by: 'allow', line: 'root/a -> root/b' });
+    expect(evaluateAccess(lines, 'root/c', 'root/b')).toEqual({ allowed: true, by: 'allow', line: 'root/* -> root/b' });
+    expect(evaluateAccess(lines, 'root/x/y', 'root/z')).toEqual({ allowed: true, by: 'allow', line: '** -> **' });
+    const crossed: AccessConfig = { default: 'deny', allow: ['root/* -> root/**', 'root/** -> root/*'], deny: [] };
+    expect(evaluateAccess(crossed, 'root/a', 'root/b')).toEqual({ allowed: true, by: 'allow', line: 'root/* -> root/**' });
   });
 });

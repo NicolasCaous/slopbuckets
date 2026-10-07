@@ -24,6 +24,7 @@ export type RuleId =
   | 'import-global'
   | 'graph-cycle'
   | 'access-denied'
+  | 'access-ambiguous'
   | 'access-unknown-bucket'
   | 'project-misplaced'
   | 'link-missing'

@@ -43,22 +43,16 @@
         "default": {
           "type": "string",
           "enum": ["allow", "deny"],
-          "description": "Outcome for an import that no deny or allow line matches. A deny line always wins."
+          "description": "Outcome for an import that no deny or allow line matches. When several lines match, the most specific one decides."
         },
         "allow": {
           "$ref": "#/$defs/accessLines",
-          "description": "Lines \"A -> B\": code in bucket A may use code that originates in bucket B. Only with \"default\": \"deny\"."
+          "description": "Lines \"A -> B\": code in bucket A may use code that originates in bucket B. Under \"default\": \"allow\", an allow line opens an exception inside a deny line."
         },
         "deny": {
           "$ref": "#/$defs/accessLines",
           "description": "Lines \"A -> B\": code in bucket A may not use code that originates in bucket B."
         }
-      },
-      "if": {
-        "properties": { "default": { "const": "allow" } }
-      },
-      "then": {
-        "not": { "required": ["allow"] }
       }
     }
   },
@@ -69,7 +63,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->).)+->(?:(?!->).)+$",
-        "description": "Two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives."
+        "description": "Two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives."
       }
     }
   }

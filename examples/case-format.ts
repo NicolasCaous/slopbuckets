@@ -41,6 +41,7 @@ export const RULE_IDS = [
   'import-global',
   'graph-cycle',
   'access-denied',
+  'access-ambiguous',
   'access-unknown-bucket',
   'project-misplaced',
   'link-missing',

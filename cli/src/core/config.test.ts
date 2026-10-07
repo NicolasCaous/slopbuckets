@@ -26,7 +26,6 @@ describe('validateConfig', () => {
     ['access not an object', { access: ['** -> **'] }],
     ['access without default', { access: { deny: ['root/a -> root/b'] } }],
     ['access default outside the enum', { access: { default: 'maybe' } }],
-    ['access allow with default allow', { access: { default: 'allow', allow: [] } }],
     ['unknown field in access', { access: { default: 'deny', only: [] } }],
     ['access deny not an array', { access: { default: 'deny', deny: 'root/a -> root/b' } }],
     ['access line not a string', { access: { default: 'deny', allow: [1] } }],
@@ -61,6 +60,39 @@ describe('access', () => {
     const { config, violations } = validateConfig({ access: { default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing -> root/log'] } });
     expect(violations).toEqual([]);
     expect(config?.access).toEqual({ default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing -> root/log'] });
+  });
+
+  it('accepts allow lines under "default": "allow", as exceptions inside deny lines', () => {
+    const { config, violations } = validateConfig({ access: { default: 'allow', allow: ['root/web/admin -> root/sql'], deny: ['root/web/** -> root/sql/**'] } });
+    expect(violations).toEqual([]);
+    expect(config?.access).toEqual({ default: 'allow', allow: ['root/web/admin -> root/sql'], deny: ['root/web/** -> root/sql/**'] });
+  });
+
+  it('accepts sides that start with the root path or with **', () => {
+    const lines = ['root -> root/log', 'root/** -> **', '**/api -> root/billing/*', '** -> root'];
+    expect(validateConfig({ access: { default: 'deny', allow: lines } }).violations).toEqual([]);
+    const nested = ['src/root -> src/root/log', 'src/root/** -> **', '** -> src/root/{a,b}'];
+    expect(validateConfig({ root: 'src/root', access: { default: 'deny', allow: nested } }).violations).toEqual([]);
+  });
+
+  it('rejects a side that does not start with the root path, comparing whole segments', () => {
+    const { violations } = validateConfig({ access: { default: 'deny', allow: ['rootx/billing -> root/log'], deny: ['root/api -> log', '* -> root/sql'] } });
+    expect(violations.map((v) => v.message)).toEqual([
+      'Field "access.allow": the left side "rootx/billing" of "rootx/billing -> root/log" must start with the root path "root" or with "**", because every bucket path starts with "root", such as "root/billing". If the root folder moved, write the new root path at the start of the line.',
+      expect.stringContaining('the right side "log" of "root/api -> log" must start with the root path "root"'),
+      expect.stringContaining('the left side "*" of "* -> root/sql"'),
+    ]);
+    expect(violations.every((v) => v.rule === 'config-invalid' && v.file === 'buckets.config.json')).toBe(true);
+  });
+
+  it('rejects lines that keep the old root path after the root moved', () => {
+    const { violations } = validateConfig({ root: 'src/root', access: { default: 'deny', allow: ['root/api -> src/root/log', 'src/api -> src/root/log', 'src/root/api -> src/rootx'] } });
+    expect(violations.map((v) => v.message.slice(0, v.message.indexOf(' must')))).toEqual([
+      'Field "access.allow": the left side "root/api" of "root/api -> src/root/log"',
+      'Field "access.allow": the left side "src/api" of "src/api -> src/root/log"',
+      'Field "access.allow": the right side "src/rootx" of "src/root/api -> src/rootx"',
+    ]);
+    expect(violations[0]!.message).toContain('must start with the root path "src/root" or with "**"');
   });
 
   it('leaves the key out of the resolved config when the file has none', () => {

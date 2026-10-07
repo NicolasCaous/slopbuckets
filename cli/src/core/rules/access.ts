@@ -9,14 +9,34 @@ import type { Violation } from '../types.js';
 import { buildEdges } from './cycles.js';
 import type { DmzUse } from './imports.js';
 
-/** The rest of every access-denied message: who owns the config, and the two ways out. `what` names what to remove. */
-function ownerAdvice(what: string): string {
-  return `${CONFIG_FILE} belongs to a human, so an AI agent never edits it. ${what}, or stop and ask the human to change "access" in ${CONFIG_FILE}.`;
+const OWNER = `${CONFIG_FILE} belongs to a human, so an AI agent never edits it.`;
+
+/** The end of every access-denied message. `what` names what the agent removes. */
+function deniedAdvice(what: string): string {
+  return `${OWNER} ${what}, or stop and ask the human to change "access" in ${CONFIG_FILE}.`;
 }
 
-/** Why the decision denies the edge: the deny line that matched, or default deny with no matching allow line. */
-function deniedBecause(decision: AccessDecision): string {
-  if (decision.by === 'deny') return `The line "${decision.line}" in access.deny of ${CONFIG_FILE} matches this edge.`;
+/** The end of every access-ambiguous message. `what` names what the agent removes. */
+function ambiguousAdvice(what: string): string {
+  return `A human must add a line to "access" in ${CONFIG_FILE} that is more specific than both, to decide this case. ${OWNER} Stop and ask the human to add that line, or ${what.charAt(0).toLowerCase()}${what.slice(1)}.`;
+}
+
+/** The rule a failing decision reports. */
+function ruleOf(decision: AccessDecision): 'access-denied' | 'access-ambiguous' {
+  return decision.by === 'ambiguous' ? 'access-ambiguous' : 'access-denied';
+}
+
+/** The heading of a message about one edge. */
+function heading(decision: AccessDecision, pair: string): string {
+  return decision.by === 'ambiguous' ? `Access ambiguous: ${pair}.` : `Access denied: ${pair}.`;
+}
+
+/** Why the edge fails: the deciding deny line, default deny, or the two lines that leave it ambiguous. */
+function failsBecause(decision: AccessDecision): string {
+  if (decision.by === 'ambiguous') {
+    return `The allow line "${decision.allowLine}" and the deny line "${decision.denyLine}" of ${CONFIG_FILE} both match this edge, and neither is more specific than the other on both sides, so the check cannot tell which one decides.`;
+  }
+  if (decision.by === 'deny') return `The line "${decision.line}" in access.deny of ${CONFIG_FILE} is the most specific line that matches this edge.`;
   return `No line in access.allow of ${CONFIG_FILE} matches this edge, and access.default is "deny".`;
 }
 
@@ -26,26 +46,27 @@ function chainText(model: Model, start: string, name: string): string {
 }
 
 /**
- * access-denied on the importing line of every edge that the access lines deny. `reported` holds the DMZ file and
- * symbol pairs that the early check already reported, so check --file does not report them twice.
+ * access-denied or access-ambiguous on the importing line of every edge that the access lines do not allow.
+ * `reported` holds the DMZ file and symbol pairs that the early check already reported, so check --file does not
+ * report them twice.
  */
-function deniedImports(model: Model, access: AccessConfig, uses: DmzUse[], dmzFile: string | undefined, reported: Set<string>): Violation[] {
+function failedImports(model: Model, access: AccessConfig, uses: DmzUse[], dmzFile: string | undefined, reported: Set<string>): Violation[] {
   const violations: Violation[] = [];
   const seen = new Set<string>();
   for (const edge of buildEdges(model, uses)) {
     const decision = evaluateAccess(access, edge.from, edge.to);
     if (decision.allowed) continue;
-    const pair = `${edge.from} -> ${edge.to}`;
-    const reason = deniedBecause(decision);
-    const chain = chainText(model, edge.via, edge.symbol);
+    const advice = decision.by === 'ambiguous' ? ambiguousAdvice : deniedAdvice;
+    const head = heading(decision, `${edge.from} -> ${edge.to}`);
+    const why = `${failsBecause(decision)} ${chainText(model, edge.via, edge.symbol)}`;
     const key = JSON.stringify([edge.file, edge.line, edge.to, edge.symbol]);
     if (!seen.has(key)) {
       seen.add(key);
       violations.push({
-        rule: 'access-denied',
+        rule: ruleOf(decision),
         file: edge.file,
         line: edge.line,
-        message: `Access denied: ${pair}. This file imports \`${edge.symbol}\` (declared in ${edge.to}) from ${edge.via}, so code in ${edge.from} uses code from ${edge.to}. ${reason} ${chain} ${ownerAdvice(`Remove this dependency on ${edge.to} (the import of \`${edge.symbol}\` and the code that uses it)`)}`,
+        message: `${head} This file imports \`${edge.symbol}\` (declared in ${edge.to}) from ${edge.via}, so code in ${edge.from} uses code from ${edge.to}. ${why} ${advice(`Remove this dependency on ${edge.to} (the import of \`${edge.symbol}\` and the code that uses it)`)}`,
       });
     }
     // check --file on a DMZ file of the chain reports the edge on that file too, like the cycle rule.
@@ -55,10 +76,10 @@ function deniedImports(model: Model, access: AccessConfig, uses: DmzUse[], dmzFi
     seen.add(dmzKey);
     const line = model.exports.get(dmzFile)?.get(edge.symbol)?.line;
     violations.push({
-      rule: 'access-denied',
+      rule: ruleOf(decision),
       file: dmzFile,
       ...(line !== undefined ? { line } : {}),
-      message: `Access denied: ${pair}. This DMZ file re-exports \`${edge.symbol}\` (declared in ${edge.to}), and ${edge.file} imports it from ${edge.via}, so code in ${edge.from} uses code from ${edge.to}. ${reason} ${chain} ${ownerAdvice(`Remove the import of \`${edge.symbol}\` in ${edge.file} and the code that uses it`)}`,
+      message: `${head} This DMZ file re-exports \`${edge.symbol}\` (declared in ${edge.to}), and ${edge.file} imports it from ${edge.via}, so code in ${edge.from} uses code from ${edge.to}. ${why} ${advice(`Remove the import of \`${edge.symbol}\` in ${edge.file} and the code that uses it`)}`,
     });
   }
   return violations;
@@ -72,12 +93,31 @@ function candidateConsumers(model: Model, owner: string, consumer: string): stri
   return [...model.layout.buckets.keys()].filter((b) => b === top || b.startsWith(`${top}/`)).sort();
 }
 
+/** One sentence per reason, naming the consumers it applies to. */
+function consumerReasons(decisions: Array<{ consumer: string; decision: AccessDecision }>, to: string): string[] {
+  const groups = new Map<string, { decision: AccessDecision; consumers: string[] }>();
+  for (const { consumer, decision } of decisions) {
+    const key = JSON.stringify(decision);
+    if (!groups.has(key)) groups.set(key, { decision, consumers: [] });
+    groups.get(key)!.consumers.push(consumer);
+  }
+  return [...groups.values()].map(({ decision, consumers }) => {
+    const edges = consumers.map((c) => `${c} -> ${to}`).join(', ');
+    if (decision.by === 'ambiguous') {
+      return `For ${edges}, the allow line "${decision.allowLine}" and the deny line "${decision.denyLine}" both match, and neither is more specific than the other on both sides.`;
+    }
+    if (decision.by === 'deny') return `The line "${decision.line}" in access.deny of ${CONFIG_FILE} is the most specific line that matches ${edges}.`;
+    return `No line in access.allow of ${CONFIG_FILE} matches ${edges}, and access.default is "deny".`;
+  });
+}
+
 /**
- * The early check on DMZ files: access-denied on the export line of a symbol that no candidate consumer of the file
- * may use. The consumers of `P/dmz/<provider>/<child>` are the buckets of `P/<child>`, the consumer of
- * `P/dmz/<provider>/.self` is `P`. A `.parent` or `.external` file has consumers outside `P`, so it is skipped.
+ * The early check on DMZ files, on the export line of a symbol that no candidate consumer of the file may use. The
+ * consumers of `P/dmz/<provider>/<child>` are the buckets of `P/<child>`, the consumer of `P/dmz/<provider>/.self` is
+ * `P`. A `.parent` or `.external` file has consumers outside `P`, so it is skipped. When the lines leave the edge of
+ * some consumer ambiguous, the rule is access-ambiguous, because a human can still decide those edges either way.
  */
-function deniedReexports(model: Model, access: AccessConfig, reported: Set<string>): Violation[] {
+function failedReexports(model: Model, access: AccessConfig, reported: Set<string>): Violation[] {
   const violations: Violation[] = [];
   for (const [file, dmz] of model.layout.dmzFiles) {
     const consumers = candidateConsumers(model, dmz.owner, dmz.consumer);
@@ -88,29 +128,20 @@ function deniedReexports(model: Model, access: AccessConfig, reported: Set<strin
       const to = origin.bucket;
       // A consumer that is the origin itself uses its own code, which is never an edge.
       if (consumers.includes(to)) continue;
-      const decisions = consumers.map((c) => ({ consumer: c, decision: evaluateAccess(access, c, to) }));
+      const decisions = consumers.map((consumer) => ({ consumer, decision: evaluateAccess(access, consumer, to) }));
       if (decisions.some((d) => d.decision.allowed)) continue;
-      const byLine = new Map<string, string[]>();
-      for (const { consumer, decision } of decisions) {
-        const reason = decision.by === 'deny' ? `deny:${decision.line}` : 'default';
-        if (!byLine.has(reason)) byLine.set(reason, []);
-        byLine.get(reason)!.push(consumer);
-      }
-      const reasons = [...byLine].map(([reason, list]) =>
-        reason === 'default'
-          ? `No line in access.allow of ${CONFIG_FILE} matches ${list.map((c) => `${c} -> ${to}`).join(', ')}, and access.default is "deny".`
-          : `The line "${reason.slice('deny:'.length)}" in access.deny of ${CONFIG_FILE} denies ${list.map((c) => `${c} -> ${to}`).join(', ')}.`,
-      );
+      const ambiguous = decisions.some((d) => d.decision.by === 'ambiguous');
       const who =
         consumers.length === 1
-          ? `its consumer ${consumers[0]} may not use`
-          : `none of the buckets that may import it (${consumers.join(', ')}) may use`;
+          ? `its consumer ${consumers[0]} ${ambiguous ? 'has no clear permission to use' : 'may not use'}`
+          : `none of the buckets that may import it (${consumers.join(', ')}) ${ambiguous ? 'has a clear permission to use' : 'may use'}`;
+      const remove = `Remove \`${name}\` from this file`;
       reported.add(JSON.stringify([file, name]));
       violations.push({
-        rule: 'access-denied',
+        rule: ambiguous ? 'access-ambiguous' : 'access-denied',
         file,
         line: entry.line,
-        message: `Access denied for every consumer of this DMZ file: it re-exports \`${name}\` (declared in ${to}), but ${who} code from ${to}. ${reasons.join(' ')} ${chainText(model, file, name)} ${ownerAdvice(`Remove \`${name}\` from this file`)}`,
+        message: `${ambiguous ? 'Access ambiguous' : 'Access denied'} for every consumer of this DMZ file: it re-exports \`${name}\` (declared in ${to}), but ${who} code from ${to}. ${consumerReasons(decisions, to).join(' ')} ${chainText(model, file, name)} ${ambiguous ? ambiguousAdvice(remove) : deniedAdvice(remove)}`,
       });
     }
   }
@@ -131,7 +162,7 @@ function unknownBuckets(model: Model, access: AccessConfig): Violation[] {
         violations.push({
           rule: 'access-unknown-bucket',
           file: CONFIG_FILE,
-          message: `The line "${parsed.line.text}" in access.${list} names the bucket ${pattern.text} on its ${side} side, but no bucket has that path, so the line matches nothing. A bucket path starts with the root folder "${root}", such as ${root}/billing. This happens when a bucket folder is renamed, moved or deleted, or when the path has a typo. ${CONFIG_FILE} belongs to a human, so an AI agent never edits it. If you renamed or moved that bucket, move it back, or stop and ask the human to fix the line.`,
+          message: `The line "${parsed.line.text}" in access.${list} names the bucket ${pattern.text} on its ${side} side, but no bucket has that path, so the line matches nothing. A bucket path starts with the root folder "${root}", such as ${root}/billing. This happens when a bucket folder is renamed, moved or deleted, or when the path has a typo. ${OWNER} If you renamed or moved that bucket, move it back, or stop and ask the human to fix the line.`,
         });
       }
     }
@@ -141,12 +172,12 @@ function unknownBuckets(model: Model, access: AccessConfig): Violation[] {
 
 /**
  * The access rules, or nothing when the config has no `access` key. With `dmzFile` (check --file on a DMZ file),
- * each denied edge whose symbol passes through that file is also reported on it.
+ * each failing edge whose symbol passes through that file is also reported on it.
  */
 export function checkAccess(model: Model, uses: DmzUse[], dmzFile?: string): Violation[] {
   const access = model.config.access;
   if (access === undefined) return [];
   const reported = new Set<string>();
-  const early = deniedReexports(model, access, reported);
-  return [...deniedImports(model, access, uses, dmzFile, reported), ...early, ...unknownBuckets(model, access)];
+  const early = failedReexports(model, access, reported);
+  return [...failedImports(model, access, uses, dmzFile, reported), ...early, ...unknownBuckets(model, access)];
 }
