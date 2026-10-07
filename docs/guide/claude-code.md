@@ -28,7 +28,7 @@ So `buckets refresh --web` passes, and so do the forms that run it in the backgr
 
 The config gets the same rules, because a human owns it: it names the root folder and the alias, and holds the [access rules](./concepts#access-rules). The reason for a denied config write tells the agent to stop and ask the human for the change, with the exact lines it needs and why. `cat buckets.config.json` is denied as well, so the agent reads the config with the Read tool.
 
-A human updates the CLI, because each lock records the CLI version that approved it. `buckets update --check` and `buckets update --json` only report, so they pass. `buckets update`, `buckets update 1.2.0`, `buckets update --yes` and `npx slopbuckets update` are denied. The reason tells the agent to give the human the version that the update notice showed.
+A human updates the CLI, because each lock records the CLI version that approved it. `buckets update --check` and `buckets update --json` only report, so they pass. `buckets update`, `buckets update 1.2.0`, `buckets update --yes` and `npx slopbuckets update` are denied. So is an update whose `--check` sits after a `#` comment or inside a command substitution, such as `buckets update --yes # --check`. The CLI counts only where a command starts, so `gcloud storage buckets update` and `git commit -m "explain buckets update"` pass. The reason tells the agent to give the human the version that the update notice showed.
 
 ## The mandatory check
 

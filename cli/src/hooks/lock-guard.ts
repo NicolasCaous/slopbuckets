@@ -23,95 +23,337 @@ export function guardedName(base: string): GuardedFile | null {
 /** Characters a shell may drop or treat as escapes: quotes, backticks, carets (cmd) and backslashes. */
 const SHELL_NOISE = /["'`^\\]/g;
 
-/** A token of a command line: stops at whitespace and at shell operators. */
-const ARG = String.raw`[^\s;&|<>()]`;
-
-/** A flag between the program and the subcommand, with an optional value: `--`, `--yes`, `--prefix /tmp/x`. */
-const FLAG = String.raw`\s+-${ARG}*(?:\s+[^\s;&|<>()-]${ARG}*)?`;
-
 /**
- * A call that can run the CLI, followed by the subcommand, such as `refresh`:
- *
- * - `buckets refresh`, also as `slopbuckets`, with a version (`npx slopbuckets@0.1.0 refresh`) or through a
- *   Windows shim (`buckets.cmd refresh`, `buckets.ps1 refresh`)
- * - a script run by node or tsx whose file name says index, cli or buckets, such as `node cli/dist/index.js refresh`
- *
- * Flags may stand between the program and the subcommand, as in `npm exec slopbuckets -- refresh`, so the package
- * runners (`npm exec`, `npx`, `pnpm exec`, `pnpm dlx`, `yarn`, `bunx`) are covered by the program name they run.
+ * How a shell reads a backtick and a backslash. Bash starts a command substitution with a backtick and escapes with a
+ * backslash. PowerShell escapes with a backtick and keeps a backslash as a path separator. The guard reads every
+ * command both ways, and a call that either reading finds counts.
  */
-function cliCall(subcommand: string): RegExp {
-  return new RegExp(
-    String.raw`(?:buckets(?:\.[a-z0-9]+)?(?:@${ARG}*)?|(?<!${ARG})${ARG}*?(?:index|cli|buckets)[^\s;&|<>()/]*\.[cm]?[jt]s)` +
-      String.raw`(?:${FLAG})*\s+${subcommand}`,
-    'gi',
-  );
+type ShellMode = 'posix' | 'powershell';
+
+/** A piece of a command line. */
+type Token =
+  /** A word. `text` has its quotes removed and its escapes applied, `raw` is the word as written. */
+  | { kind: 'word'; text: string; raw: string }
+  /** A command separator or a parenthesis: `;`, `&`, `&&`, `|`, `||`, `(`, `)`, a newline, or a backtick in bash. */
+  | { kind: 'op'; op: string }
+  /** A redirection, such as `> log`, `2>&1` or `< in`, with its target word, or null when it has none. */
+  | { kind: 'redirect'; input: boolean; target: string | null };
+
+const BLANK = /[ \t]/;
+
+/** The index after the parenthesis that closes the one at `open`, or the end of the text. */
+function closingParen(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && --depth === 0) return i + 1;
+  }
+  return text.length;
 }
 
-const REFRESH_CALL = cliCall('refresh');
-const UPDATE_CALL = cliCall('update');
-
 /**
- * An output redirection after `--web`, so the agent can run the command in the background and keep its log:
- *
- * - to a file: `> log`, `>> log`, `2> log`, `&> log`, `>| log`, `>&log`, PowerShell `*> log`, `2>$null`
- * - to another stream: `2>&1`, `>&2`, `1>&-`, PowerShell `*>&1`
- *
- * A redirection that starts with a stream number or `*` needs whitespace before it, because `--web2>&1` passes
- * the argument `--web2`. The target is one token: it stops at whitespace and at shell operators, so a command
- * substitution such as `> $(buckets refresh)` does not match. Input redirections (`<`) are not allowed.
+ * Splits a command line into words, operators and redirections, the way `mode` reads it. A command substitution inside
+ * double quotes (`"$(...)"`, and a backtick pair in bash) cannot be split here, so its inner command goes to `nested`
+ * to be read on its own.
  */
-const REDIRECT = String.raw`(?:[ \t]+[0-9*]|[ \t]*)(?:>>?\||&>>?|>>?&?)[ \t]*${ARG}+`;
+function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
+  const tokens: Token[] = [];
+  const n = command.length;
+  let i = 0;
+  const isOpChar = (ch: string | undefined): boolean => ch !== undefined && (';&|()<>\r\n'.includes(ch) || (mode === 'posix' && ch === '`'));
+  const escape = mode === 'posix' ? '\\' : '`';
+
+  const readWord = (): { text: string; raw: string } => {
+    const start = i;
+    let text = '';
+    // `<#` opens a PowerShell block comment. It is read as a word so that it ends the arguments of a call.
+    if (command.startsWith('<#', i)) {
+      text = '<#';
+      i += 2;
+    }
+    while (i < n && !BLANK.test(command[i]!) && !isOpChar(command[i])) {
+      const ch = command[i]!;
+      if (ch === "'") {
+        const end = command.indexOf("'", i + 1);
+        const stop = end === -1 ? n : end;
+        text += command.slice(i + 1, stop);
+        i = stop + 1;
+      } else if (ch === '"') {
+        i++;
+        while (i < n && command[i] !== '"') {
+          const c = command[i]!;
+          if (c === escape && i + 1 < n) {
+            text += command[i + 1];
+            i += 2;
+          } else if (c === '$' && command[i + 1] === '(') {
+            const end = closingParen(command, i + 1);
+            nested.push(command.slice(i + 2, end - 1));
+            text += command.slice(i, end);
+            i = end;
+          } else if (c === '`') {
+            const end = command.indexOf('`', i + 1);
+            const stop = end === -1 ? n : end;
+            nested.push(command.slice(i + 1, stop));
+            text += command.slice(i, stop + 1);
+            i = stop + 1;
+          } else {
+            text += c;
+            i++;
+          }
+        }
+        i++;
+      } else if (ch === escape && i + 1 < n) {
+        if (command[i + 1] !== '\n' && command[i + 1] !== '\r') text += command[i + 1];
+        i += 2;
+      } else {
+        text += ch;
+        i++;
+      }
+    }
+    return { text, raw: command.slice(start, Math.min(i, n)) };
+  };
+
+  const readRedirect = (): Token => {
+    let op = '';
+    if (command[i] === '&') {
+      op += '&';
+      i++;
+    }
+    const input = command[i] === '<';
+    op += command[i];
+    i++;
+    if (input) {
+      while (command[i] === '<' && op.length < 3) op += command[i++];
+      if (command[i] === '&' || command[i] === '>') op += command[i++];
+    } else {
+      if (command[i] === '>') op += command[i++];
+      if (command[i] === '|' || command[i] === '&') op += command[i++];
+    }
+    if (op.endsWith('&')) {
+      const stream = /^(?:[0-9]+|-)/.exec(command.slice(i));
+      if (stream !== null) {
+        i += stream[0].length;
+        return { kind: 'redirect', input, target: stream[0] };
+      }
+    }
+    while (i < n && BLANK.test(command[i]!)) i++;
+    if (i >= n || isOpChar(command[i])) return { kind: 'redirect', input, target: null };
+    return { kind: 'redirect', input, target: readWord().text };
+  };
+
+  while (i < n) {
+    const ch = command[i]!;
+    const next = command[i + 1];
+    if (BLANK.test(ch)) i++;
+    else if (ch === '\r' || ch === '\n') {
+      tokens.push({ kind: 'op', op: '\n' });
+      i++;
+    } else if (ch === '<' && next === '#') tokens.push({ kind: 'word', ...readWord() });
+    else if (ch === '>' || ch === '<' || (ch === '&' && next === '>')) tokens.push(readRedirect());
+    else if (ch === '&' || ch === '|') {
+      const op = next === ch ? ch + ch : ch;
+      i += next === ch || (ch === '|' && next === '&') ? 2 : 1;
+      tokens.push({ kind: 'op', op });
+    } else if (isOpChar(ch)) {
+      tokens.push({ kind: 'op', op: ch });
+      i++;
+    } else {
+      const word = readWord();
+      // A stream number or `*` written right before `>` or `<` belongs to the redirection: `2>&1`, `*> log`.
+      if (/^(?:[0-9]+|\*)$/.test(word.raw) && (command[i] === '>' || command[i] === '<')) tokens.push(readRedirect());
+      else tokens.push({ kind: 'word', ...word });
+    }
+  }
+  return tokens;
+}
+
+/** The CLI by its name, also as `slopbuckets`, with a version (`slopbuckets@0.1.0`), a shim (`buckets.cmd`) or a folder. */
+const CLI_NAME = /(?:^|[\\/:])(?:slop)?buckets(?:\.[a-z0-9]+)?(?:@\S*)?$/i;
+
+/** A script whose file name says index, cli or buckets, such as `cli/dist/index.js`. */
+const CLI_ENTRY = /(?:index|cli|buckets)[^\\/]*\.[cm]?[jt]s$/i;
+
+function isCli(word: { text: string; raw: string }): boolean {
+  return [word.text, word.raw.replace(/["'`^]/g, '')].some((s) => CLI_NAME.test(s) || CLI_ENTRY.test(s));
+}
 
 /**
- * What may follow an allowed call: exactly the `--web` flag, any number of output redirections, then the end of
- * the command or a command separator (`;`, `&`, `|`, a newline or `)`), which covers a trailing `&` and a pipe to
- * `tee`. Anything else, such as `--webx`, a second flag or an argument after a redirection, is not allowed.
+ * Programs that run the program named after them: package runners (`npx`, `npm exec`, `pnpm exec`, `pnpm dlx`,
+ * `yarn`, `bunx`), script runners (`node`, `tsx`) and wrappers such as `env`, `nohup`, `sudo` and `xargs`.
+ */
+const RUNNERS = new Set(
+  'npx pnpx bunx npm pnpm yarn bun exec dlx x run env nohup sudo doas time nice command builtin xargs call start node tsx ts-node deno'.split(' '),
+);
+
+/** Shells that run the command text after `-c`, `-Command` or `/c`. */
+const SHELLS = new Set('bash sh zsh dash ksh fish pwsh powershell cmd'.split(' '));
+
+/** Commands that run their arguments as a command line. */
+const EVALS = new Set(['eval', 'iex', 'invoke-expression']);
+
+/** The name of a program word: lower case, without its folder and without a Windows extension such as `.exe`. */
+function programName(text: string): string {
+  return (text.split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(?:exe|cmd|bat|ps1)$/, '');
+}
+
+/** The word texts of the command that starts at `from`, up to its end. */
+function wordsFrom(tokens: Token[], from: number): string[] {
+  const words: string[] = [];
+  for (let i = from; i < tokens.length; i++) {
+    const tok = tokens[i]!;
+    if (tok.kind === 'op') break;
+    if (tok.kind === 'word') words.push(tok.text);
+  }
+  return words;
+}
+
+/** A call of the CLI: the subcommand word as written and every token after it. */
+interface CliCall {
+  word: string;
+  rest: Token[];
+}
+
+/**
+ * Records the call when the program of the CLI, at `from`, is followed by the subcommand. Flags may stand between
+ * them, each with one optional value: `npx slopbuckets --cwd /repo refresh`, `npm exec slopbuckets -- refresh`.
+ */
+function findSubcommand(tokens: Token[], from: number, isSubcommand: (word: string) => boolean, calls: CliCall[]): void {
+  let afterFlag = false;
+  for (let i = from; i < tokens.length; i++) {
+    const tok = tokens[i]!;
+    if (tok.kind === 'op') return;
+    if (tok.kind === 'redirect') continue;
+    if (isSubcommand(tok.text)) {
+      calls.push({ word: tok.text, rest: tokens.slice(i + 1) });
+      return;
+    }
+    if (tok.text.startsWith('-')) afterFlag = true;
+    else if (afterFlag) afterFlag = false;
+    else return;
+  }
+}
+
+/**
+ * Reads the command whose first word is at `start` and looks for the CLI in program position: the first word, or
+ * the word a runner runs, past the runner's flags and their values and past `NAME=value` assignments. The command
+ * text that a shell runs with `-c` and the arguments of `eval` go to `nested`.
+ */
+function scanCommand(tokens: Token[], start: number, isSubcommand: (word: string) => boolean, calls: CliCall[], nested: string[]): void {
+  let afterFlag = false;
+  for (let i = start; i < tokens.length; i++) {
+    const tok = tokens[i]!;
+    if (tok.kind === 'op') return;
+    if (tok.kind === 'redirect') continue;
+    if (isCli(tok)) {
+      findSubcommand(tokens, i + 1, isSubcommand, calls);
+      return;
+    }
+    const name = programName(tok.text);
+    if (SHELLS.has(name)) {
+      const words = wordsFrom(tokens, i + 1);
+      const at = words.findIndex((w) => /^(?:-[a-z]*c|-command|\/[ck])$/i.test(w));
+      if (at !== -1) nested.push(words.slice(at + 1).join(' '));
+      return;
+    }
+    if (EVALS.has(name)) {
+      nested.push(wordsFrom(tokens, i + 1).join(' '));
+      return;
+    }
+    if (RUNNERS.has(name) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.text)) afterFlag = false;
+    else if (i > start && tok.text.startsWith('-')) afterFlag = true;
+    else if (afterFlag) afterFlag = false;
+    else return;
+  }
+}
+
+/** A lookup of the CLI's path, such as `$(which buckets)`, `` `command -v buckets` `` or `(Get-Command buckets).Source`. */
+const LOOKUP =
+  /\$\(\s*(?:which|where(?:\.exe)?|command\s+-v|type\s+-p|Get-Command)\s+([^\s()`;&|]+)\s*\)|`\s*(?:which|where(?:\.exe)?|command\s+-v|type\s+-p)\s+([^\s()`;&|]+)\s*`|\(\s*Get-Command\s+([^\s()`;&|]+)\s*\)(?:\.(?:Source|Path|Definition))?/gi;
+
+/**
+ * Every call of the CLI with a subcommand that `isSubcommand` accepts, in the command and in the commands nested in it.
+ * The CLI counts only in program position: at the start of a command (after `;`, `&`, `|`, `&&`, `||`, `(`, a newline
+ * or a backtick), after a runner, or as the script of `node` or `tsx`. So `git commit -m "buckets update"` and
+ * `gcloud storage buckets update` are not calls. A path lookup such as `$(which buckets)` counts as the CLI's name.
+ */
+function cliCalls(command: string, isSubcommand: (word: string) => boolean): CliCall[] {
+  const calls: CliCall[] = [];
+  const queue = [command.replace(LOOKUP, (_m, a?: string, b?: string, c?: string) => a ?? b ?? c ?? '')];
+  for (let q = 0; q < queue.length && q < 32; q++) {
+    for (const mode of ['posix', 'powershell'] as const) {
+      const nested: string[] = [];
+      const tokens = lex(queue[q]!, mode, nested);
+      let start = true;
+      tokens.forEach((tok, i) => {
+        if (tok.kind === 'op') start = true;
+        else if (tok.kind === 'word' && start) {
+          start = false;
+          scanCommand(tokens, i, isSubcommand, calls, nested);
+        }
+      });
+      for (const inner of nested) {
+        const text = inner.replace(LOOKUP, (_m, a?: string, b?: string, c?: string) => a ?? b ?? c ?? '');
+        if (!queue.includes(text)) queue.push(text);
+      }
+    }
+  }
+  return calls;
+}
+
+/**
+ * True when the tokens after `refresh` are exactly the `--web` flag, any number of output redirections with a target,
+ * then the end of the command or a separator (`;`, `&`, `|`, a newline or `)`). That covers a trailing `&` and a pipe
+ * to `tee`. A second flag, an argument after a redirection, an input redirection or a substitution is not allowed.
  * A redirection target that names the lock is denied by `mentionsLock`, which reads the whole command.
  */
-const WEB_ONLY = new RegExp(String.raw`^[ \t]+--web(?:${REDIRECT})*[ \t]*(?:$|[;&|\r\n)])`);
+function webOnly(rest: Token[]): boolean {
+  const [first, ...more] = rest;
+  if (first?.kind !== 'word' || first.text !== '--web') return false;
+  for (const tok of more) {
+    if (tok.kind === 'redirect') {
+      if (tok.input || tok.target === null) return false;
+    } else if (tok.kind === 'op') return tok.op !== '(' && tok.op !== '`';
+    else return false;
+  }
+  return true;
+}
 
 /**
  * True when a shell command runs `buckets refresh` in any form other than `buckets refresh --web`. Every call in
- * the command must pass, so `buckets refresh --web; buckets refresh` is refused. Quotes, backslashes, backticks
- * and carets are removed first, because shells drop them: `"buckets" refresh` and `b\uckets refresh` run the
- * command too. Removing them only joins text, so a call cannot hide behind them.
+ * the command must pass, so `buckets refresh --web; buckets refresh` is refused. A word that starts with `refresh`,
+ * such as `refreshx`, counts as the call and is refused.
  */
 export function runsForbiddenRefresh(command: string): boolean {
-  const text = command.replace(SHELL_NOISE, '');
-  for (const match of text.matchAll(REFRESH_CALL)) {
-    const rest = text.slice(match.index + match[0].length);
-    if (!WEB_ONLY.test(rest)) return true;
-  }
-  return false;
+  return cliCalls(command, (w) => w.toLowerCase().startsWith('refresh')).some((call) => call.word.toLowerCase() !== 'refresh' || !webOnly(call.rest));
 }
 
 /**
- * An output or input redirection with its target, such as `> log`, `2>&1`, `&> log` or `< in`. The arguments of a
- * `buckets update` call are read without them, so `> --check` does not count as the `--check` flag.
+ * True when the arguments of a `buckets update` call include `--check` or `--json`, which only report. The arguments
+ * are the words after `update`, with their quotes removed, up to the end of the command or a comment (a word that
+ * starts with `#` or `<#`). Redirections and their targets are not arguments. Arguments that hold a command
+ * substitution (a backtick, `$(` or `(`) are refused, because the guard cannot know what they expand to.
  */
-const REDIRECTION = /[0-9*]?(?:&>>?|>>?&|>>?\|?|<<?<?)[ \t]*[^\s;&|<>()]*/g;
-
-/** The end of the arguments of a call: a command separator, a newline or a parenthesis. */
-const ARGS_END = /[;&|\r\n()]/;
+function reportsOnly(rest: Token[]): boolean {
+  let report = false;
+  for (const tok of rest) {
+    if (tok.kind === 'redirect') continue;
+    if (tok.kind === 'op') {
+      if (tok.op === '(' || tok.op === '`') return false;
+      break;
+    }
+    if (tok.raw.startsWith('#') || tok.raw.startsWith('<#')) break;
+    if (tok.raw.includes('`') || tok.raw.includes('$(')) return false;
+    if (tok.text === '--check' || tok.text === '--json') report = true;
+  }
+  return report;
+}
 
 /**
  * True when a shell command runs `buckets update` in a form that can install, that is without `--check` or `--json`
- * among its arguments. Those two flags only report. Every call in the command must pass, so
- * `buckets update --check; buckets update` is refused. The command is read as `runsForbiddenRefresh` reads it, after
- * quotes, backslashes, backticks and carets are removed.
+ * among its arguments. Every call in the command must pass, so `buckets update --check; buckets update` is refused.
  */
 export function runsInstallingUpdate(command: string): boolean {
-  const text = command.replace(SHELL_NOISE, '');
-  for (const match of text.matchAll(UPDATE_CALL)) {
-    const rest = text.slice(match.index + match[0].length);
-    // `buckets updates` is another word, not the update command.
-    if (/^[^\s;&|<>()]/.test(rest)) continue;
-    const args = rest.replace(REDIRECTION, ' ');
-    const end = args.search(ARGS_END);
-    const tokens = (end === -1 ? args : args.slice(0, end)).split(/\s+/);
-    if (!tokens.includes('--check') && !tokens.includes('--json')) return true;
-  }
-  return false;
+  return cliCalls(command, (w) => w.toLowerCase() === 'update').some((call) => !reportsOnly(call.rest));
 }
 
 /**

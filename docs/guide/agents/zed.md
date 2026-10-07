@@ -34,8 +34,8 @@ Zed reads `agent` settings only from your user settings file, not from a project
         "terminal": {
           "always_deny": [
             { "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" },
-            { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))" },
-            { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*update(?:\\s+(?:[^-\\s;&|][^\\s;&|]*|-(?:[^-\\s;&|][^\\s;&|]*)?|--(?:[^cj\\s;&|][^\\s;&|]*|c(?:[^h\\s;&|][^\\s;&|]*|h(?:[^e\\s;&|][^\\s;&|]*|e(?:[^c\\s;&|][^\\s;&|]*|c(?:[^k\\s;&|][^\\s;&|]*|k[^\\s;&|]+)?)?)?)?|j(?:[^s\\s;&|][^\\s;&|]*|s(?:[^o\\s;&|][^\\s;&|]*|o(?:[^n\\s;&|][^\\s;&|]*|n[^\\s;&|]+)?)?)?)?))*\\s*(?:$|[;&|])" }
+            { "pattern": "(?:^|[;&|(\\n\\x60])\\s*(?:(?:[\\w.-]+=\\S*|(?:\\S*[\\\\/])?(?:npx|pnpx|bunx|npm|pnpm|yarn|bun|exec|dlx|x|env|nohup|sudo|time|command|xargs|node|tsx)(?:\\.exe|\\.cmd)?)\\s+(?:-\\S*\\s+(?:[^-\\s]\\S*\\s+)?)*)*(?:\\$\\((?:which|command\\s+-v)\\s+)?(?:\\S*[\\\\/])?['\"]?(?:slop)?buckets(?:\\.cmd|\\.exe|\\.ps1)?(?:@\\S*)?['\"\\x60)]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))" },
+            { "pattern": "(?:^|[;&|(\\n\\x60])\\s*(?:(?:[\\w.-]+=\\S*|(?:\\S*[\\\\/])?(?:npx|pnpx|bunx|npm|pnpm|yarn|bun|exec|dlx|x|env|nohup|sudo|time|command|xargs|node|tsx)(?:\\.exe|\\.cmd)?)\\s+(?:-\\S*\\s+(?:[^-\\s]\\S*\\s+)?)*)*(?:\\$\\((?:which|command\\s+-v)\\s+)?(?:\\S*[\\\\/])?['\"]?(?:slop)?buckets(?:\\.cmd|\\.exe|\\.ps1)?(?:@\\S*)?['\"\\x60)]?\\s+(?:--?[\\w-]+\\s+)*update(?:\\s+(?:[^-\\s;&|][^\\s;&|]*|-(?:[^-\\s;&|][^\\s;&|]*)?|--(?:[^cj\\s;&|][^\\s;&|]*|c(?:[^h\\s;&|][^\\s;&|]*|h(?:[^e\\s;&|][^\\s;&|]*|e(?:[^c\\s;&|][^\\s;&|]*|c(?:[^k\\s;&|][^\\s;&|]*|k[^\\s;&|]+)?)?)?)?|j(?:[^s\\s;&|][^\\s;&|]*|s(?:[^o\\s;&|][^\\s;&|]*|o(?:[^n\\s;&|][^\\s;&|]*|n[^\\s;&|]+)?)?)?)?))*\\s*(?:$|[;&|#]|<#)" }
           ]
         },
         "edit_file": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
@@ -57,7 +57,8 @@ Zed checks each tool call against `tool_permissions` before it runs, and `always
 
 - The first pattern denies any command or path that names `buckets.lock.json` or `buckets.config.json`, or a Windows 8.3 short name such as `BUCKET~1.JSO`. A human owns both files, in every project.
 - The second pattern denies `buckets refresh` unless the next word is exactly `--web` with no other flag after it. `buckets refresh --web > refresh.log 2>&1` passes.
-- The third pattern denies `buckets update` unless one of the words after `update` is exactly `--check` or `--json`, which only report. A human updates the CLI. `buckets update --check` and `npx slopbuckets update --json` pass. The pattern reads words as plain text, so a quoted `"--check"` is denied too.
+- The third pattern denies `buckets update` unless one of the words after `update` is exactly `--check` or `--json`, which only report. A human updates the CLI. `buckets update --check` and `npx slopbuckets update --json` pass. The pattern reads words as plain text, so a quoted `"--check"` is denied too. A `#` or `<#` ends the command, so `buckets update --yes # --check` is denied.
+- The second and third patterns match `buckets` only where a command starts: at the start, after `;`, `&`, `|` or `(`, or after a runner such as `npx`, `pnpm exec` or `node`. So `gcloud storage buckets update` and `git commit -m "explain buckets update"` pass.
 
 ## Limits
 

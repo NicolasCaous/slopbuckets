@@ -341,6 +341,26 @@ describe('preTool: buckets.config.json', () => {
     'buckets update $(echo --check)',
     'buckets update --checkx',
     'buckets update --CHECK',
+    'buckets update --yes # --check',
+    'buckets update --yes `--check`',
+    'buckets update --yes <# --check #>',
+    'buckets update --yes "$(echo --check)"',
+    'buckets update (Write-Output --check)',
+    'node $(which buckets) update --yes',
+    'node `which buckets` update --yes',
+    '& (Get-Command buckets).Source update',
+    'bash -c "buckets update --yes"',
+    "pwsh -NoProfile -Command 'buckets update'",
+    'cmd /c buckets update',
+    'eval "buckets update"',
+    'echo "$(buckets update)"',
+    'echo `buckets update`',
+    'FOO=1 buckets update',
+    'sudo -E buckets update',
+    'nohup buckets update &',
+    'echo y | xargs buckets update',
+    'C:\\tools\\buckets.cmd update',
+    './node_modules/.bin/buckets update',
   ])('denies the installing update %j with the update reason', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(UPDATE_DENY);
     const dir = makeProject(NESTED);
@@ -363,6 +383,13 @@ describe('preTool: buckets.config.json', () => {
     'buckets check --file root/_/update.ts',
     'npm run update-deps',
     'buckets link update shared',
+    'buckets update --check # weekly',
+    'buckets update --json <# report only #>',
+    'gcloud storage buckets update gs://my-bucket --versioning',
+    'git commit -m "docs: explain buckets update"',
+    'grep -rn "buckets update" docs',
+    'echo "run buckets update; then buckets update --yes"',
+    'bash -c "buckets update --check"',
   ])('allows %j', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
   });

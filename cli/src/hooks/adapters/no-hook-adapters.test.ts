@@ -40,13 +40,36 @@ describe('zed tool permissions', () => {
     for (const command of ['buckets refresh', 'npx slopbuckets refresh', 'buckets refresh --web --yes', 'buckets.cmd refresh', 'buckets --verbose refresh', 'buckets refresh --webx']) {
       expect(refresh.test(command), command).toBe(true);
     }
+    for (const command of ['cd /repo && buckets refresh', 'nohup npx slopbuckets refresh &', 'node $(which buckets) refresh']) expect(refresh.test(command), command).toBe(true);
     for (const command of ['buckets refresh --web', 'buckets refresh --web > refresh.log 2>&1', 'buckets check', 'buckets refresh --web &']) expect(refresh.test(command), command).toBe(false);
+    for (const command of ['gcloud storage buckets refresh gs://b', 'git commit -m "docs: explain buckets refresh"']) expect(refresh.test(command), command).toBe(false);
   });
 
   it('denies buckets update without --check or --json and lets the report forms through', () => {
     const update = new RegExp(ZED_UPDATE_PATTERN, 'i');
     for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update', 'buckets.cmd update -y', 'buckets update --checkx', 'buckets update 2>&1']) {
       expect(update.test(command), command).toBe(true);
+    }
+    for (const command of [
+      'buckets update --yes # --check',
+      'buckets update --yes `--check`',
+      'buckets update --yes <# --check #>',
+      'node $(which buckets) update --yes',
+      '"buckets" update',
+      'C:\\tools\\buckets.cmd update',
+      'cd /repo && pnpm exec buckets update',
+      'npx --prefix /tmp/x slopbuckets@latest update -y',
+      'echo y | buckets update',
+    ]) {
+      expect(update.test(command), command).toBe(true);
+    }
+    for (const command of [
+      'gcloud storage buckets update gs://my-bucket --versioning',
+      'git commit -m "docs: explain buckets update"',
+      'grep -rn "buckets update" docs',
+      'buckets update --check # weekly',
+    ]) {
+      expect(update.test(command), command).toBe(false);
     }
     for (const command of ['buckets update --check', 'buckets update --json', 'buckets update 1.2.0 --check', 'buckets update --check > update.log 2>&1', 'npx slopbuckets update --json', 'npm update', 'buckets updates', 'buckets link update shared']) {
       expect(update.test(command), command).toBe(false);

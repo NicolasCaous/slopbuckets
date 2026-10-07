@@ -452,6 +452,12 @@ describe('pre-tool-use, third review', () => {
     'npx --prefix /tmp/x slopbuckets refresh',
     'npx slopbuckets --cwd /repo refresh',
     'pnpm dlx slopbuckets refresh',
+    'node $(which buckets) refresh',
+    'bash -c "buckets refresh"',
+    'echo "$(buckets refresh)"',
+    'echo `buckets refresh`',
+    'buckets refresh --web <# note #>',
+    'buckets refresh --web # note',
   ])('denies the plain refresh %j', (command) => {
     expect(runsForbiddenRefresh(command)).toBe(true);
     expect(touchesLock(bash(command))).toBe(true);
@@ -466,6 +472,11 @@ describe('pre-tool-use, third review', () => {
     'node scripts/build.js',
     'npx vitest run refresh-web',
     'npm test -- refresh',
+    'gcloud storage buckets refresh gs://my-bucket',
+    'git commit -m "docs: explain buckets refresh"',
+    'grep -rn "buckets refresh" docs',
+    'echo "x; buckets refresh"',
+    'buckets refresh --web; git log --grep "buckets refresh"',
   ])('allows %j', (command) => {
     expect(runsForbiddenRefresh(command)).toBe(false);
     expect(touchesLock(bash(command))).toBe(false);
