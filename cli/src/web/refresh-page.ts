@@ -1,6 +1,6 @@
 // The review page of `buckets refresh --web`: the diff against the lock in tty boxes, and a decision bar with
 // Approve and Cancel. The server renders the whole diff, so the page reads fine before the script loads.
-import { configChangeSign, configRows, type ConfigChange } from '../core/lock-config.js';
+import { configChangeSign, configRows, type ConfigChange, type LineKey } from '../core/lock-config.js';
 import { formatReport, plural } from '../output/text.js';
 import { html, type SafeHtml } from './html.js';
 import { renderPage } from './layout.js';
@@ -115,21 +115,41 @@ function linkSymbols(symbols: NonNullable<ItemRow['symbols']>): SafeHtml {
 ${symbols.map((s) => html`<li class="${SIGN_CLASS[s.sign]}"><span class="sign" aria-hidden="true">${s.sign}</span><code translate="no">${s.name}</code><span class="note">${LINK_SYMBOL_NOTE[s.sign]}${s.file !== '' ? html` in <code translate="no">${s.file}</code>` : ''}</span></li>\n`)}</ul>`;
 }
 
-/** One change of buckets.config.json as a diff row: an access line, the access default, or another value. */
+/** What the default of `access` or `layout` decides, for the note of a row. */
+const DECIDES: Record<LineKey, { is: string; was: string }> = {
+  access: { is: 'imports that no line matches are', was: 'imports that no line matched were' },
+  layout: { is: 'bucket folders that no line matches are', was: 'bucket folders that no line matched were' },
+};
+
+/** What the lines of each changed `access` or `layout` key mean, one sentence each, with a leading space. */
+function configIntro(changes: ConfigChange[]): string {
+  const keys = new Set(changes.flatMap((change) => (change.kind === 'value' ? [] : [change.key])));
+  let text = '';
+  if (keys.has('access')) text += ' An access allow line lets code in the buckets on its left use code that comes from the buckets on its right, and an access deny line forbids it.';
+  if (keys.has('layout')) text += ' A layout allow line lets the bucket folders it matches and the folders above them exist, and a layout deny line forbids the folders it matches.';
+  return text;
+}
+
+/** A config key inside a row label, kept out of page translation like the other names from the config. */
+function keyName(key: string): SafeHtml {
+  return html`<span translate="no">${key}</span>`;
+}
+
+/** One change of buckets.config.json as a diff row: an access or layout line, their default, or another value. */
 function configChangeRow(change: ConfigChange): SafeHtml {
   const sign = configChangeSign(change);
   const row = (label: string | SafeHtml, item: SafeHtml): SafeHtml =>
     html`<li class="${SIGN_CLASS[sign]}"><span class="sign" aria-hidden="true">${sign}</span><span class="label">${label}</span><span class="item">${item}</span></li>`;
   switch (change.kind) {
-    case 'access':
-      return row(change.sign === '+' ? 'access added' : 'access removed', html`${code(`"default": "${change.default}"`)}<span class="note">${change.sign === '+' ? 'imports that no line matches are' : 'imports that no line matched were'} ${change.default === 'allow' ? 'allowed' : 'denied'}</span>`);
-    case 'access-default':
-      return row('default changed', html`${code(change.before)}<span class="note">to</span>${code(change.after)}`);
-    case 'access-line':
-      return row(`${change.list} line ${change.sign === '+' ? 'added' : 'removed'}`, code(change.line));
+    case 'section':
+      return row(html`${keyName(change.key)} ${change.sign === '+' ? 'added' : 'removed'}`, html`${code(`"default": "${change.default}"`)}<span class="note">${DECIDES[change.key][change.sign === '+' ? 'is' : 'was']} ${change.default === 'allow' ? 'allowed' : 'denied'}</span>`);
+    case 'default':
+      return row(html`${keyName(change.key)} default changed`, html`${code(change.before)}<span class="note">to</span>${code(change.after)}`);
+    case 'line':
+      return row(html`${keyName(change.key)} ${change.list} line ${change.sign === '+' ? 'added' : 'removed'}`, code(change.line));
     case 'value':
       return row(
-        html`<span translate="no">${change.key}</span>`,
+        keyName(change.key),
         change.before === null
           ? html`<span class="note">set to</span>${code(change.after ?? '')}`
           : change.after === null
@@ -176,7 +196,7 @@ ${review.versions.map((v) => html`<tr class="chg"><th scope="row">${v.label}</th
   if (review.config.changed) {
     const { config } = review;
     const body = config.recorded
-      ? html`<p class="intro">${code('buckets.config.json')} changed since the last approval. An allow line lets code in the buckets on its left use code that comes from the buckets on its right, and a deny line forbids it. Only a human should edit this file, so ask the agent if you did not make these changes.</p>
+      ? html`<p class="intro">${code('buckets.config.json')} changed since the last approval.${configIntro(config.changes)} Only a human should edit this file, so ask the agent if you did not make these changes.</p>
 ${
   config.changes.length > 0
     ? html`<ul class="diff" aria-label="Config changes">

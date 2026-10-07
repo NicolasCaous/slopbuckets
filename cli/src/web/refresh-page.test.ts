@@ -97,9 +97,25 @@ describe('renderReviewPage', () => {
     const page = renderReviewPage(CTX, r);
     const text = textOf(page);
     expect(text).toContain('buckets.config.json 2 changes Config');
-    expect(text).toContain('- deny line removed root/billing/** -> root/zz*');
-    expect(text).toContain('+ deny line added root/log/** -> root/zz*');
+    expect(text).toContain('- access deny line removed root/billing/** -> root/zz*');
+    expect(text).toContain('+ access deny line added root/log/** -> root/zz*');
+    expect(text).toContain('An access allow line lets code in the buckets on its left use code');
+    expect(text).not.toContain('A layout allow line');
     expect(page).toContain('<ul class="diff" aria-label="Config changes">');
+  });
+
+  it('lists the layout changes of buckets.config.json, with what the default and the lines decide', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    await approve(dir);
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', layout: { default: 'deny', allow: ['root/*/*'], deny: ['root/legacy/**'] } }));
+    const r = await review(dir);
+    const text = textOf(renderReviewPage(CTX, r));
+    expect(text).toContain('buckets.config.json 3 changes Config');
+    expect(text).toContain('A layout allow line lets the bucket folders it matches and the folders above them exist');
+    expect(text).toContain('+ layout added "default": "deny" bucket folders that no line matches are denied');
+    expect(text).toContain('+ layout allow line added root/*/*');
+    expect(text).toContain('+ layout deny line added root/legacy/**');
+    expect(text).not.toContain('An access allow line');
   });
 
   it('shows the config being approved when the approved lock kept only its hash', async () => {

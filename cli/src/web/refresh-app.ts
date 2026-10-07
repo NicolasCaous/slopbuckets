@@ -91,7 +91,7 @@ function wrapDialogRow(row: string): string {
 
 /**
  * The changes of a review as short lines for the native dialog, every name from the project sanitized. A config row
- * is shown in full, so a human sees every access line it approves, and a long one wraps onto more lines.
+ * is shown in full, so a human sees every access and layout line it approves, and a long one wraps onto more lines.
  */
 export function dialogItems(review: LockReview): string[] {
   const name = (text: string): string => sanitizeDialogText(text, 80);

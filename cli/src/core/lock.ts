@@ -5,7 +5,7 @@ import { lstat, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { sortKeys, textHash } from './hash.js';
 import { parseJson } from './json.js';
-import { configChangeText, configDiff, lockConfig } from './lock-config.js';
+import { configChangeText, configDiff, LINE_KEYS, lockConfig } from './lock-config.js';
 import type { Model } from './model.js';
 import { LOCK_FILE } from './paths.js';
 import type { Lock, LockChange, LockLink } from './types.js';
@@ -130,17 +130,19 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
- * The config of a version 4 lock: an object. `access`, when present, must have the shape the review reads. Other
- * keys may hold any JSON value, so a key that a later version adds still reads and shows up in a diff.
+ * The config of a version 4 lock: an object. `access` and `layout`, when present, must have the shape the review
+ * reads. Other keys may hold any JSON value, so a key that a later version adds still reads and shows up in a diff.
  */
 function validateConfigObject(config: unknown): string | null {
   if (config === undefined) return 'config is missing';
   if (config === null || typeof config !== 'object' || Array.isArray(config)) return 'config is malformed';
-  const access = (config as Record<string, unknown>).access;
-  if (access === undefined) return null;
-  if (access === null || typeof access !== 'object' || Array.isArray(access)) return 'config.access is malformed';
-  const a = access as Record<string, unknown>;
-  if ((a.default !== 'allow' && a.default !== 'deny') || !isStringArray(a.allow) || !isStringArray(a.deny)) return 'config.access is malformed';
+  for (const key of LINE_KEYS) {
+    const lists = (config as Record<string, unknown>)[key];
+    if (lists === undefined) continue;
+    if (lists === null || typeof lists !== 'object' || Array.isArray(lists)) return `config.${key} is malformed`;
+    const l = lists as Record<string, unknown>;
+    if ((l.default !== 'allow' && l.default !== 'deny') || !isStringArray(l.allow) || !isStringArray(l.deny)) return `config.${key} is malformed`;
+  }
   return null;
 }
 

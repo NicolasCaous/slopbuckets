@@ -65,7 +65,7 @@ export interface LockReview {
      * `changes` is empty and a page shows `current` instead.
      */
     recorded: boolean;
-    /** What changed in the config, each access line on its own. Empty when nothing changed or `recorded` is false. */
+    /** What changed in the config, each access or layout line on its own. Empty when nothing changed or `recorded` is false. */
     changes: ConfigChange[];
   };
   buckets: { added: string[]; removed: string[] };

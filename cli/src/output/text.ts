@@ -332,7 +332,7 @@ export function formatLockDiff(previous: Lock | null, next: Lock, changes: LockC
 }
 
 /**
- * The lines under `config changed`: each access line added or removed, a changed default and every other changed key
+ * The lines under `config changed`: each access or layout line added or removed, a changed default and every other changed key
  * with its old and new value. When the approved lock stored only a hash, the config being approved instead.
  */
 function configLines(previous: Lock, next: Lock, style: Style): string[] {

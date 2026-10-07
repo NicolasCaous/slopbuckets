@@ -69,6 +69,8 @@ describe('lock version 4', () => {
     ['no config', undefined, 'config is missing'],
     ['an access object without default', { ...DEFAULT_CONFIG, access: { allow: [], deny: [] } }, 'config.access is malformed'],
     ['an access list that is not an array', { ...DEFAULT_CONFIG, access: { default: 'deny', allow: 'x', deny: [] } }, 'config.access is malformed'],
+    ['a layout object without default', { ...DEFAULT_CONFIG, layout: { allow: [], deny: [] } }, 'config.layout is malformed'],
+    ['a layout list that is not an array', { ...DEFAULT_CONFIG, layout: { default: 'deny', allow: ['root/*'], deny: 'x' } }, 'config.layout is malformed'],
   ])('refuses a version 4 lock with %s as config', (_name, config, reason) => {
     expect(parseLockText(JSON.stringify({ ...lockWith(DEFAULT_CONFIG), config }))).toEqual({ kind: 'invalid', reason });
   });
@@ -147,9 +149,9 @@ describe('config changes between locks of version 4', () => {
     expect(configDiff(before, after)).toEqual({
       recorded: true,
       changes: [
-        { kind: 'access-line', sign: '-', list: 'allow', line: 'root/api/** -> root/billing/**' },
-        { kind: 'access-line', sign: '+', list: 'allow', line: 'root/web/** -> root/billing/**' },
-        { kind: 'access-line', sign: '+', list: 'deny', line: 'root/billing/payments/** -> root/sql/**' },
+        { kind: 'line', key: 'access', sign: '-', list: 'allow', line: 'root/api/** -> root/billing/**' },
+        { kind: 'line', key: 'access', sign: '+', list: 'allow', line: 'root/web/** -> root/billing/**' },
+        { kind: 'line', key: 'access', sign: '+', list: 'deny', line: 'root/billing/payments/** -> root/sql/**' },
         { kind: 'value', key: 'alias', before: '"@root"', after: '"@other"' },
       ],
     });
@@ -162,14 +164,14 @@ describe('config changes between locks of version 4', () => {
 
   it('reports a default change, and access added or removed as a whole with its lines', () => {
     const allow = withAccess({ default: 'allow', allow: [], deny: before.access!.allow });
-    expect(configDiff(before, allow)!.changes[0]).toEqual({ kind: 'access-default', before: 'deny', after: 'allow' });
+    expect(configDiff(before, allow)!.changes[0]).toEqual({ kind: 'default', key: 'access', before: 'deny', after: 'allow' });
     const none = withAccess(undefined);
     expect(configDiff(none, before)!.changes).toEqual([
-      { kind: 'access', sign: '+', default: 'deny' },
-      { kind: 'access-line', sign: '+', list: 'allow', line: '** -> root/log' },
-      { kind: 'access-line', sign: '+', list: 'allow', line: 'root/api/** -> root/billing/**' },
+      { kind: 'section', key: 'access', sign: '+', default: 'deny' },
+      { kind: 'line', key: 'access', sign: '+', list: 'allow', line: '** -> root/log' },
+      { kind: 'line', key: 'access', sign: '+', list: 'allow', line: 'root/api/** -> root/billing/**' },
     ]);
-    expect(configDiff(before, none)!.changes.map((c) => `${c.kind} ${'sign' in c ? c.sign : ''}`)).toEqual(['access -', 'access-line -', 'access-line -']);
+    expect(configDiff(before, none)!.changes.map((c) => `${c.kind} ${'sign' in c ? c.sign : ''}`)).toEqual(['section -', 'line -', 'line -']);
   });
 
   it('prints one indented line per change under "config changed" in the text diff, and counts the change once', () => {
@@ -199,6 +201,51 @@ describe('config changes between locks of version 4', () => {
       '+ config access.deny: root/billing/payments/** -> root/sql/**',
       '~ config alias: "@root" to "@other"',
     ]);
+  });
+
+  it('lists layout changes like access changes: the key, its default and each line', () => {
+    const none = withAccess(undefined);
+    const two = lockConfig({ ...DEFAULT_CONFIG, layout: { default: 'deny', allow: ['root/*/*'], deny: [] } });
+    const gpu = lockConfig({ ...DEFAULT_CONFIG, layout: { default: 'allow', allow: ['root/*/*', 'root/gpu/*'], deny: ['root/legacy/**'] } });
+    expect(configDiff(none, two)!.changes).toEqual([
+      { kind: 'section', key: 'layout', sign: '+', default: 'deny' },
+      { kind: 'line', key: 'layout', sign: '+', list: 'allow', line: 'root/*/*' },
+    ]);
+    expect(configDiff(two, gpu)!.changes).toEqual([
+      { kind: 'default', key: 'layout', before: 'deny', after: 'allow' },
+      { kind: 'line', key: 'layout', sign: '+', list: 'allow', line: 'root/gpu/*' },
+      { kind: 'line', key: 'layout', sign: '+', list: 'deny', line: 'root/legacy/**' },
+    ]);
+    expect(configDiff(two, none)!.changes.map((c) => `${c.kind} ${'sign' in c ? c.sign : ''}`)).toEqual(['section -', 'line -']);
+
+    const previous = lockWith(two);
+    const next = lockWith(gpu);
+    const changes = diffLocks(previous, next);
+    expect(changes[0]!.message).toBe(
+      'buckets.config.json changed since the lock was approved: changed "layout.default" from "deny" to "allow"; added the "layout.allow" line "root/gpu/*"; added the "layout.deny" line "root/legacy/**". A human must review this and run `buckets refresh`.',
+    );
+    expect(formatLockDiff(previous, next, changes).split('\n')).toEqual([
+      '~ config changed          buckets.config.json',
+      '    ~ layout.default  "deny" to "allow"',
+      '    + layout.allow    root/gpu/*',
+      '    + layout.deny     root/legacy/**',
+      '',
+    ]);
+    const review = buildReview({ projectDir: '.', previous, next, changes, config: DEFAULT_CONFIG, lockText: '{}' });
+    expect(dialogItems(review)).toEqual([
+      '~ buckets.config.json changed',
+      '~ config layout.default: "deny" to "allow"',
+      '+ config layout.allow: root/gpu/*',
+      '+ config layout.deny: root/legacy/**',
+    ]);
+    expect(diffLocks(lockWith(none), lockWith(two))[0]!.message).toContain('added "layout" with "default": "deny"; added the "layout.allow" line "root/*/*"');
+  });
+
+  it('shows the layout of a config whose old values are unknown, one row per line', () => {
+    const gpu = lockConfig({ ...DEFAULT_CONFIG, layout: { default: 'deny', allow: ['root/*/*', 'root/gpu/*'], deny: ['root/legacy/**'] } });
+    const previous = lockWith(lockConfigHash(lockConfig(DEFAULT_CONFIG)), 3);
+    const text = formatLockDiff(previous, lockWith(gpu), diffLocks(previous, lockWith(gpu)));
+    expect(text).toMatch(/\n {6}layout\.default +"deny"\n {6}layout\.allow +root\/\*\/\*\n {6}layout\.allow +root\/gpu\/\*\n {6}layout\.deny +root\/legacy\/\*\*\n/);
   });
 
   it('shows a long access line in full in the dialog, wrapped onto more lines', () => {
