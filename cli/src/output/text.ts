@@ -332,11 +332,12 @@ export function formatLockDiff(previous: Lock | null, next: Lock, changes: LockC
 }
 
 /**
- * The lines under `config changed`: each access or layout line added or removed, a changed default and every other changed key
- * with its old and new value. When the approved lock stored only a hash, the config being approved instead.
+ * The lines under `config changed`: each access or layout line added or removed, a changed default, every other changed key
+ * with its old and new value, and each value a script printed before or prints now. When the approved lock stored only a
+ * hash, the config being approved instead.
  */
 function configLines(previous: Lock, next: Lock, style: Style): string[] {
-  const diff = configDiff(previous.config, next.config);
+  const diff = configDiff(previous.config, next.config, { before: previous.scriptValues, after: next.scriptValues });
   if (diff === null) return [];
   if (diff.recorded) {
     const width = columnWidth(diff.changes.map(configChangeLabel));

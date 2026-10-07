@@ -5,7 +5,7 @@ import { lstat, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { sortKeys, textHash } from './hash.js';
 import { parseJson } from './json.js';
-import { configChangeText, configDiff, LINE_KEYS, lockConfig } from './lock-config.js';
+import { configChanged, configChangeText, configDiff, LINE_KEYS, lockConfig } from './lock-config.js';
 import type { Model } from './model.js';
 import { LOCK_FILE } from './paths.js';
 import type { Lock, LockChange, LockLink } from './types.js';
@@ -13,7 +13,8 @@ import type { Lock, LockChange, LockLink } from './types.js';
 /**
  * The format this CLI writes. Version 2 added `projects`, `links` and `dmz.<file>.external`. Version 3 changed links
  * to source links: each one records the origin's alias and published signatures, and `external` is gone. Version 4
- * stores the resolved config itself in `config` instead of its hash, so a review can show what changed in it.
+ * stores the resolved config itself in `config` instead of its hash, so a review can show what changed in it. It later
+ * gained the optional `scriptValues`, the output of the scripts of the config.
  */
 export const LOCK_VERSION = 4;
 
@@ -55,6 +56,11 @@ export function computeLockFromModel(
     buckets: [...model.layout.buckets.keys()].sort(),
     dmz,
   };
+  const scripts = Object.keys(model.config.scripts ?? {}).sort();
+  if (scripts.length > 0) {
+    lock.scriptValues = record<string[]>();
+    for (const name of scripts) lock.scriptValues[name] = [...new Set(model.scripts[name] ?? [])].sort();
+  }
   // Empty sections are left out, so a project without nested projects or links keeps the same sections as before.
   if (model.layout.nestedProjects.length > 0) lock.projects = [...model.layout.nestedProjects].sort();
   const linkPaths = Object.keys(links).sort();
@@ -169,6 +175,12 @@ function validateLock(raw: unknown): string | null {
   }
   if (lock.projects !== undefined && (!Array.isArray(lock.projects) || !lock.projects.every((p) => typeof p === 'string'))) {
     return 'projects is malformed';
+  }
+  const scriptValues = lock.scriptValues;
+  if (scriptValues !== undefined) {
+    if (scriptValues === null || typeof scriptValues !== 'object' || Array.isArray(scriptValues) || !Object.values(scriptValues).every(isStringArray)) {
+      return 'scriptValues is malformed';
+    }
   }
   const links = lock.links;
   if (links !== undefined) {
@@ -296,14 +308,16 @@ export function diffLocks(previous: Lock, current: Lock): LockChange[] {
   for (const p of previous.projects ?? []) {
     if (!projectsAfter.has(p)) changes.push({ kind: 'project-removed', path: p, message: `Nested project ${p} was removed since the lock was approved. ${REFRESH}` });
   }
-  const config = configDiff(previous.config, current.config);
+  const config = configDiff(previous.config, current.config, { before: previous.scriptValues, after: current.scriptValues });
   if (config !== null) {
     const what = config.recorded
       ? config.changes.length > 0
         ? `: ${config.changes.map(configChangeText).join('; ')}`
         : ''
       : `. The approved lock (version ${previous.lockVersion}) stored only a hash of the config, so the old values are unknown`;
-    changes.push({ kind: 'config-changed', path: 'buckets.config.json', message: `buckets.config.json changed since the lock was approved${what}. ${REFRESH}` });
+    // The file can be the same while a script prints other values, for example after the data it reads changed.
+    const subject = configChanged(previous.config, current.config) ? 'buckets.config.json changed' : 'The output of a script of buckets.config.json changed';
+    changes.push({ kind: 'config-changed', path: 'buckets.config.json', message: `${subject} since the lock was approved${what}. ${REFRESH}` });
   }
   const files = new Set([...Object.keys(previous.dmz), ...Object.keys(current.dmz)]);
   for (const file of [...files].sort()) {

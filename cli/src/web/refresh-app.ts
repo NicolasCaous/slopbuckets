@@ -101,7 +101,8 @@ export function dialogItems(review: LockReview): string[] {
   for (const v of review.versions) lines.push(`~ ${v.label}: ${name(v.before)} to ${name(v.after)}`);
   if (review.config.changed) {
     if (review.config.recorded) {
-      lines.push('~ buckets.config.json changed');
+      const onlyScripts = review.config.changes.length > 0 && review.config.changes.every((change) => change.kind === 'script');
+      lines.push(onlyScripts ? '~ a script of buckets.config.json prints other values' : '~ buckets.config.json changed');
       for (const change of review.config.changes) configLines.push(config(`${configChangeSign(change)} config ${configChangeLabel(change)}: ${configChangeDetail(change)}`));
     } else {
       lines.push('~ buckets.config.json changed, its old values were not recorded. Approving records:');

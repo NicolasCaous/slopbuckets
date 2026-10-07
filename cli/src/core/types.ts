@@ -141,6 +141,11 @@ export interface Lock {
   projects?: string[];
   /** Registered links by link folder (`<bucket>/_/links/<name>`). Missing means none. */
   links?: Record<string, LockLink>;
+  /**
+   * The values of each script of the config, by script name: the lines it printed, sorted and without duplicates.
+   * Missing when the config has no scripts. Lock version 4 added it as an optional field.
+   */
+  scriptValues?: Record<string, string[]>;
 }
 
 /**

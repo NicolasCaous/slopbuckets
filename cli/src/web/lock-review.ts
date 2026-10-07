@@ -315,7 +315,7 @@ export function buildReview(options: {
     counts.total = 1;
   }
   const hash = reviewHash(options.lockText, next);
-  const config = previous !== null && changes.some((c) => c.kind === 'config-changed') ? configDiff(previous.config, next.config) : null;
+  const config = previous !== null && changes.some((c) => c.kind === 'config-changed') ? configDiff(previous.config, next.config, { before: previous.scriptValues, after: next.scriptValues }) : null;
   return {
     project: { name: projectName(projectDir), folder: path.basename(path.resolve(projectDir)), dir: projectDir, path: options.path ?? '.' },
     fresh: previous === null,

@@ -1,5 +1,6 @@
 // The `config` field of buckets.lock.json: the resolved config itself (version 4) or its hash (versions 1 to 3), and
-// what changed between the config of two locks, for `buckets refresh`, `buckets refresh --web` and `buckets check`.
+// what changed between the config of two locks, with the output of its scripts (`scriptValues`), for `buckets refresh`,
+// `buckets refresh --web` and `buckets check`.
 import type { LineLists } from './bucket-glob.js';
 import { configHash, type ResolvedConfig } from './config.js';
 import { canonicalJson } from './hash.js';
@@ -27,12 +28,18 @@ export type LineKey = (typeof LINE_KEYS)[number];
 /**
  * One difference between two configs. Every `access` or `layout` line added or removed is its own entry, also when the
  * key as a whole was added or removed. `before` and `after` of a value are JSON text, or null when the key is not set.
+ * A `script` entry is one value that a script of the config printed before and no longer prints (`-`), or the other
+ * way around (`+`).
  */
 export type ConfigChange =
   | { kind: 'section'; key: LineKey; sign: '+' | '-'; default: LineLists['default'] }
   | { kind: 'default'; key: LineKey; before: LineLists['default']; after: LineLists['default'] }
   | { kind: 'line'; key: LineKey; sign: '+' | '-'; list: 'allow' | 'deny'; line: string }
-  | { kind: 'value'; key: string; before: string | null; after: string | null };
+  | { kind: 'value'; key: string; before: string | null; after: string | null }
+  | { kind: 'script'; name: string; sign: '+' | '-'; value: string };
+
+/** The output of the scripts as a lock stores it: script name to sorted values. */
+export type ScriptOutput = Record<string, string[]> | undefined;
 
 export interface ConfigDiff {
   /** False when the earlier lock (version 1 to 3) stored only a hash of the config, so the old values are unknown. */
@@ -66,9 +73,31 @@ function lineChanges(key: LineKey, before: LineLists | undefined, after: LineLis
   return out;
 }
 
-/** What changed between the config of two locks. Null when both approved the same config. */
-export function configDiff(previous: Lock['config'], current: Lock['config']): ConfigDiff | null {
-  if (!configChanged(previous, current)) return null;
+/** Each value that a script printed in only one of the two outputs, script by script, removed values first. */
+function scriptChanges(before: ScriptOutput, after: ScriptOutput): ConfigChange[] {
+  const out: ConfigChange[] = [];
+  const names = [...new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})])].sort();
+  for (const name of names) {
+    const was = before !== undefined && Object.hasOwn(before, name) && Array.isArray(before[name]) ? before[name] : [];
+    const is = after !== undefined && Object.hasOwn(after, name) && Array.isArray(after[name]) ? after[name] : [];
+    for (const value of was) if (!is.includes(value)) out.push({ kind: 'script', name, sign: '-', value });
+    for (const value of is) if (!was.includes(value)) out.push({ kind: 'script', name, sign: '+', value });
+  }
+  return out;
+}
+
+/** True when the scripts of two locks printed different values. */
+export function scriptOutputChanged(before: ScriptOutput, after: ScriptOutput): boolean {
+  return scriptChanges(before, after).length > 0;
+}
+
+/**
+ * What changed between the config of two locks, with the output of their scripts (`scriptValues` of each lock), which
+ * comes after the config keys. Null when both approved the same config and the same output.
+ */
+export function configDiff(previous: Lock['config'], current: Lock['config'], output: { before?: ScriptOutput; after?: ScriptOutput } = {}): ConfigDiff | null {
+  const scripts = scriptChanges(output.before, output.after);
+  if (!configChanged(previous, current) && scripts.length === 0) return null;
   if (typeof previous === 'string' || typeof current === 'string') return { recorded: false, changes: [] };
   const changes: ConfigChange[] = [];
   const before = previous as unknown as Record<string, unknown>;
@@ -83,12 +112,15 @@ export function configDiff(previous: Lock['config'], current: Lock['config']): C
     const is = Object.hasOwn(after, key) ? canonicalJson(after[key]) : null;
     if (was !== is) changes.push({ kind: 'value', key, before: was, after: is });
   }
+  changes.push(...scripts);
   return { recorded: true, changes };
 }
 
-/** The label of a config change, the name of what changed: `access.allow`, `layout.default`, `alias`. */
+/** The label of a config change, the name of what changed: `access.allow`, `layout.default`, `alias`, `` `repos` output ``. */
 export function configChangeLabel(change: ConfigChange): string {
   switch (change.kind) {
+    case 'script':
+      return `\`${change.name}\` output`;
     case 'section':
     case 'value':
       return change.key;
@@ -104,6 +136,7 @@ export function configChangeSign(change: ConfigChange): '+' | '-' | '~' {
   switch (change.kind) {
     case 'section':
     case 'line':
+    case 'script':
       return change.sign;
     case 'default':
       return '~';
@@ -112,9 +145,11 @@ export function configChangeSign(change: ConfigChange): '+' | '-' | '~' {
   }
 }
 
-/** What a config change did, without its label: the line, or the old and the new value. */
+/** What a config change did, without its label: the line, the value of a script, or the old and the new value. */
 export function configChangeDetail(change: ConfigChange): string {
   switch (change.kind) {
+    case 'script':
+      return change.value;
     case 'section':
       return change.sign === '+' ? `added, "default": "${change.default}"` : `removed, it had "default": "${change.default}"`;
     case 'default':
@@ -129,6 +164,8 @@ export function configChangeDetail(change: ConfigChange): string {
 /** A config change as a phrase for the message of a `config-changed` lock change. */
 export function configChangeText(change: ConfigChange): string {
   switch (change.kind) {
+    case 'script':
+      return change.sign === '+' ? `the script "${change.name}" now prints "${change.value}"` : `the script "${change.name}" no longer prints "${change.value}"`;
     case 'section':
       return change.sign === '+' ? `added "${change.key}" with "default": "${change.default}"` : `removed "${change.key}", which had "default": "${change.default}"`;
     case 'default':

@@ -118,6 +118,26 @@ describe('renderReviewPage', () => {
     expect(text).not.toContain('An access allow line');
   });
 
+  it('lists the values a script prints that the lock did not approve, and says the file is the same', async () => {
+    const files = { ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', scripts: { repos: 'tools/repos.js' }, layout: { default: 'allow', deny: ['root/`repos`'] } }), 'tools/repos.js': '' };
+    const dir = makeProject(files);
+    const printing = (stdout: string) => ({ ...testContext({ toolchain: 'typescript@5.9.3' }), runScript: () => ({ status: 0, stdout, stderr: '', timedOut: false }) });
+    await approve(dir, printing('zz1\nzz2\n'));
+    const state = await evaluateLockState(printing('zz2\nzz&3\n'), dir);
+    if (state.kind !== 'review') throw new Error(`expected a review, got ${state.kind}`);
+    const page = renderReviewPage(CTX, state.review);
+    const text = textOf(page);
+    expect(text).toContain('buckets.config.json 2 changes Config');
+    expect(text).toContain('buckets.config.json is the same, but a script it lists prints other values since the last approval.');
+    expect(text).toContain('A script value joins every group of an access or layout line that names the script in backticks');
+    expect(text).toContain('Check that the new values are right before you approve them.');
+    expect(text).not.toContain('Only a human should edit this file');
+    expect(text).toContain('- script `repos` value removed zz1');
+    expect(text).toContain('+ script `repos` value added zz&#38;3');
+    expect(page).toContain('<span translate="no">`repos`</span>');
+    expect(page).not.toContain('zz&3');
+  });
+
   it('shows the config being approved when the approved lock kept only its hash', async () => {
     const dir = makeProject(LOGGER_PROJECT);
     const lock = await approve(dir);

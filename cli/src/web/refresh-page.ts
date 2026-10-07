@@ -121,12 +121,15 @@ const DECIDES: Record<LineKey, { is: string; was: string }> = {
   layout: { is: 'bucket folders that no line matches are', was: 'bucket folders that no line matched were' },
 };
 
-/** What the lines of each changed `access` or `layout` key mean, one sentence each, with a leading space. */
+/** What the lines of each changed `access` or `layout` key and the script values mean, one sentence each, with a leading space. */
 function configIntro(changes: ConfigChange[]): string {
-  const keys = new Set(changes.flatMap((change) => (change.kind === 'value' ? [] : [change.key])));
+  const keys = new Set(changes.flatMap((change) => (change.kind === 'value' || change.kind === 'script' ? [] : [change.key])));
   let text = '';
   if (keys.has('access')) text += ' An access allow line lets code in the buckets on its left use code that comes from the buckets on its right, and an access deny line forbids it.';
   if (keys.has('layout')) text += ' A layout allow line lets the bucket folders it matches and the folders above them exist, and a layout deny line forbids the folders it matches.';
+  if (changes.some((change) => change.kind === 'script')) {
+    text += ' A script value joins every group of an access or layout line that names the script in backticks, so a new value can allow or deny more buckets.';
+  }
   return text;
 }
 
@@ -135,7 +138,7 @@ function keyName(key: string): SafeHtml {
   return html`<span translate="no">${key}</span>`;
 }
 
-/** One change of buckets.config.json as a diff row: an access or layout line, their default, or another value. */
+/** One change of buckets.config.json as a diff row: an access or layout line, their default, another value, or a value of a script. */
 function configChangeRow(change: ConfigChange): SafeHtml {
   const sign = configChangeSign(change);
   const row = (label: string | SafeHtml, item: SafeHtml): SafeHtml =>
@@ -147,6 +150,8 @@ function configChangeRow(change: ConfigChange): SafeHtml {
       return row(html`${keyName(change.key)} default changed`, html`${code(change.before)}<span class="note">to</span>${code(change.after)}`);
     case 'line':
       return row(html`${keyName(change.key)} ${change.list} line ${change.sign === '+' ? 'added' : 'removed'}`, code(change.line));
+    case 'script':
+      return row(html`script ${keyName(`\`${change.name}\``)} value ${change.sign === '+' ? 'added' : 'removed'}`, code(change.value));
     case 'value':
       return row(
         keyName(change.key),
@@ -157,6 +162,18 @@ function configChangeRow(change: ConfigChange): SafeHtml {
             : html`${code(change.before)}<span class="note">to</span>${code(change.after)}`,
       );
   }
+}
+
+/**
+ * The text above the config changes: what changed, what the lines and values mean, and who may change them. The file
+ * can be the same while a script prints other values, for example after the data it reads changed.
+ */
+function configText(changes: ConfigChange[]): SafeHtml {
+  const file = code('buckets.config.json');
+  if (changes.length > 0 && changes.every((change) => change.kind === 'script')) {
+    return html`${file} is the same, but a script it lists prints other values since the last approval.${configIntro(changes)} Check that the new values are right before you approve them.`;
+  }
+  return html`${file} changed since the last approval.${configIntro(changes)} Only a human should edit this file, so ask the agent if you did not make these changes.`;
 }
 
 interface ScreenOptions {
@@ -196,7 +213,7 @@ ${review.versions.map((v) => html`<tr class="chg"><th scope="row">${v.label}</th
   if (review.config.changed) {
     const { config } = review;
     const body = config.recorded
-      ? html`<p class="intro">${code('buckets.config.json')} changed since the last approval.${configIntro(config.changes)} Only a human should edit this file, so ask the agent if you did not make these changes.</p>
+      ? html`<p class="intro">${configText(config.changes)}</p>
 ${
   config.changes.length > 0
     ? html`<ul class="diff" aria-label="Config changes">

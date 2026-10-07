@@ -261,3 +261,64 @@ describe('config changes between locks of version 4', () => {
     expect(dialogRequest(review).message).toContain('  + config access.allow: root/billing/payments/providers/stripe/webhooks/** ->\n      root/infrastructure/database/postgres/migrations/**\n');
   });
 });
+
+describe('script output in the lock', () => {
+  const config = lockConfig({ ...DEFAULT_CONFIG, scripts: { repos: 'tools/repos.js' }, layout: { default: 'deny', allow: ['root/`repos`'], deny: [] } });
+  const withValues = (values: string[]): Lock => ({ ...lockWith(config), scriptValues: { repos: values } });
+
+  it('stores the sorted values of each script next to the config and reads them back', async () => {
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', scripts: { repos: 'tools/repos.js' } }), 'tools/repos.js': '' });
+    const ctx = { ...testContext(), runScript: () => ({ status: 0, stdout: 'web\napi\nweb\n', stderr: '', timedOut: false }) };
+    const lock = await approve(dir, ctx);
+    expect(lock.lockVersion).toBe(4);
+    expect(lock.scriptValues).toEqual({ repos: ['api', 'web'] });
+    const read = readLock(dir);
+    expect(read.kind === 'ok' && read.lock.scriptValues).toEqual({ repos: ['api', 'web'] });
+    expect((await checkProject(dir, {}, ctx)).report.lockChanges).toEqual([]);
+    const other = { ...testContext(), runScript: () => ({ status: 0, stdout: 'api\nsql\n', stderr: '', timedOut: false }) };
+    expect((await checkProject(dir, {}, other)).report.lockChanges.map((c) => c.kind)).toEqual(['config-changed']);
+  });
+
+  it('leaves the field out when the config has no scripts', async () => {
+    const lock = await approve(makeProject(LOGGER_PROJECT));
+    expect('scriptValues' in lock).toBe(false);
+  });
+
+  it('refuses a lock whose scriptValues is malformed', () => {
+    for (const scriptValues of [[], { repos: 'api' }, { repos: [1] }, null]) {
+      expect(parseLockText(JSON.stringify({ ...lockWith(config), scriptValues }))).toEqual({ kind: 'invalid', reason: 'scriptValues is malformed' });
+    }
+  });
+
+  it('lists each value added and removed per script as a config change', () => {
+    const previous = withValues(['api', 'web']);
+    const next = withValues(['api', 'sql']);
+    expect(configDiff(previous.config, next.config, { before: previous.scriptValues, after: next.scriptValues })!.changes).toEqual([
+      { kind: 'script', name: 'repos', sign: '-', value: 'web' },
+      { kind: 'script', name: 'repos', sign: '+', value: 'sql' },
+    ]);
+    expect(configDiff(previous.config, previous.config, { before: previous.scriptValues, after: previous.scriptValues })).toBeNull();
+    const changes = diffLocks(previous, next);
+    expect(changes.map((c) => c.message)).toEqual([
+      'The output of a script of buckets.config.json changed since the lock was approved: the script "repos" no longer prints "web"; the script "repos" now prints "sql". A human must review this and run `buckets refresh`.',
+    ]);
+    expect(formatLockDiff(previous, next, changes).split('\n')).toEqual([
+      '~ config changed          buckets.config.json',
+      '    - `repos` output  web',
+      '    + `repos` output  sql',
+      '',
+    ]);
+    const review = buildReview({ projectDir: '.', previous, next, changes, config: DEFAULT_CONFIG, lockText: '{}' });
+    expect(review.config.changes).toHaveLength(2);
+    expect(dialogItems(review)).toEqual(['~ a script of buckets.config.json prints other values', '- config `repos` output: web', '+ config `repos` output: sql']);
+  });
+
+  it('lists the script values after the config changes when both changed', () => {
+    const previous = withValues(['api']);
+    const next: Lock = { ...lockWith({ ...config, alias: '@other' }), scriptValues: { repos: ['api', 'web'] } };
+    const message = diffLocks(previous, next)[0]!.message;
+    expect(message).toBe(
+      'buckets.config.json changed since the lock was approved: changed "alias" from "@root" to "@other"; the script "repos" now prints "web". A human must review this and run `buckets refresh`.',
+    );
+  });
+});
