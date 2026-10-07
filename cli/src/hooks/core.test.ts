@@ -419,6 +419,19 @@ describe('preTool: buckets.config.json', () => {
   });
 });
 
+describe('preTool: shell guard review', () => {
+  it('matches a long run of stars in linear time, so the hook answers before the agent times it out', () => {
+    for (const command of ['echo "****************FAILED****************"; buckets update --yes', `ls ${'*'.repeat(200)}z`, `echo ${'*'.repeat(200)}`]) {
+      const start = performance.now();
+      const result = preTool({ cwd: NOWHERE, action: shell(command) });
+      expect(performance.now() - start, command).toBeLessThan(50);
+      expect(result, command).toEqual(command.includes('update') ? UPDATE_DENY : ALLOW);
+    }
+    expect(preTool({ cwd: NOWHERE, action: shell(`cat ${'*'.repeat(200)}lock.json`) })).toEqual(DENY);
+    expect(preTool({ cwd: NOWHERE, action: shell(`ls ${'{a,b}'.repeat(2000)} ${'['.repeat(20000)}`) })).toEqual(ALLOW);
+  });
+});
+
 describe('postEdit', () => {
   it('reports the violations of an edited file in the root bucket folder, and nothing for clean or outside files', async () => {
     const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n" });

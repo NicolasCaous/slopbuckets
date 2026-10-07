@@ -362,43 +362,83 @@ export function runsInstallingUpdate(command: string): boolean {
  */
 const SHORT_NAME = /\bbu[a-z0-9?*[\]]{0,6}~[0-9?*[\]]+\.js[o?*[]/i;
 
-/** A glob pattern as a regular expression over one path segment: `*`, `?`, `[...]` and `{a,b}`. */
-function globRegex(pattern: string): RegExp | null {
-  let out = '';
+/** A piece of a glob: `*`, one character that `test` accepts (a literal, `?` or `[...]`), or `{a,b}`. */
+type GlobPart = { kind: 'star' } | { kind: 'one'; test: (ch: string) => boolean } | { kind: 'alt'; options: GlobPart[][] };
+
+/** The test of a `[...]` class body, with ranges such as `a-z` and a leading `!` or `^` that negates it. */
+function classTest(body: string): (ch: string) => boolean {
+  const negate = body.startsWith('!') || body.startsWith('^');
+  const chars = negate ? body.slice(1) : body;
+  const ranges: [string, string][] = [];
+  for (let k = 0; k < chars.length; k++) {
+    if (chars[k + 1] === '-' && k + 2 < chars.length) {
+      ranges.push([chars[k]!, chars[k + 2]!]);
+      k += 2;
+    } else ranges.push([chars[k]!, chars[k]!]);
+  }
+  return (ch) => ch !== '/' && ranges.some(([lo, hi]) => ch >= lo && ch <= hi) !== negate;
+}
+
+/**
+ * The pieces of a glob over one path segment: `*`, `?`, `[...]` and `{a,b}` (not nested). A run of `*` is one piece.
+ * The text is read once, so a pattern of any length parses in linear time.
+ */
+function parseGlob(pattern: string, braces = true): GlobPart[] {
+  const parts: GlobPart[] = [];
+  const literal = (ch: string): GlobPart => ({ kind: 'one', test: (c) => c === ch });
+  // The next `]` and `}` at or after a position, cached so that a long run of `[` stays linear.
+  let bracket = -2;
+  let brace = -2;
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
-    if (ch === '*') out += '[^/]*';
-    else if (ch === '?') out += '[^/]';
+    if (ch === '*') {
+      if (parts[parts.length - 1]?.kind !== 'star') parts.push({ kind: 'star' });
+    } else if (ch === '?') parts.push({ kind: 'one', test: (c) => c !== '/' });
     else if (ch === '[') {
-      const end = pattern.indexOf(']', i + 2);
-      if (end === -1) {
-        out += '\\[';
-        continue;
+      if (bracket !== -1 && bracket < i + 2) bracket = pattern.indexOf(']', i + 2);
+      if (bracket === -1) parts.push(literal(ch));
+      else {
+        parts.push({ kind: 'one', test: classTest(pattern.slice(i + 1, bracket)) });
+        i = bracket;
       }
-      let body = pattern.slice(i + 1, end);
-      const negate = body.startsWith('!') || body.startsWith('^');
-      if (negate) body = body.slice(1);
-      out += `[${negate ? '^' : ''}${body.replace(/[\\\]]/g, '\\$&')}]`;
-      i = end;
-    } else if (ch === '{') {
-      const end = pattern.indexOf('}', i);
-      if (end === -1) {
-        out += '\\{';
-        continue;
+    } else if (ch === '{' && braces) {
+      if (brace !== -1 && brace < i) brace = pattern.indexOf('}', i);
+      if (brace === -1) parts.push(literal(ch));
+      else {
+        parts.push({ kind: 'alt', options: pattern.slice(i + 1, brace).split(',').map((option) => parseGlob(option, false)) });
+        i = brace;
       }
-      out += `(?:${pattern
-        .slice(i + 1, end)
-        .split(',')
-        .map((part) => part.replace(/[.+^$()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]'))
-        .join('|')})`;
-      i = end;
-    } else out += ch.replace(/[.+^$()|\\\]]/g, '\\$&');
+    } else parts.push(literal(ch));
   }
-  try {
-    return new RegExp(`^${out}$`, 'i');
-  } catch {
-    return null;
+  return parts;
+}
+
+/**
+ * The positions of `text` that the pieces can reach from the positions in `from`, as a bit set (bit j is position j).
+ * Each piece costs one pass over the text, so matching is linear in the pattern for the short names checked here.
+ */
+function reach(parts: GlobPart[], text: string, from: number): number {
+  let cur = from;
+  for (const part of parts) {
+    if (cur === 0) return 0;
+    let next = 0;
+    if (part.kind === 'star') {
+      let on = false;
+      for (let j = 0; j <= text.length; j++) {
+        on = ((cur >>> j) & 1) === 1 || (on && text[j - 1] !== '/');
+        if (on) next |= 1 << j;
+      }
+    } else if (part.kind === 'one') {
+      for (let j = 0; j < text.length; j++) if (((cur >>> j) & 1) === 1 && part.test(text[j]!)) next |= 1 << (j + 1);
+    } else for (const option of part.options) next |= reach(option, text, cur);
+    cur = next;
   }
+  return cur;
+}
+
+/** True when the glob pieces match all of `text`, ignoring case. `text` must be shorter than 31 characters. */
+function globMatch(parts: GlobPart[], text: string): boolean {
+  return ((reach(parts, text.toLowerCase(), 1) >>> text.length) & 1) === 1;
 }
 
 /**
@@ -410,8 +450,8 @@ function globMatches(text: string, name: string): boolean {
   for (const token of text.split(/[\s;&|<>()=]+/)) {
     if (!/[*?[{]/.test(token)) continue;
     const last = token.split('/').filter((s) => s !== '').pop() ?? '';
-    const regex = globRegex(last);
-    if (regex !== null && regex.test(name) && !regex.test('package.json')) return true;
+    const parts = parseGlob(last.toLowerCase());
+    if (globMatch(parts, name) && !globMatch(parts, 'package.json')) return true;
   }
   return false;
 }
