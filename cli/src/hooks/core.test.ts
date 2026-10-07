@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Context } from '../core/types.js';
 import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture.js';
 import { approve, testContext } from '../testing/harness.js';
-import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, UPDATE_DENY_REASON, type ToolAction } from './core.js';
+import { COMPLEX_DENY_REASON, CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, UPDATE_DENY_REASON, type ToolAction } from './core.js';
 import { readSessionProjects, sessionStateFile } from './session.js';
 
 const stateFiles: string[] = [];
@@ -539,6 +539,17 @@ describe('preTool: shell guard review', () => {
     'Invoke-Expression -Command "buckets update --json"',
   ])('allows %j', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+  });
+
+  it('denies a command that nests more texts than the guard reads, and reads the ones within the limit', () => {
+    const subs = (count: number) => Array.from({ length: count }, (_, i) => `"$(echo ${i})"`).join(' ');
+    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(31)} "$(buckets update --yes)"`) })).toEqual({ decision: 'deny', reason: COMPLEX_DENY_REASON });
+    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(40)}`) })).toEqual({ decision: 'deny', reason: COMPLEX_DENY_REASON });
+    expect(COMPLEX_DENY_REASON).toContain('Split it into smaller commands');
+    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(20)} "$(buckets update --yes)"`) })).toEqual(UPDATE_DENY);
+    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(20)}`) })).toEqual(ALLOW);
+    // The same substitution many times is one text.
+    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${'"$(echo "$(echo hi)")"'.repeat(2000)}`) })).toEqual(ALLOW);
   });
 });
 

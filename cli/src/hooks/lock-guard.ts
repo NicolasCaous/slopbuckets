@@ -432,16 +432,37 @@ function scanCommand(tokens: Token[], start: number, isSubcommand: (word: string
 const LOOKUP =
   /\$\(\s*(?:which|where(?:\.exe)?|command\s+-v|type\s+-p|Get-Command)\s+([^\s()`;&|]+)\s*\)|`\s*(?:which|where(?:\.exe)?|command\s+-v|type\s+-p)\s+([^\s()`;&|]+)\s*`|\(\s*Get-Command\s+([^\s()`;&|]+)\s*\)(?:\.(?:Source|Path|Definition))?/gi;
 
+/** The most texts the guard reads for one command: the command and the commands nested in it. */
+const MAX_TEXTS = 32;
+
+/** What the guard read in a shell command: the CLI calls, and whether it stopped at `MAX_TEXTS` with texts left. */
+interface ShellReading {
+  calls: CliCall[];
+  overflow: boolean;
+}
+
+/** A word that names a subcommand the guard checks: `update`, or a word that starts with `refresh`. */
+function guardedSubcommand(word: string): boolean {
+  const lower = word.toLowerCase();
+  return lower === 'update' || lower.startsWith('refresh');
+}
+
+let lastReading: { command: string; reading: ShellReading } | undefined;
+
 /**
- * Every call of the CLI with a subcommand that `isSubcommand` accepts, in the command and in the commands nested in it.
- * The CLI counts only in program position: at the start of a command (after `;`, `&`, `|`, `&&`, `||`, `(`, a newline
- * or a backtick), after a runner, or as the script of `node` or `tsx`. So `git commit -m "buckets update"` and
+ * Every call of the CLI with a guarded subcommand, in the command and in the commands nested in it. The CLI counts
+ * only in program position: at the start of a command (after `;`, `&`, `|`, `&&`, `||`, `(`, a newline or a
+ * backtick), after a runner, or as the script of `node` or `tsx`. So `git commit -m "buckets update"` and
  * `gcloud storage buckets update` are not calls. A path lookup such as `$(which buckets)` counts as the CLI's name.
+ * The guard reads at most `MAX_TEXTS` texts. When more are left, `overflow` is true and the guard denies the command,
+ * so unread text never passes. The last reading is kept, because each rule asks about the same command.
  */
-function cliCalls(command: string, isSubcommand: (word: string) => boolean): CliCall[] {
+function readShell(command: string): ShellReading {
+  if (lastReading?.command === command) return lastReading.reading;
   const calls: CliCall[] = [];
   const queue = [command.replace(LOOKUP, (_m, a?: string, b?: string, c?: string) => a ?? b ?? c ?? '')];
-  for (let q = 0; q < queue.length && q < 32; q++) {
+  let q = 0;
+  for (; q < queue.length && q < MAX_TEXTS; q++) {
     for (const mode of ['posix', 'powershell'] as const) {
       const nested: string[] = [];
       const tokens = lex(queue[q]!, mode, nested);
@@ -450,7 +471,7 @@ function cliCalls(command: string, isSubcommand: (word: string) => boolean): Cli
         if (tok.kind === 'op') start = true;
         else if (tok.kind === 'word' && start) {
           start = false;
-          scanCommand(tokens, i, isSubcommand, calls, nested);
+          scanCommand(tokens, i, guardedSubcommand, calls, nested);
         }
       });
       for (const inner of nested) {
@@ -459,7 +480,17 @@ function cliCalls(command: string, isSubcommand: (word: string) => boolean): Cli
       }
     }
   }
-  return calls;
+  const reading = { calls, overflow: q < queue.length };
+  lastReading = { command, reading };
+  return reading;
+}
+
+/**
+ * True when a shell command nests more command texts (substitutions, `bash -c`, `eval`, text fed to a shell) than the
+ * guard reads. The guard cannot tell what the unread texts run, so it denies the command.
+ */
+export function tooComplexToCheck(command: string): boolean {
+  return readShell(command).overflow;
 }
 
 /**
@@ -486,7 +517,10 @@ function webOnly(rest: Token[]): boolean {
  * such as `refreshx`, counts as the call and is refused.
  */
 export function runsForbiddenRefresh(command: string): boolean {
-  return cliCalls(command, (w) => w.toLowerCase().startsWith('refresh')).some((call) => call.word.toLowerCase() !== 'refresh' || !webOnly(call.rest));
+  return readShell(command).calls.some((call) => {
+    const word = call.word.toLowerCase();
+    return word.startsWith('refresh') && (word !== 'refresh' || !webOnly(call.rest));
+  });
 }
 
 /**
@@ -515,7 +549,7 @@ function reportsOnly(rest: Token[]): boolean {
  * among its arguments. Every call in the command must pass, so `buckets update --check; buckets update` is refused.
  */
 export function runsInstallingUpdate(command: string): boolean {
-  return cliCalls(command, (w) => w.toLowerCase() === 'update').some((call) => !reportsOnly(call.rest));
+  return readShell(command).calls.some((call) => call.word.toLowerCase() === 'update' && !reportsOnly(call.rest));
 }
 
 /**

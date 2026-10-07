@@ -2,7 +2,8 @@
 // calls below and turns the answer into the harness output. Nothing here reads stdin, writes stdout or knows a tool name.
 //
 // - preTool: before a tool runs. Denies a write to any buckets.lock.json or buckets.config.json, any
-//   `buckets refresh` but `--web` and any `buckets update` without `--check` or `--json`.
+//   `buckets refresh` but `--web`, any `buckets update` without `--check` or `--json`, and a shell command that
+//   nests more commands than the guard reads.
 // - postEdit: after files were written. Returns the `buckets check --file` report of the files with problems.
 // - stop: before the agent (or a subagent) ends its turn. Returns the full check report when it fails.
 //
@@ -27,6 +28,7 @@ import {
   runsForbiddenRefresh,
   runsInstallingUpdate,
   sameFile,
+  tooComplexToCheck,
   type GuardedFile,
 } from './lock-guard.js';
 import { liveSessionProjects, readSessionProjects, recordSessionProject, sessionStateFile } from './session.js';
@@ -47,10 +49,14 @@ export const UPDATE_DENY_REASON =
   'Do not run `buckets update` without `--check` or `--json`, also through npx, pnpm, yarn, bunx or a path to the CLI. `buckets update --check` and `buckets update --json` only report, so you may run them. ' +
   'If a notice said that a newer slopbuckets version is available, tell the human the version it showed, and ask them to run `buckets update` in their own terminal.';
 
-/** What the guard refuses: a write to a guarded file, or a `buckets update` that can install. */
-export type Guarded = GuardedFile | 'update';
+export const COMPLEX_DENY_REASON =
+  'This shell command nests more commands (substitutions, `bash -c`, `eval` or text piped to a shell) than the slopbuckets guard reads, so the guard cannot tell whether it runs `buckets refresh` or `buckets update`. ' +
+  'Split it into smaller commands and run them one at a time.';
 
-const DENY_REASONS: Record<Guarded, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON, update: UPDATE_DENY_REASON };
+/** What the guard refuses: a write to a guarded file, a `buckets update` that can install, or a shell command too complex to check. */
+export type Guarded = GuardedFile | 'update' | 'complex';
+
+const DENY_REASONS: Record<Guarded, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON, update: UPDATE_DENY_REASON, complex: COMPLEX_DENY_REASON };
 
 /** The first line of a stop report, by exit code. Exit 2 needs a human, so the agent must not try to fix it. */
 export const STOP_INTRO: Record<0 | 1 | 2 | 3, string> = {
@@ -144,12 +150,14 @@ export function isLockWrite(file: string, where?: { projectDir: string; cwd: str
 
 /**
  * What a shell command touches that the guard refuses: the guarded file it names, `lock` when it runs
- * `buckets refresh` in any form but `--web`, or `update` when it runs `buckets update` without `--check` or `--json`.
+ * `buckets refresh` in any form but `--web`, `update` when it runs `buckets update` without `--check` or `--json`, or
+ * `complex` when it nests more commands than the guard reads.
  */
 export function guardedShell(command: string): Guarded | null {
   if (mentionsLock(command) || runsForbiddenRefresh(command)) return 'lock';
   if (mentionsConfig(command)) return 'config';
-  return runsInstallingUpdate(command) ? 'update' : null;
+  if (runsInstallingUpdate(command)) return 'update';
+  return tooComplexToCheck(command) ? 'complex' : null;
 }
 
 /**
