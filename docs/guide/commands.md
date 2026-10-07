@@ -89,7 +89,7 @@ In a terminal it asks `Install slopbuckets <version>? [y/N]` and runs the comman
 }
 ```
 
-`scope` is `global`, `local` or `unknown`. For `local`, `dir` is the folder where the command runs. For `unknown`, `manager` and `command` are null.
+`scope` is `global`, `local` or `unknown`. For `local`, `dir` is the folder where the command runs. For `unknown`, `manager` and `command` are null. When the registry cannot be reached, `--json` prints an object with only an `error` field, which holds the message, and exits with 1.
 
 Each lock records the CLI version that approved it, and `buckets check` stops with exit code 3 (`cli-version`) while the installed CLI differs. After an update, a human runs `buckets refresh` in each project, or an agent asks for it with `buckets refresh --web`. The diff shows the version change. To keep a project on the version its lock names, run `buckets update <version>` with that version instead.
 

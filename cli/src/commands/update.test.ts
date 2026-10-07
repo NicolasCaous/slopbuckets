@@ -117,6 +117,22 @@ describe('buckets update', () => {
     expect(failed.io.err).toContain('the install command failed with exit code 7. slopbuckets 1.0.0 is still installed.');
   });
 
+  it('with --json, prints a registry it cannot reach as a JSON error on stdout', async () => {
+    const { io } = setup({ offline: true });
+    expect(await main(testContext(), io, ['update', '--check', '--json'])).toBe(1);
+    const parsed = JSON.parse(io.out) as { error: string };
+    expect(Object.keys(parsed)).toEqual(['error']);
+    expect(parsed.error).toContain('cannot reach https://registry.npmjs.org');
+    expect(io.err).toBe('');
+  });
+
+  it('prints the install command without backticks in plain output, so it can be copied', async () => {
+    const { io } = setup();
+    expect(await main(testContext(), io, ['update', '--check'])).toBe(0);
+    expect(io.out).toContain(':\n\n  npm install -g slopbuckets@1.2.0\n');
+    expect(io.out).not.toContain('`npm install');
+  });
+
   it('cannot update a CLI it cannot place, and rejects bad arguments', async () => {
     const checkout = setup({ packageDir: '/home/ana/src/slopbuckets/cli' });
     expect(await main(testContext(), checkout.io, ['update', '--yes'])).toBe(1);

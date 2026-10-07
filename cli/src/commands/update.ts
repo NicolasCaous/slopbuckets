@@ -6,7 +6,6 @@ import { LOCK_FILE } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import type { Context } from '../core/types.js';
 import { compareVersions, detectInstall, fetchVersion, installCommand, isVersion, PACKAGE_NAME, registryUrl, writeUpdateCache } from '../core/update.js';
-import { code } from '../output/style.js';
 import { stderrStyle, stdoutStyle, type Io } from './io.js';
 
 export const UPDATE_USAGE = 'Usage: buckets update [<version>] [--check] [--json] [--yes]\n';
@@ -33,11 +32,14 @@ export async function updateCommand(ctx: Context, io: Io, args: string[]): Promi
     io.stderr(`${err.error('buckets update:')} "${wanted}" is not a version. Pass a full version such as 1.1.0.\n${UPDATE_USAGE}`);
     return 1;
   }
+  // With --json, a failure is a JSON object with an `error` field on stdout, so a script that parses stdout gets one.
+  const fail = (message: string, exitCode: number): number => {
+    if (json) io.stdout(`${JSON.stringify({ error: message }, null, 2)}\n`);
+    else io.stderr(`${err.error('buckets update:')} ${message}\n`);
+    return exitCode;
+  };
   const deps = io.updates;
-  if (deps === undefined) {
-    io.stderr(`${err.error('buckets update:')} this process cannot reach the registry or run a package manager.\n`);
-    return 3;
-  }
+  if (deps === undefined) return fail('this process cannot reach the registry or run a package manager.', 3);
 
   const installed = ctx.cliVersion;
   const registry = registryUrl(io.env);
@@ -50,8 +52,7 @@ export async function updateCommand(ctx: Context, io: Io, args: string[]): Promi
     ]);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    io.stderr(`${err.error('buckets update:')} cannot read the versions of ${PACKAGE_NAME}: ${reason}. Check the network, or set npm_config_registry to the registry you use.\n`);
-    return 1;
+    return fail(`cannot read the versions of ${PACKAGE_NAME}: ${reason}. Check the network, or set npm_config_registry to the registry you use.`, 1);
   }
   writeUpdateCache(deps.cacheDir, { registry, checkedAt: deps.now(), latest });
   if (target === '') target = latest;
@@ -86,7 +87,7 @@ export async function updateCommand(ctx: Context, io: Io, args: string[]): Promi
       : `This CLI is in the ${install.dev ? 'devDependencies' : 'dependencies'} of ${install.dir}, installed with ${install.manager}.`;
   const older = compareVersions(target, installed) < 0 ? ` ${target} is older than the installed version.` : '';
   const local = install.scope === 'local' && install.dir !== null && path.resolve(install.dir) !== path.resolve(io.cwd) ? ' in that folder' : '';
-  io.stdout(`\n${where}${older} To install ${PACKAGE_NAME} ${target}, run${local}:\n\n  ${code(out, command)}\n`);
+  io.stdout(`\n${where}${older} To install ${PACKAGE_NAME} ${target}, run${local}:\n\n  ${out.path(command)}\n`);
   if (check) return 0;
 
   if (!yes) {
