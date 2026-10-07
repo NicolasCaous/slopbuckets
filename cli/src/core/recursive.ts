@@ -5,9 +5,10 @@ import type { InfoResponse } from '@slopbuckets/adapter-ts';
 import { runCheck, type CheckOptions, type CheckResult } from './check.js';
 import { loadConfig } from './config.js';
 import { readLinksManifest } from './links.js';
+import { CONFIG_FILE } from './paths.js';
 import { scanProject } from './scan.js';
 import { resolveScripts, withScriptRuns } from './scripts.js';
-import type { CheckReport, Context, ExitCode } from './types.js';
+import type { CheckReport, Context, ExitCode, Violation } from './types.js';
 
 export interface ProjectRun {
   /** Relative to the project where the check started, `.` for that project. */
@@ -34,11 +35,20 @@ export function aggregateExitCode(codes: ExitCode[]): ExitCode {
   return 0;
 }
 
+/**
+ * The message of a violation in a project. The messages about the config name buckets.config.json without a folder,
+ * so in a nested project they start with the path of its config, relative to the project where the check ran.
+ */
+function nestedConfigMessage(violation: Violation, project: string): string {
+  if (project === '.' || violation.rule !== 'config-invalid' || violation.file !== CONFIG_FILE) return violation.message;
+  return `In ${project}/${CONFIG_FILE}: ${violation.message}`;
+}
+
 /** Joins per-project reports into one, adding `project` to every violation and lock change. */
 export function joinReports(runs: { path: string; report: CheckReport }[]): CheckReport {
   const report: CheckReport = {
     exitCode: aggregateExitCode(runs.map((r) => r.report.exitCode)),
-    violations: runs.flatMap((r) => r.report.violations.map((v) => ({ ...v, project: r.path }))),
+    violations: runs.flatMap((r) => r.report.violations.map((v) => ({ ...v, message: nestedConfigMessage(v, r.path), project: r.path }))),
     lockChanges: runs.flatMap((r) => r.report.lockChanges.map((c) => ({ ...c, project: r.path }))),
     projects: runs.map((r) => ({ path: r.path, exitCode: r.report.exitCode })),
   };

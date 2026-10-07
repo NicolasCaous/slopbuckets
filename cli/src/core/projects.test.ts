@@ -161,6 +161,18 @@ describe('recursive check', () => {
     expect(joined.lockChanges[0]!.project).toBe('.');
   });
 
+  it('names the folder of a nested config in its config-invalid messages, and not in the top one', async () => {
+    const dir = await tree();
+    writeFile(dir, 'root/billing/_/engine/buckets.config.json', '{ "root": "root", "alias": "@engine", "maxDepth": 2 }\n');
+    const { report } = await runRecursiveCheck(testContext(), dir);
+    expect(report.violations.map((v) => `${v.project} ${v.rule} ${v.message.slice(0, 80)}`)).toEqual([
+      'root/billing/_/engine config-invalid In root/billing/_/engine/buckets.config.json: Field "maxDepth" was removed, and ',
+    ]);
+    writeFile(dir, 'buckets.config.json', '{ "root": "root", "maxDepth": 2 }\n');
+    const top = await runRecursiveCheck(testContext(), dir);
+    expect(top.report.violations.map((v) => v.message.slice(0, 30))).toEqual(['Field "maxDepth" was removed, ']);
+  });
+
   it('reports a nested project without a lock as lock-missing in that project only', async () => {
     const dir = await tree();
     removeFile(dir, 'root/billing/_/engine/buckets.lock.json');

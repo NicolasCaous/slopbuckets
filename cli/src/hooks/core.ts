@@ -36,7 +36,7 @@ import { liveSessionProjects, readSessionProjects, recordSessionProject, session
 export const LOCK_DENY_REASON =
   'buckets.lock.json records the contracts a human approved, and only a human may change it: with `buckets refresh` in their own terminal, or by confirming the approval that `buckets refresh --web` asks for. ' +
   'Do not edit or write the lock under any name (alternative streams, short names, links), do not run shell commands that mention it, also through wildcards, and do not run `buckets refresh` with anything but exactly the `--web` flag. Output redirections such as `> refresh.log 2>&1`, a pipe to `tee` and a trailing `&` are allowed after `--web`. To read the lock, use the Read tool. ' +
-  'If `buckets check` reports lock differences (exit code 2), run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish.';
+  'If `buckets check` reports lock differences (exit code 2), run `buckets refresh --web` in the background, send the link it prints to the human with a summary of what changed and why, as the report lists it, and wait for the command to finish.';
 
 export const CONFIG_DENY_REASON =
   'buckets.config.json belongs to the human: it sets the root bucket folder, the import alias and the `access` rules that decide which buckets may use which, in this project and in every nested project. ' +

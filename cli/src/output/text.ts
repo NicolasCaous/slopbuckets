@@ -1,6 +1,7 @@
 // Text rendering of a check report and of the refresh diff. An AI agent reads the plain version (hook reasons,
 // piped output), so every section says what is wrong and how to fix it. On a terminal the same text gets color.
 import { configChangeDetail, configChangeLabel, configChangeSign, configDiff, configRows } from '../core/lock-config.js';
+import { SCRIPT_OUTPUT_CHANGED } from '../core/lock.js';
 import type { OrphanChain } from '../core/rules/orphans.js';
 import type { CheckReport, Lock, LockChange, Violation } from '../core/types.js';
 import { highlightCode, padEnd, PLAIN, wrap, type Style } from './style.js';
@@ -19,9 +20,35 @@ export interface ReportOptions {
 const NEXT_STEP: Record<0 | 1 | 2 | 3, string> = {
   0: 'All bucket rules pass and the state matches buckets.lock.json.',
   1: 'Exit code 1: bucket rules are broken. Fix every violation above, then run `buckets check` again. If a violation cannot be fixed, explain why in your final message.',
-  2: 'Exit code 2: the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.',
+  2: 'Exit code 2: the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of what changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.',
   3: 'Exit code 3: environment problem. Stop and show this message to the human.',
 };
+
+/** The words of the exit 2 step that `formatReport` replaces with what the lock differences name. */
+const WHAT_CHANGED = 'what changed and why';
+
+function joinAnd(words: string[]): string {
+  return words.length <= 1 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
+/**
+ * What the summary for the human covers, from the kinds of lock differences, such as "which DMZ files and buckets
+ * changed and why". The generic words when nothing more specific applies.
+ */
+export function changedSubjects(changes: LockChange[]): string {
+  const others = changes.filter((c) => c.kind !== 'lock-missing');
+  if (others.length === 0) return changes.length > 0 ? 'what the first lock approves' : WHAT_CHANGED;
+  const has = (test: (kind: LockChange['kind']) => boolean): boolean => others.some((c) => test(c.kind));
+  const nouns: string[] = [];
+  if (has((k) => k.startsWith('dmz-') || k.startsWith('symbol-') || k === 'signature-changed')) nouns.push('DMZ files');
+  if (has((k) => k.startsWith('bucket-'))) nouns.push('buckets');
+  const config = others.filter((c) => c.kind === 'config-changed');
+  if (config.some((c) => !c.message.startsWith(SCRIPT_OUTPUT_CHANGED))) nouns.push('settings of buckets.config.json');
+  else if (config.length > 0) nouns.push('script outputs');
+  if (has((k) => k.startsWith('project-'))) nouns.push('nested projects');
+  if (has((k) => k.startsWith('link-'))) nouns.push('links');
+  return `which ${joinAnd(nouns)} changed and why`;
+}
 
 const LOCK_AFTER_RULES = 'Once the rules pass, the lock differences still need a human to approve them, through `buckets refresh --web` or `buckets refresh`.';
 
@@ -200,7 +227,8 @@ export function formatReport(report: CheckReport, chains: OrphanChain[] = [], op
     if (style.tty) lines.push(style.dim('─'.repeat(Math.min(style.width ?? 60, 60))));
     lines.push(summary(report, options, style));
   }
-  const [label, ...rest] = NEXT_STEP[report.exitCode].split(': ');
+  const step = report.exitCode === 2 ? NEXT_STEP[2].replace(WHAT_CHANGED, changedSubjects(report.lockChanges)) : NEXT_STEP[report.exitCode];
+  const [label, ...rest] = step.split(': ');
   let next = rest.join(': ');
   if (report.exitCode === 1 && report.lockChanges.length > 0) next += ` ${LOCK_AFTER_RULES}`;
   const paintLabel = report.exitCode === 2 ? style.warn : style.error;

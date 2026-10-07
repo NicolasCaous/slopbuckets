@@ -229,6 +229,9 @@ export function toolchainChanged(previous: Lock['adapter'], current: Lock['adapt
 
 const REFRESH = 'A human must review this and run `buckets refresh`.';
 
+/** How the message of a `config-changed` difference starts when only the output of a script changed. */
+export const SCRIPT_OUTPUT_CHANGED = 'The output of a script of buckets.config.json changed';
+
 /** `alias` of a link entry for messages: locks of version 2 have none. */
 function aliasText(link: LockLink): string {
   return link.alias ?? 'no alias (a link of an older slopbuckets version)';
@@ -316,7 +319,7 @@ export function diffLocks(previous: Lock, current: Lock): LockChange[] {
         : ''
       : `. The approved lock (version ${previous.lockVersion}) stored only a hash of the config, so the old values are unknown`;
     // The file can be the same while a script prints other values, for example after the data it reads changed.
-    const subject = configChanged(previous.config, current.config) ? 'buckets.config.json changed' : 'The output of a script of buckets.config.json changed';
+    const subject = configChanged(previous.config, current.config) ? 'buckets.config.json changed' : SCRIPT_OUTPUT_CHANGED;
     changes.push({ kind: 'config-changed', path: 'buckets.config.json', message: `${subject} since the lock was approved${what}. ${REFRESH}` });
   }
   const files = new Set([...Object.keys(previous.dmz), ...Object.keys(current.dmz)]);
