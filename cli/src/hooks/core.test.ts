@@ -484,6 +484,62 @@ describe('preTool: shell guard review', () => {
   ])('still allows %j', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
   });
+
+  it.each([
+    "git commit -m \"$(cat <<'EOF'\nbuckets update now prints JSON\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
+    "git commit -m \"$(cat <<'EOF'\nExplain buckets update and buckets refresh (finding 4)\n1) one\nEOF\n)\"",
+    "gh pr create --title x --body \"$(cat <<'EOF'\nbuckets update --yes now works\nEOF\n)\"",
+    "cat <<'EOF' > notes.md\nbuckets update\nEOF",
+    "cat <<EOF > notes.md\nbuckets refresh\nEOF",
+    "cat <<-EOF > notes.md\n\tbuckets update\n\tEOF\necho done",
+    "git commit -F - <<'EOF'\r\nbuckets update now prints JSON\r\nEOF\r\n",
+    "cat <<\"EOF\"\nIt's buckets update\nEOF\nbuckets check",
+  ])('allows a here-doc body that only mentions the CLI, %j', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+  });
+
+  it.each([
+    ["cat <<'EOF' > notes.md\nbuckets update\nEOF\nbuckets update", UPDATE_DENY],
+    ['cat <<EOF > notes.md\n$(buckets update)\nEOF', UPDATE_DENY],
+    ['cat <<EOF > notes.md\n`buckets refresh`\nEOF', DENY],
+    ['bash <<EOF\nbuckets update\nEOF', UPDATE_DENY],
+    ["sh <<'EOF'\necho hi\nbuckets refresh\nEOF", DENY],
+    ["cat <<'EOF' | bash\nbuckets update\nEOF", UPDATE_DENY],
+    ["cat <<'EOF' > buckets.config.json\n{}\nEOF", CONFIG_DENY],
+    ["cat <<'EOF' > notes.md\nsee buckets.lock.json\nEOF", DENY],
+  ])('denies a here-doc that runs the CLI, feeds a shell or names a guarded file, %j', (command, expected) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
+  });
+
+  it.each([
+    ['Start-Process buckets -ArgumentList update', UPDATE_DENY],
+    ['Start-Process buckets update', UPDATE_DENY],
+    ["Start-Process -FilePath buckets -ArgumentList 'update'", UPDATE_DENY],
+    ["Start-Process npx -ArgumentList 'slopbuckets update --yes'", UPDATE_DENY],
+    ["Start-Process -NoNewWindow -Wait buckets -ArgumentList 'update','--yes'", UPDATE_DENY],
+    ['Start-Process buckets -ArgumentList refresh', DENY],
+    ["start npx -ArgumentList 'slopbuckets refresh'", DENY],
+    ['echo "buckets update" | bash', UPDATE_DENY],
+    ["echo 'buckets refresh' | sh", DENY],
+    ["printf 'buckets update\\n' | sh", UPDATE_DENY],
+    ['bash <<< "buckets update"', UPDATE_DENY],
+    ["'buckets update' | iex", UPDATE_DENY],
+    ['Invoke-Expression -Command "buckets update"', UPDATE_DENY],
+    ["iex -C 'buckets refresh'", DENY],
+  ])('denies the CLI started by Start-Process or fed to a shell, %j', (command, expected) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
+  });
+
+  it.each([
+    "Start-Process buckets -ArgumentList 'refresh','--web'",
+    "Start-Process npx -ArgumentList 'slopbuckets update --check'",
+    'echo "buckets update" | grep update',
+    'echo "buckets update --check" | bash',
+    'bash <<< "buckets check"',
+    'Invoke-Expression -Command "buckets update --json"',
+  ])('allows %j', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+  });
 });
 
 describe('postEdit', () => {

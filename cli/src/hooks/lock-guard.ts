@@ -36,19 +36,78 @@ type Token =
   | { kind: 'word'; text: string; raw: string }
   /** A command separator or a parenthesis: `;`, `&`, `&&`, `|`, `||`, `(`, `)`, a newline, or a backtick in bash. */
   | { kind: 'op'; op: string }
-  /** A redirection, such as `> log`, `2>&1` or `< in`, with its target word, or null when it has none. */
-  | { kind: 'redirect'; input: boolean; target: string | null };
+  /**
+   * A redirection, such as `> log`, `2>&1` or `< in`, with its target word, or null when it has none. `feed` is the
+   * text it sends to the command's input: the body of a here-doc (`<<EOF`) or the word of a here-string (`<<<`).
+   */
+  | { kind: 'redirect'; input: boolean; target: string | null; feed?: string };
+
+type RedirectToken = Extract<Token, { kind: 'redirect' }>;
 
 const BLANK = /[ \t]/;
 
-/** The index after the parenthesis that closes the one at `open`, or the end of the text. */
+/** A here-doc start: `<<EOF`, `<<-EOF`, `<<'EOF'` or `<<"EOF"`, with the delimiter in group 2, 3 or 4. */
+const HEREDOC = /<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([^\s;&|<>()'"`]+))/y;
+
+/**
+ * The body of a here-doc whose first line starts at `from`, and the index after its delimiter line. Without a
+ * delimiter line the body runs to the end of the text. `<<-` strips leading tabs before the comparison.
+ */
+function heredocBody(text: string, from: number, delimiter: string, stripTabs: boolean): { body: string; end: number } {
+  let lineStart = from;
+  while (lineStart < text.length) {
+    let nl = text.indexOf('\n', lineStart);
+    if (nl === -1) nl = text.length;
+    let line = text.slice(lineStart, nl);
+    if (line.endsWith('\r')) line = line.slice(0, -1);
+    if (stripTabs) line = line.replace(/^\t+/, '');
+    if (line === delimiter) return { body: text.slice(from, lineStart), end: Math.min(nl + 1, text.length) };
+    lineStart = nl + 1;
+  }
+  return { body: text.slice(from), end: text.length };
+}
+
+/**
+ * The index after the parenthesis that closes the one at `open`, or the end of the text. Here-doc bodies are skipped,
+ * so a parenthesis in a commit message written through `"$(cat <<'EOF' ...)"` does not count.
+ */
 function closingParen(text: string, open: number): number {
   let depth = 0;
+  const pending: { delimiter: string; stripTabs: boolean }[] = [];
   for (let i = open; i < text.length; i++) {
-    if (text[i] === '(') depth++;
-    else if (text[i] === ')' && --depth === 0) return i + 1;
+    const ch = text[i];
+    if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i + 1;
+    else if (ch === '<' && text[i + 1] === '<' && text[i + 2] !== '<' && text[i - 1] !== '<') {
+      HEREDOC.lastIndex = i;
+      const match = HEREDOC.exec(text);
+      if (match !== null) {
+        pending.push({ delimiter: match[2] ?? match[3] ?? match[4] ?? '', stripTabs: match[1] === '-' });
+        i += match[0].length - 1;
+      }
+    } else if (ch === '\n' && pending.length > 0) {
+      let at = i + 1;
+      for (const doc of pending.splice(0)) at = heredocBody(text, at, doc.delimiter, doc.stripTabs).end;
+      i = at - 1;
+    }
   }
   return text.length;
+}
+
+/** Pushes the inner command of each `$(...)` and backtick pair in `text`, such as an unquoted here-doc body, to `nested`. */
+function substitutions(text: string, nested: string[]): void {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '$' && text[i + 1] === '(') {
+      const end = closingParen(text, i + 1);
+      nested.push(text.slice(i + 2, end - 1));
+      i = end - 1;
+    } else if (text[i] === '`') {
+      const end = text.indexOf('`', i + 1);
+      if (end === -1) return;
+      nested.push(text.slice(i + 1, end));
+      i = end;
+    }
+  }
 }
 
 /**
@@ -113,6 +172,9 @@ function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
     return { text, raw: command.slice(start, Math.min(i, n)) };
   };
 
+  // Here-docs whose body starts after the next newline.
+  const pending: { token: RedirectToken; delimiter: string; stripTabs: boolean; quoted: boolean }[] = [];
+
   const readRedirect = (): Token => {
     let op = '';
     if (command[i] === '&') {
@@ -124,7 +186,8 @@ function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
     i++;
     if (input) {
       while (command[i] === '<' && op.length < 3) op += command[i++];
-      if (command[i] === '&' || command[i] === '>') op += command[i++];
+      if (op === '<<' && command[i] === '-') op += command[i++];
+      else if (command[i] === '&' || command[i] === '>') op += command[i++];
     } else {
       if (command[i] === '>') op += command[i++];
       if (command[i] === '|' || command[i] === '&') op += command[i++];
@@ -138,7 +201,11 @@ function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
     }
     while (i < n && BLANK.test(command[i]!)) i++;
     if (i >= n || isOpChar(command[i])) return { kind: 'redirect', input, target: null };
-    return { kind: 'redirect', input, target: readWord().text };
+    const word = readWord();
+    const token: RedirectToken = { kind: 'redirect', input, target: word.text };
+    if (op === '<<<') token.feed = word.text;
+    else if (op === '<<' || op === '<<-') pending.push({ token, delimiter: word.text, stripTabs: op === '<<-', quoted: /["'\\`]/.test(word.raw) });
+    return token;
   };
 
   while (i < n) {
@@ -148,6 +215,15 @@ function lex(command: string, mode: ShellMode, nested: string[]): Token[] {
     else if (ch === '\r' || ch === '\n') {
       tokens.push({ kind: 'op', op: '\n' });
       i++;
+      if (ch === '\r' && command[i] === '\n' && pending.length > 0) i++;
+      // A here-doc body is text, not commands. It goes to the command as its input, and only a shell runs it. The
+      // command substitutions in an unquoted body (`<<EOF`) still run, so bash reads them as nested commands.
+      for (const doc of pending.splice(0)) {
+        const { body, end } = heredocBody(command, i, doc.delimiter, doc.stripTabs);
+        doc.token.feed = body;
+        if (!doc.quoted && mode === 'posix') substitutions(body, nested);
+        i = end;
+      }
     } else if (ch === '<' && next === '#') tokens.push({ kind: 'word', ...readWord() });
     else if (ch === '>' || ch === '<' || (ch === '&' && next === '>')) tokens.push(readRedirect());
     else if (ch === '&' || ch === '|') {
@@ -215,6 +291,58 @@ function wordsFrom(tokens: Token[], from: number): string[] {
   return words;
 }
 
+/** The `-Command` parameter of Invoke-Expression, also abbreviated (`-C`, `-Com`). */
+const COMMAND_PARAM = /^-c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?:?$/i;
+
+/**
+ * The text a shell or `eval` at `start` would read on its input: the here-doc bodies and here-strings of its command
+ * (`bash <<< "buckets update"`), and the command before a pipe (`echo "buckets update" | bash`), as its whole text and
+ * as its arguments alone. A literal `\n` becomes a newline, as `printf` and `echo -e` write it.
+ */
+function fedText(tokens: Token[], start: number): string[] {
+  const out: string[] = [];
+  const feeds = (from: number): void => {
+    for (let k = from; k < tokens.length; k++) {
+      const tok = tokens[k]!;
+      if (tok.kind === 'op') return;
+      if (tok.kind === 'redirect' && tok.feed !== undefined) out.push(tok.feed);
+    }
+  };
+  feeds(start);
+  const pipe = tokens[start - 1];
+  if (pipe?.kind === 'op' && pipe.op === '|') {
+    let from = start - 1;
+    while (from > 0 && tokens[from - 1]!.kind !== 'op') from--;
+    const words = wordsFrom(tokens, from);
+    out.push(words.join(' '), words.slice(1).join(' '));
+    feeds(from);
+  }
+  return out.filter((text) => text.trim() !== '').map((text) => text.replace(/\\n/g, '\n'));
+}
+
+/** Start-Process parameters that take no value. */
+const START_PROCESS_SWITCHES = ['loaduserprofile', 'nonewwindow', 'passthru', 'wait', 'usenewenvironment', 'whatif', 'confirm'];
+
+/**
+ * The command line that `Start-Process` runs: `-FilePath` or the first positional word, then `-ArgumentList` or the
+ * second positional word, with the commas of an argument list read as spaces. Parameter names may be abbreviated.
+ */
+function startProcessCommand(words: string[]): string {
+  let file: string | undefined;
+  let args: string | undefined;
+  const positional: string[] = [];
+  for (let k = 0; k < words.length; k++) {
+    const param = /^-([a-z]+):?$/i.exec(words[k]!)?.[1]?.toLowerCase();
+    if (param === undefined) positional.push(words[k]!);
+    else if ('filepath'.startsWith(param) || param === 'path') file = words[++k];
+    else if ('argumentlist'.startsWith(param) || param === 'args') args = words[++k];
+    else if (!START_PROCESS_SWITCHES.some((name) => name.startsWith(param))) k++;
+  }
+  file ??= positional.shift();
+  args ??= positional.join(' ');
+  return `${file ?? ''} ${args.replace(/,/g, ' ')}`;
+}
+
 /** A call of the CLI: the subcommand word as written and every token after it. */
 interface CliCall {
   word: string;
@@ -274,12 +402,21 @@ function scanCommand(tokens: Token[], start: number, isSubcommand: (word: string
       const words = wordsFrom(tokens, i + 1);
       const at = words.findIndex((w) => /^(?:-[a-z]*c|-command|\/[ck])$/i.test(w));
       if (at !== -1) nested.push(words.slice(at + 1).join(' '));
+      nested.push(...fedText(tokens, start));
       return;
     }
     if (EVALS.has(name)) {
-      nested.push(wordsFrom(tokens, i + 1).join(' '));
+      const words = wordsFrom(tokens, i + 1);
+      if (words[0] !== undefined && COMMAND_PARAM.test(words[0])) words.shift();
+      nested.push(words.join(' '), ...fedText(tokens, start));
       return;
     }
+    if (name === 'start-process' || name === 'saps') {
+      nested.push(startProcessCommand(wordsFrom(tokens, i + 1)));
+      return;
+    }
+    // In PowerShell, `start` is Start-Process. In cmd, it is a runner.
+    if (name === 'start') nested.push(startProcessCommand(wordsFrom(tokens, i + 1)));
     if (RUNNERS.has(name) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.text)) {
       afterFlag = false;
       if (name === 'timeout') duration = true;
