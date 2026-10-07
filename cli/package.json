@@ -1,6 +1,6 @@
 {
   "name": "slopbuckets",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Sealed folders for AI-written code. The AI writes anything inside a bucket, and a human approves every contract between buckets.",
   "license": "MIT",
   "author": "Nicolas Caous",
