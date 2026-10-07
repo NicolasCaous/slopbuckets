@@ -1288,7 +1288,7 @@
 <span class="o4">buckets.lock.json does not exist yet, so no state has been approved. A human must run `buckets refresh` to create it.</span>
 <span class="ob" aria-hidden="true"></span>
 <span class="o0">buckets check: <span class="t-u">1 lock difference</span>.</span>
-<span class="o0"><span class="t-u">Exit code 2:</span> the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.</span></pre>
+<span class="o0"><span class="t-u">Exit code 2:</span> the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of what the first lock approves, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.</span></pre>
         </div>
       </div>
     </section>
@@ -1485,7 +1485,7 @@
 <span class="o2"><span class="t-u">~ link-changed</span>  root/billing/invoices/_/links/api  listInvoices</span>
 <span class="ob" aria-hidden="true"></span>
 <span class="o0">buckets check: <span class="t-u">1 lock difference</span>.</span>
-<span class="o0"><span class="t-u">Exit code 2:</span> the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.</span></pre>
+<span class="o0"><span class="t-u">Exit code 2:</span> the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which links changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.</span></pre>
 <pre class="term tree" translate="no" tabindex="0" aria-label="The files a copy link holds"><span class="t-c"># the same link with --copy</span>
 <span class="t-u">root/billing/invoices/_/links/api/</span>
   dmz/server/.external.ts
@@ -3262,7 +3262,7 @@
       const NEXT = {
         0: 'All bucket rules pass and the state matches buckets.lock.json.',
         1: 'Exit code 1: bucket rules are broken. Fix every violation above, then run `buckets check` again. If a violation cannot be fixed, explain why in your final message.',
-        2: 'Exit code 2: the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of which DMZ files changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.'
+        2: 'Exit code 2: the rules pass, but the state differs from buckets.lock.json. Do not edit the lock and do not run plain `buckets refresh`. Run `buckets refresh --web` in the background, send the link it prints to the human with a summary of what changed and why, and wait for the command to finish. The human can also run `buckets refresh` in a terminal.'
       };
       const LOCK_AFTER_RULES = 'Once the rules pass, the lock differences still need a human to approve them, through `buckets refresh --web` or `buckets refresh`.';
       const SIGNS = {
@@ -3330,6 +3330,8 @@
         if (r.lockChanges.length) parts.push(plural(r.lockChanges.length, 'lock difference'));
         lines.push((st.tty ? (r.exitCode === 2 ? '!' : '✗') + ' ' : '') + 'buckets check: ' + parts.join(', ') + '.');
         let next = NEXT[r.exitCode];
+        /* text.ts changedSubjects(), for the lock differences this demo produces */
+        if (r.exitCode === 2) next = next.replace('what changed and why', r.lockChanges.every((c) => c.kind === 'lock-missing') ? 'what the first lock approves' : 'which DMZ files changed and why');
         if (r.exitCode === 1 && r.lockChanges.length) next += ' ' + LOCK_AFTER_RULES;
         lines.push(...wrap(next, st.width, ''));
         return lines;

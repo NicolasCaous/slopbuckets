@@ -1011,7 +1011,7 @@ ${codeBlock('json', JSON.stringify({ scripts: { repos: 'tools/repos.mjs' }, layo
 
 ${codeBlock('js', "// tools/repos.mjs prints the name of each repository in repos.json, one per line.\nimport { readFileSync } from 'node:fs';\n\nfor (const repo of JSON.parse(readFileSync('repos.json', 'utf8'))) console.log(repo.name);")}
 
-The check runs each script as <code>node &lt;file&gt;</code> in the project folder, once per process, with a 10 second timeout. Each non-empty output line is one value and must be a valid bucket name. A non-zero exit, a timeout, an empty output, an invalid value, a missing file and a line that names an unknown script are <a href="./rules#config-invalid"><code>config-invalid</code></a>. The lock stores the output in <code>scriptValues</code>, so other values are <a href="./lock#config-changed"><code>config-changed</code></a>. See [Scripts](../guide/concepts#scripts).
+The check runs each script as <code>node &lt;file&gt;</code> in the project folder, once per check, with a 10 second timeout. Each non-empty output line is one value and must be a valid bucket name, which also rules out the device names that Windows reserves, such as <code>nul</code>, and a trailing dot. Script names cannot be <code>__proto__</code>, <code>constructor</code> or <code>prototype</code>. A non-zero exit, a timeout, an empty output, an invalid value, a missing file and a line that names an unknown script are <a href="./rules#config-invalid"><code>config-invalid</code></a>. The lock stores the output in <code>scriptValues</code>, so other values are <a href="./lock#config-changed"><code>config-changed</code></a>. See [Scripts](../guide/concepts#scripts).
 ${nested}`;
 }
 

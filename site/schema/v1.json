@@ -20,7 +20,8 @@
       "type": "string",
       "minLength": 1,
       "default": "root",
-      "description": "Folder of the root bucket, relative to the project."
+      "pattern": "^[^{}<>*`,|]+$",
+      "description": "Folder of the root bucket, relative to the project. It cannot hold { } < > * ` , or |, because access and layout lines start with it and read those characters as glob syntax."
     },
     "alias": {
       "type": "string",
@@ -30,9 +31,9 @@
     },
     "scripts": {
       "type": "object",
-      "description": "Node scripts by name, each a path relative to the folder of buckets.config.json. Access and layout lines name a script in backticks, and the values it prints, one bucket name per line, join the group that names it. The check runs each script once per process, as node <file> in the project folder, with a 10 second timeout. The lock stores the output, so other values are a config-changed difference.",
+      "description": "Node scripts by name, each a path relative to the folder of buckets.config.json. Access and layout lines name a script in backticks, and the values it prints, one bucket name per line, join the group that names it. Each check runs each script once, as node <file> in the project folder, with a 10 second timeout. The lock stores the output, so other values are a config-changed difference.",
       "examples": [{ "repos": "tools/repos.mjs" }],
-      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$" },
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$", "not": { "enum": ["__proto__", "constructor", "prototype"] } },
       "additionalProperties": {
         "type": "string",
         "minLength": 1,
