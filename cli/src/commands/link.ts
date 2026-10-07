@@ -337,8 +337,7 @@ async function syncLinks(ctx: Context, io: Io, args: string[]): Promise<number> 
       buckets = scannedBuckets(ctx, dir, config.config, manifest.links);
     } catch (error) {
       if (!(error instanceof LinkError)) throw error;
-      io.stderr(`${error.message} The links of ${rel} were not synced.
-`);
+      io.stderr(`${error.message} The links of ${rel} were not synced.\n`);
       failed++;
       continue;
     }
