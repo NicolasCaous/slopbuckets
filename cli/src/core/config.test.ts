@@ -34,6 +34,7 @@ describe('validateConfig', () => {
     ['access line with two arrows', { access: { default: 'deny', allow: ['root/a -> root/b -> root/c'] } }],
     ['access line with an unclosed brace', { access: { default: 'deny', deny: ['root/{a,b -> root/c'] } }],
     ['access line listed twice', { access: { default: 'deny', allow: ['root/a -> root/b', 'root/a->root/b'] } }],
+    ['access line in both allow and deny', { access: { default: 'deny', allow: ['root/a -> root/b'], deny: ['root/a->root/b'] } }],
   ])('rejects %s', (_name, raw) => {
     const result = validateConfig(raw);
     expect(result.config).toBeUndefined();
@@ -47,6 +48,19 @@ describe('access', () => {
     const { config } = validateConfig({ access: { default: 'deny', allow: ['root/api/**->root/log', '  ** ->   root/sql '] } });
     expect(config?.access).toEqual({ default: 'deny', allow: ['root/api/** -> root/log', '** -> root/sql'], deny: [] });
     expect(validateConfig({ access: { default: 'allow', deny: ['root/a -> root/b'] } }).config?.access).toEqual({ default: 'allow', allow: [], deny: ['root/a -> root/b'] });
+  });
+
+  it('names the line that is in both allow and deny', () => {
+    const { violations } = validateConfig({ access: { default: 'deny', allow: ['root/a->root/b'], deny: ['root/a -> root/b'] } });
+    expect(violations).toHaveLength(1);
+    expect(violations[0]!.message).toContain('"root/a -> root/b"');
+    expect(violations[0]!.message).toContain('Remove it from one of them');
+  });
+
+  it('accepts a deny line that carves an exception out of a broader allow line', () => {
+    const { config, violations } = validateConfig({ access: { default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing -> root/log'] } });
+    expect(violations).toEqual([]);
+    expect(config?.access).toEqual({ default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing -> root/log'] });
   });
 
   it('leaves the key out of the resolved config when the file has none', () => {
