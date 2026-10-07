@@ -27,7 +27,10 @@ export interface NameMatcher {
 
 /** A glob over bucket paths. */
 export interface BucketPattern {
-  /** The pattern as written, without the spaces around it. */
+  /**
+   * The pattern in canonical form: the values of each group sorted, and a group that holds only one script name
+   * written bare, so `` {b,a}/{`repos`} `` becomes `` {a,b}/`repos` ``. Equivalent spellings get the same text.
+   */
   text: string;
   /** True when the pattern has no `*` and no group of alternatives, so it names exactly one bucket. */
   literal: boolean;
@@ -71,7 +74,8 @@ type Token = { kind: 'text'; text: string } | { kind: 'star' } | { kind: GroupKi
 /**
  * Parses one pattern. `**` as a whole segment matches zero or more bucket names, `*` matches any characters inside a
  * segment, and a group such as `{a,b}` matches one of its alternatives. Every other character is literal, except `|`,
- * which is an error. A segment can hold several groups, such as `{a,b}+{c,d}`.
+ * which is an error. A segment can hold several groups, such as `{a,b}+{c,d}`. A group needs at least one value, and
+ * no value may be empty or appear twice in one group.
  *
  * A script name in backticks, such as `` `repos` ``, stands for the values of that script. Inside a group it is one
  * value between commas, and its values join the group. Outside a group it is a group of its own, so `` `repos` ``
@@ -82,11 +86,13 @@ export function parsePattern(text: string, scripts?: ScriptValues): { pattern: B
   if (text === '') return { error: 'is empty. Write a bucket path such as "root/billing", or "**" for every bucket.' };
   const segments: BucketPattern['segments'] = [];
   const specificity: BucketPattern['specificity'] = [0, 0, 0, 0];
+  const canonical: string[] = [];
   let literal = true;
   for (const segment of text.split('/')) {
     if (segment === '') return { error: `has an empty segment in "${text}". Remove the extra "/".` };
     if (segment === '**') {
       segments.push('**');
+      canonical.push(segment);
       specificity[3]--;
       literal = false;
       continue;
@@ -96,10 +102,11 @@ export function parsePattern(text: string, scripts?: ScriptValues): { pattern: B
     const { tokens } = parsed;
     const plain = tokens.every((t) => t.kind === 'text');
     if (!plain) literal = false;
-    segments.push(tokens.some((t) => CONSTRAINED.has(t.kind as GroupKind)) ? constrainedMatcher(tokens) : new RegExp(`^${tokens.map(tokenSource).join('')}$`, 'u'));
+    segments.push(segmentMatcher(tokens));
+    canonical.push(parsed.canonical);
     specificity[segment === '*' ? 2 : plain ? 0 : 1]++;
   }
-  return { pattern: { text, literal, segments, specificity } };
+  return { pattern: { text: canonical.join('/'), literal, segments, specificity } };
 }
 
 /**
@@ -144,7 +151,7 @@ const SCRIPT_EXAMPLE = 'as in "{A,`repos`}"';
  * Reads the script name in backticks that starts at `segment[i]`. Returns the values of the script and the index after
  * the closing backtick, or says what is wrong.
  */
-function readScript(segment: string, i: number, scripts: ScriptValues | undefined): { values: readonly string[]; end: number } | { error: string } {
+function readScript(segment: string, i: number, scripts: ScriptValues | undefined): { name: string; values: readonly string[]; end: number } | { error: string } {
   const close = segment.indexOf('`', i + 1);
   if (close === -1) return { error: `has a "\`" without a closing "\`" in "${segment}". Write a script name between two backticks, ${SCRIPT_EXAMPLE}.` };
   const name = segment.slice(i + 1, close);
@@ -152,9 +159,10 @@ function readScript(segment: string, i: number, scripts: ScriptValues | undefine
   if (!SCRIPT_NAME.test(name)) {
     return { error: `has "\`${name}\`" in "${segment}", which is not a script name. A script name starts with a letter or "_" and holds only letters, digits, "_" and "-". Backticks hold only a script name.` };
   }
-  if (scripts === undefined) return { values: [], end: close + 1 };
-  if (!Object.hasOwn(scripts, name)) return { error: `uses the script "\`${name}\`" in "${segment}", but "scripts" has no script named "${name}". Add it to "scripts" or fix the name.` };
-  return { values: scripts[name]!, end: close + 1 };
+  if (scripts === undefined) return { name, values: [], end: close + 1 };
+  // The caller quotes the whole line, so the message quotes only the name.
+  if (!Object.hasOwn(scripts, name)) return { error: `uses the script "${name}", which "scripts" does not list. Add it to "scripts" or fix the name.` };
+  return { name, values: scripts[name]!, end: close + 1 };
 }
 
 /** Users write {a|b} for alternatives, and Windows forbids | in a folder name, so it is never a literal. */
@@ -179,9 +187,13 @@ function openerOf(close: string): string {
   return close.replace(/\}/g, '{').replace(/>/g, '<');
 }
 
-/** Splits a segment into tokens, or says what is wrong with it. */
-function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens: Token[] } | { error: string } {
+/**
+ * Splits a segment into tokens, or says what is wrong with it. `canonical` is the segment with the values of each
+ * group sorted, and with a group that holds only one script name written bare.
+ */
+function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens: Token[]; canonical: string } | { error: string } {
   const tokens: Token[] = [];
+  let canonical = '';
   let text = '';
   const flush = (): void => {
     if (text !== '') tokens.push({ kind: 'text', text });
@@ -195,6 +207,7 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
       if ('error' in script) return script;
       flush();
       tokens.push({ kind: 'any', values: [...script.values] });
+      canonical += `\`${script.name}\``;
       i = script.end;
       continue;
     }
@@ -204,29 +217,37 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
     if (char === '*') {
       flush();
       tokens.push({ kind: 'star' });
+      canonical += char;
       i++;
       continue;
     }
     const group = groupAt(segment, i);
     if (group === undefined) {
       text += char;
+      canonical += char;
       i++;
       continue;
     }
     flush();
     const { kind, open, close } = group;
-    const values: string[] = [];
+    // Each value as written, with the bucket names it stands for: itself, or the values of a script.
+    const items: Array<{ written: string; values: readonly string[]; script: boolean }> = [];
     let value = '';
-    // The values of a script reference that makes up the current value, or null.
-    let script: readonly string[] | null = null;
+    // The script reference that makes up the current value, or null.
+    let script: { name: string; values: readonly string[] } | null = null;
     const mixed = { error: `mixes a script name with other text in one value of "${segment}". A script name in backticks is a whole value between commas, ${SCRIPT_EXAMPLE}.` };
-    const endValue = (): void => {
-      if (script !== null) values.push(...script);
-      else values.push(value);
+    const endValue = (): { error: string } | null => {
+      const ref = script as { name: string; values: readonly string[] } | null;
+      const item = ref !== null ? { written: `\`${ref.name}\``, values: ref.values, script: true } : { written: value, values: [value], script: false };
       value = '';
       script = null;
+      if (item.written === '') return { error: `has an empty value in "${segment}". Write a value between each pair of commas, as in "${open}A,B${close}".` };
+      if (items.some((other) => other.written === item.written)) return { error: `lists "${item.written}" twice in one group of "${segment}". Remove one of them.` };
+      items.push(item);
+      return null;
     };
     let j = i + open.length;
+    if (segment.startsWith(close, j)) return { error: `has the empty group "${open}${close}" in "${segment}". Write at least one value, as in "${open}A,B${close}".` };
     for (;;) {
       if (j >= segment.length) return { error: `has a "${open}" without a "${close}" in "${segment}".` };
       const inner = segment[j]!;
@@ -234,7 +255,7 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
         if (value !== '' || script !== null) return mixed;
         const read = readScript(segment, j, scripts);
         if ('error' in read) return read;
-        script = read.values;
+        script = read;
         j = read.end;
         continue;
       }
@@ -242,7 +263,8 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
       if (inner === '{' || inner === '<') return { error: `nests "${inner}" inside "${open}" in "${segment}". A group of alternatives cannot contain another group.` };
       const end = closerAt(segment, j);
       if (end === close) {
-        endValue();
+        const problem = endValue();
+        if (problem !== null) return problem;
         j += close.length;
         break;
       }
@@ -250,12 +272,18 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
       if (inner === '*' && kind !== 'any') {
         return { error: `has a "*" inside "${open}...${close}" in "${segment}". This group must list exact values, so write each value instead of "*".` };
       }
-      if (inner === ',') endValue();
-      else if (script !== null) return mixed;
+      if (inner === ',') {
+        const problem = endValue();
+        if (problem !== null) return problem;
+      } else if (script !== null) return mixed;
       else value += inner;
       j++;
     }
-    tokens.push({ kind, values });
+    // A script can print a value that the group also lists, so the values are de-duplicated.
+    tokens.push({ kind, values: [...new Set(items.flatMap((item) => item.values))] });
+    const written = items.map((item) => item.written).sort();
+    // The order of the values never changes what a group matches, and `` `repos` `` alone means `` {`repos`} ``.
+    canonical += kind === 'any' && items.length === 1 && items[0]!.script ? written[0] : `${open}${written.join(',')}${close}`;
     i = j;
   }
   flush();
@@ -265,51 +293,89 @@ function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens:
     const names = kinds.map((k) => GROUPS.find((g) => g.kind === k)!).map((g) => `"${g.open}...${g.close}"`);
     return { error: `mixes ${names.join(' and ')} groups in "${segment}". Pick one of them for this segment. "{...}" groups mix with any kind.` };
   }
-  return { tokens };
+  return { tokens, canonical };
 }
 
-function escapeText(text: string): string {
-  return text.replace(/[\\^$.|?+()[\]{}*]/g, '\\$&');
+/**
+ * The ends of the matches of one `{...}` value at `name[pos]`. The value is split at its `*`, so `pieces` is its text
+ * between them. A `*` matches any characters, so each middle piece is taken at its first place, which leaves the most
+ * room for the rest, and the last piece may end anywhere it fits.
+ */
+function valueEnds(pieces: readonly string[], name: string, pos: number): number[] {
+  const first = pieces[0]!;
+  if (!name.startsWith(first, pos)) return [];
+  let at = pos + first.length;
+  if (pieces.length === 1) return [at];
+  for (let i = 1; i < pieces.length - 1; i++) {
+    const found = name.indexOf(pieces[i]!, at);
+    if (found === -1) return [];
+    at = found + pieces[i]!.length;
+  }
+  const last = pieces[pieces.length - 1]!;
+  const ends: number[] = [];
+  for (let q = at; q + last.length <= name.length; q++) if (name.startsWith(last, q)) ends.push(q + last.length);
+  return ends;
 }
 
-/** The regular expression source of a token. `*` inside a `{...}` value matches any characters. */
-function tokenSource(token: Token): string {
-  if (token.kind === 'text') return escapeText(token.text);
-  if (token.kind === 'star') return '.*';
-  // A group can be empty only while the syntax is checked without the values of its scripts. It matches nothing.
-  if (token.values.length === 0) return '(?!)';
-  return `(?:${token.values.map((v) => v.split('*').map(escapeText).join('.*')).join('|')})`;
-}
-
-/** True when `value` may follow the values that the earlier groups of the same kind matched. */
-function fits(kind: GroupKind, value: string, used: string[]): boolean {
+/** True when `value` may follow the values that the earlier groups of the same kind matched (see `nextUsed`). */
+function fits(kind: GroupKind, value: string, used: readonly string[]): boolean {
   if (kind === 'distinct') return !used.includes(value);
-  if (kind === 'increasing') return used.length === 0 || used[used.length - 1]! < value;
-  if (kind === 'sorted') return used.length === 0 || used[used.length - 1]! <= value;
+  if (kind === 'increasing') return used.length === 0 || used[0]! < value;
+  if (kind === 'sorted') return used.length === 0 || used[0]! <= value;
   return true;
 }
 
 /**
- * A matcher for a segment with constrained groups. A lookahead in a regular expression would compare prefixes, not
- * values, so this backtracks over the tokens and keeps the values that the constrained groups matched so far.
+ * What a constrained group needs to know about the groups before it, after it matched `value`: the last value for
+ * `{{...}}` and `<<...>>`, and the sorted values so far for `<...>`. Two paths that reach the same state at the same
+ * place match the same rest, so the matcher can remember the states that failed.
  */
-function constrainedMatcher(tokens: Token[]): NameMatcher {
-  const free = tokens.map((t) => (t.kind === 'text' || CONSTRAINED.has(t.kind as GroupKind) ? null : new RegExp(`^${tokenSource(t)}$`, 'u')));
-  const match = (name: string, t: number, pos: number, used: string[]): boolean => {
-    if (t === tokens.length) return pos === name.length;
-    const token = tokens[t]!;
-    if (token.kind === 'text') return name.startsWith(token.text, pos) && match(name, t + 1, pos + token.text.length, used);
-    const re = free[t];
-    if (re) {
-      for (let end = pos; end <= name.length; end++) {
-        if (re.test(name.slice(pos, end)) && match(name, t + 1, end, used)) return true;
-      }
-      return false;
-    }
-    const { kind, values } = token as { kind: GroupKind; values: string[] };
-    return values.some((v) => name.startsWith(v, pos) && fits(kind, v, used) && match(name, t + 1, pos + v.length, [...used, v]));
+function nextUsed(kind: GroupKind, used: readonly string[], value: string): readonly string[] {
+  return kind === 'distinct' ? [...used, value].sort() : [value];
+}
+
+/**
+ * The matcher of one segment. It walks the tokens and keeps the state of the constrained groups (see `nextUsed`).
+ * A lookahead in a regular expression would compare prefixes, not values, and backtracking over several `*` takes
+ * time that grows exponentially with their number. Here a failed token, position and state is remembered and never
+ * tried again for the same name, so the time grows with a power of the length of the name instead.
+ */
+function segmentMatcher(tokens: Token[]): NameMatcher {
+  if (tokens.every((t) => t.kind === 'text')) {
+    const text = tokens.map((t) => (t as { text: string }).text).join('');
+    return { test: (name) => name === text };
+  }
+  const pieces = tokens.map((t) => (t.kind === 'any' ? t.values.map((v) => v.split('*')) : []));
+  return {
+    test(name) {
+      const failed = new Set<string>();
+      const match = (t: number, pos: number, used: readonly string[]): boolean => {
+        if (t === tokens.length) return pos === name.length;
+        const token = tokens[t]!;
+        if (token.kind === 'text') return name.startsWith(token.text, pos) && match(t + 1, pos + token.text.length, used);
+        const key = `${t} ${pos} ${JSON.stringify(used)}`;
+        if (failed.has(key)) return false;
+        let found = false;
+        if (token.kind === 'star') {
+          for (let end = pos; end <= name.length && !found; end++) found = match(t + 1, end, used);
+        } else if (token.kind === 'any') {
+          for (const value of pieces[t]!) {
+            for (const end of valueEnds(value, name, pos)) {
+              found = match(t + 1, end, used);
+              if (found) break;
+            }
+            if (found) break;
+          }
+        } else {
+          const { kind } = token;
+          found = token.values.some((value) => name.startsWith(value, pos) && fits(kind, value, used) && match(t + 1, pos + value.length, nextUsed(kind, used, value)));
+        }
+        if (!found) failed.add(key);
+        return found;
+      };
+      return match(0, 0, []);
+    },
   };
-  return { test: (name) => match(name, 0, 0, []) };
 }
 
 /**
@@ -324,19 +390,21 @@ export function rootPrefixProblem(pattern: string, root: string): string | null 
 
 /** True when the pattern matches the bucket path, such as `root/billing/payments`. */
 export function matchesBucket(pattern: BucketPattern, bucketPath: string): boolean {
-  return matchSegments(pattern.segments, 0, bucketPath.split('/'), 0);
-}
-
-function matchSegments(pattern: BucketPattern['segments'], p: number, names: string[], n: number): boolean {
-  if (p === pattern.length) return n === names.length;
-  const segment = pattern[p]!;
-  if (segment === '**') {
-    for (let skip = n; skip <= names.length; skip++) {
-      if (matchSegments(pattern, p + 1, names, skip)) return true;
-    }
+  const names = bucketPath.split('/');
+  const segments = pattern.segments;
+  // Each `**` tries every number of names, so a pattern with several of them remembers the places that failed.
+  const failed = new Set<number>();
+  const match = (p: number, n: number): boolean => {
+    if (p === segments.length) return n === names.length;
+    const segment = segments[p]!;
+    if (segment !== '**') return n < names.length && segment.test(names[n]!) && match(p + 1, n + 1);
+    const key = p * (names.length + 1) + n;
+    if (failed.has(key)) return false;
+    for (let skip = n; skip <= names.length; skip++) if (match(p + 1, skip)) return true;
+    failed.add(key);
     return false;
-  }
-  return n < names.length && segment.test(names[n]!) && matchSegments(pattern, p + 1, names, n + 1);
+  };
+  return match(0, 0);
 }
 
 /**

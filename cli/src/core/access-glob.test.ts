@@ -288,7 +288,7 @@ describe('script names in backticks', () => {
   });
 
   it.each([
-    ['root/`nope`', 'uses the script "`nope`" in "`nope`", but "scripts" has no script named "nope". Add it to "scripts" or fix the name.'],
+    ['root/`nope`', 'uses the script "nope", which "scripts" does not list. Add it to "scripts" or fix the name.'],
     ['root/`repos', 'has a "`" without a closing "`" in "`repos". Write a script name between two backticks, as in "{A,`repos`}".'],
     ['root/{A,``}', 'has an empty script name "``" in "{A,``}". Write a script name between the backticks, as in "{A,`repos`}".'],
     ['root/`re pos`', 'has "`re pos`" in "`re pos`", which is not a script name. A script name starts with a letter or "_" and holds only letters, digits, "_" and "-". Backticks hold only a script name.'],
@@ -298,6 +298,95 @@ describe('script names in backticks', () => {
     ['root/<`repos``teams`>', 'mixes a script name with other text in one value of "<`repos``teams`>". A script name in backticks is a whole value between commas, as in "{A,`repos`}".'],
   ])('rejects %j', (text, error) => {
     expect(parsePattern(text, scripts)).toEqual({ error });
+  });
+});
+
+describe('canonical form', () => {
+  const text = (glob: string): string => pattern(glob).text;
+
+  it('sorts the values of every kind of group', () => {
+    expect(text('root/{b,a}/<d,c>/{{f,e}}/<<h,g>>')).toBe('root/{a,b}/<c,d>/{{e,f}}/<<g,h>>');
+    expect(text('root/x{b*,a}y')).toBe('root/x{a,b*}y');
+  });
+
+  it('writes a group that holds only one script name bare, and keeps other groups', () => {
+    expect(text('root/{`s`}')).toBe('root/`s`');
+    expect(text('root/`s`')).toBe('root/`s`');
+    expect(text('root/{b,`s`}')).toBe('root/{`s`,b}');
+    expect(text('root/<`s`>')).toBe('root/<`s`>');
+    expect(text('root/{a}')).toBe('root/{a}');
+  });
+
+  it('gives the canonical text back unchanged', () => {
+    for (const glob of ['root/{a,b}/<c,d>', 'root/`s`-{`s`,b}', 'root/**/x*']) expect(text(text(glob))).toBe(text(glob));
+  });
+
+  it('matches what the text as written matches', () => {
+    const scripts = { s: ['api', 'web'] };
+    const parse = (glob: string) => {
+      const result = parsePattern(glob, scripts);
+      if ('error' in result) throw new Error(result.error);
+      return result.pattern;
+    };
+    for (const bucket of ['root/api', 'root/web', 'root/b', 'root/x']) {
+      expect(matchesBucket(parse('root/{b,`s`}'), bucket)).toBe(matchesBucket(parse(text('root/{b,`s`}')), bucket));
+      expect(matchesBucket(parse('root/{`s`}'), bucket)).toBe(matchesBucket(parse('root/`s`'), bucket));
+    }
+  });
+});
+
+describe('group values', () => {
+  it.each([
+    ['root/{}', 'has the empty group "{}" in "{}". Write at least one value, as in "{A,B}".'],
+    ['root/x<<>>', 'has the empty group "<<>>" in "x<<>>". Write at least one value, as in "<<A,B>>".'],
+    ['root/{A,,B}', 'has an empty value in "{A,,B}". Write a value between each pair of commas, as in "{A,B}".'],
+    ['root/<A,>', 'has an empty value in "<A,>". Write a value between each pair of commas, as in "<A,B>".'],
+    ['root/{{,A}}', 'has an empty value in "{{,A}}". Write a value between each pair of commas, as in "{{A,B}}".'],
+    ['root/<A,A>', 'lists "A" twice in one group of "<A,A>". Remove one of them.'],
+    ['root/{a,b,a}', 'lists "a" twice in one group of "{a,b,a}". Remove one of them.'],
+    ['root/{`s`,`s`}', 'lists "`s`" twice in one group of "{`s`,`s`}". Remove one of them.'],
+  ])('rejects %j', (glob, error) => {
+    expect(parsePattern(glob, { s: ['a'] })).toEqual({ error });
+  });
+
+  it('lets a script print a value that the group also lists', () => {
+    const result = parsePattern('root/<a,`s`>-<a,`s`>', { s: ['a', 'b'] });
+    if ('error' in result) throw new Error(result.error);
+    expect(matchesBucket(result.pattern, 'root/a-b')).toBe(true);
+    expect(matchesBucket(result.pattern, 'root/a-a')).toBe(false);
+  });
+});
+
+describe('matching time', () => {
+  // Each case used to backtrack for 100 ms to several seconds on a 95-character name that does not match.
+  const long = 'root/' + 'a'.repeat(95);
+  it.each([
+    ['root/*{{a,b}}*{{a,b}}*{{a,b}}*x', long],
+    ['root/*{{a,b}}*{{a,b}}*{{a,b}}*{{a,b}}*x', long],
+    ['root/*<a,b>*{a,b}*{a,b}*<a,b>*x', long],
+    ['root/*<a,b>*<a,b>*<a,b>*<a,b>*x', long],
+    ['root/*<<a,b,c,d>>*<<a,b,c,d>>*<<a,b,c,d>>*x', 'root/' + 'abcd'.repeat(24)],
+    ['root/*{a,b}*{a,b}*{a,b}*{a,b}*x', long],
+    ['root/*{a*,b}*{a*,b}*{a*,b}*{a*,b}*x', long],
+    ['root/*-*-*-*-*-x', 'root/' + '-'.repeat(95)],
+    ['root/*-<a,b,c>-*-<a,b,c>-*-<a,b,c>-*-<a,b,c>-*-x', 'root/' + 'a-b-c-'.repeat(16) + 'q'],
+    ['root/**/**/**/**/**/**/x', 'root/' + 'a/'.repeat(30) + 'b'],
+  ])('rejects %s in under 20 ms', (glob, bucket) => {
+    const compiled = pattern(glob);
+    matchesBucket(compiled, 'root/warm');
+    const start = performance.now();
+    expect(matchesBucket(compiled, bucket)).toBe(false);
+    expect(performance.now() - start).toBeLessThan(20);
+  });
+
+  it('still matches the names these patterns accept', () => {
+    expect(matches('root/*{{a,b}}*{{a,b}}*{{a,b}}*x', 'root/' + 'a'.repeat(94) + 'x')).toBe(true);
+    expect(matches('root/*<a,b>*{a,b}*{a,b}*<a,b>*x', 'root/' + 'a'.repeat(90) + 'bx')).toBe(true);
+    expect(matches('root/*<a,b>*{a,b}*{a,b}*<a,b>*x', 'root/' + 'a'.repeat(94) + 'x')).toBe(false);
+    expect(matches('root/x{a*b*c,z}y', 'root/xa1b2cy')).toBe(true);
+    expect(matches('root/x{a*b*c,z}y', 'root/xa1b2c3y')).toBe(false);
+    expect(matches('root/x{a*b*c,z}y', 'root/xa1c2by')).toBe(false);
+    expect(matches('root/**/**/**/**/**/**/x', 'root/' + 'a/'.repeat(30) + 'x')).toBe(true);
   });
 });
 
