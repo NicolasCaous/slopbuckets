@@ -7,7 +7,7 @@ import { formatLockDiff } from '../output/text.js';
 import { cleanupProjects, LOGGER_PROJECT, makeProject, writeFile } from '../testing/fixture.js';
 import { approve, checkProject, testContext } from '../testing/harness.js';
 import { buildReview, evaluateLockState } from '../web/lock-review.js';
-import { dialogItems } from '../web/refresh-app.js';
+import { dialogItems, dialogRequest } from '../web/refresh-app.js';
 import { configHash, DEFAULT_CONFIG, type ResolvedConfig } from './config.js';
 import { diffLocks, LOCK_VERSION, parseLockText, readLock, serializeLock } from './lock.js';
 import { configDiff, lockConfig, lockConfigHash } from './lock-config.js';
@@ -173,5 +173,18 @@ describe('config changes between locks of version 4', () => {
       '+ config access.deny: root/billing/payments/** -> root/sql/**',
       '~ config maxDepth: 2 to 3',
     ]);
+  });
+
+  it('shows a long access line in full in the dialog, wrapped onto more lines', () => {
+    const long = 'root/billing/payments/providers/stripe/webhooks/** -> root/infrastructure/database/postgres/migrations/**';
+    const previous = lockWith(before);
+    const next = lockWith(withAccess({ default: 'deny', allow: ['** -> root/log', 'root/api/** -> root/billing/**', long], deny: [] }));
+    const review = buildReview({ projectDir: '.', previous, next, changes: diffLocks(previous, next), config: DEFAULT_CONFIG, lockText: '{}' });
+    const row = `+ config access.allow: ${long}`;
+    expect(row.length).toBeGreaterThan(100);
+    const item = dialogItems(review)[1]!;
+    expect(item.split('\n')).toEqual(['+ config access.allow: root/billing/payments/providers/stripe/webhooks/** ->', 'root/infrastructure/database/postgres/migrations/**']);
+    expect(item.replace('\n', ' ')).toBe(row);
+    expect(dialogRequest(review).message).toContain('  + config access.allow: root/billing/payments/providers/stripe/webhooks/** ->\n      root/infrastructure/database/postgres/migrations/**\n');
   });
 });

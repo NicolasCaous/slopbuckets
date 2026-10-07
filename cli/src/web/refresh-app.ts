@@ -65,20 +65,55 @@ const CLOSED_TEXT: Record<RefreshOutcome, { title: string; text: string }> = {
 /** How many changed items the native dialog lists before it says how many more the page shows. */
 export const DIALOG_ITEMS = 8;
 
-/** The changes of a review as short lines for the native dialog, every name from the project sanitized. */
+/** How long a row of the native dialog gets before it wraps onto the next line. */
+const DIALOG_WIDTH = 100;
+
+/** The longest config value the native dialog shows. Access lines are short, so this cuts only nonsense. */
+const DIALOG_CONFIG_MAX = 2000;
+
+/** A sanitized row cut into lines of at most DIALOG_WIDTH characters, at spaces where it can, joined with newlines. */
+function wrapDialogRow(row: string): string {
+  const lines: string[] = [];
+  let rest = row;
+  while ([...rest].length > DIALOG_WIDTH) {
+    const chars = [...rest];
+    const space = chars.lastIndexOf(' ', DIALOG_WIDTH);
+    const cut = space > 0 ? space : DIALOG_WIDTH;
+    lines.push(chars.slice(0, cut).join(''));
+    rest = chars
+      .slice(cut)
+      .join('')
+      .replace(/^ /, '');
+  }
+  lines.push(rest);
+  return lines.join('\n');
+}
+
+/**
+ * The changes of a review as short lines for the native dialog, every name from the project sanitized. A config row
+ * is shown in full, so a human sees every access line it approves, and a long one wraps onto more lines.
+ */
 export function dialogItems(review: LockReview): string[] {
   const name = (text: string): string => sanitizeDialogText(text, 80);
+  const config = (row: string): string => wrapDialogRow(sanitizeDialogText(row, DIALOG_CONFIG_MAX));
   const lines: string[] = [];
+  const configLines: string[] = [];
   for (const v of review.versions) lines.push(`~ ${v.label}: ${name(v.before)} to ${name(v.after)}`);
   if (review.config.changed) {
     if (review.config.recorded) {
       lines.push('~ buckets.config.json changed');
-      for (const change of review.config.changes) lines.push(`${configChangeSign(change)} config ${configChangeLabel(change)}: ${name(configChangeDetail(change))}`);
+      for (const change of review.config.changes) configLines.push(config(`${configChangeSign(change)} config ${configChangeLabel(change)}: ${configChangeDetail(change)}`));
     } else {
       lines.push('~ buckets.config.json changed, its old values were not recorded. Approving records:');
-      for (const row of configRows(review.config.current)) lines.push(`config ${row.label}: ${name(row.value)}`);
+      for (const row of configRows(review.config.current)) configLines.push(config(`config ${row.label}: ${row.value}`));
     }
   }
+  return [...lines.map((line) => sanitizeDialogText(line, 160)), ...configLines, ...otherItems(review, name)];
+}
+
+/** The rows of the native dialog after the config: buckets, nested projects, links and DMZ files. */
+function otherItems(review: LockReview, name: (text: string) => string): string[] {
+  const lines: string[] = [];
   for (const b of review.buckets.added) lines.push(`+ bucket ${name(b)}`);
   for (const b of review.buckets.removed) lines.push(`- bucket ${name(b)}`);
   for (const row of review.projects) lines.push(`${row.sign} ${row.label} ${name(row.path)}`);
@@ -110,7 +145,7 @@ export function dialogRequest(review: LockReview): DialogRequest {
   const where = [`Folder: ${sanitizeDialogText(review.project.dir, 200)}`];
   if (review.project.path !== '.') where.push(`Nested project: ${sanitizeDialogText(review.project.path, 120)}`);
   const items = dialogItems(review);
-  const listed = items.slice(0, DIALOG_ITEMS).map((line) => `  ${line}`);
+  const listed = items.slice(0, DIALOG_ITEMS).map((line) => `  ${line.replace(/\n/g, '\n      ')}`);
   if (items.length > DIALOG_ITEMS) listed.push(`  and ${items.length - DIALOG_ITEMS} more, listed on the review page`);
   return {
     title: 'slopbuckets approval',
