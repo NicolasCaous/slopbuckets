@@ -968,6 +968,7 @@ A malformed line, a line listed twice in one list, the same line in both lists a
     ['<code>*</code>', 'any characters inside one name', '<code>root/team-*</code> matches <code>root/team-a</code>'],
     ['<code>{a,b}</code>', 'one of the alternatives, separated by commas', '<code>root/{api,web}</code> matches <code>root/api</code> and <code>root/web</code>'],
     ['<code>&lt;a,b&gt;</code>', 'one of the alternatives, and the <code>&lt;...&gt;</code> groups of one name match values that differ from each other', '<code>root/&lt;A,B,C&gt;+&lt;A,B,C&gt;</code> matches <code>root/A+B</code> and <code>root/B+A</code>, not <code>root/A+A</code>'],
+    ['<code>&lt;&lt;a,b&gt;&gt;</code>', 'one of the alternatives, and the <code>&lt;&lt;...&gt;&gt;</code> groups of one name match values in strictly increasing order, by character code, so uppercase sorts before lowercase', '<code>root/&lt;&lt;A,B,C&gt;&gt;+&lt;&lt;A,B,C&gt;&gt;</code> matches <code>root/A+B</code>, <code>root/A+C</code> and <code>root/B+C</code>, not <code>root/B+A</code>'],
   ];
   pages['config.md'] = front('Config reference', 'Every field of buckets.config.json, from the published JSON Schema.') +
 `# Config reference

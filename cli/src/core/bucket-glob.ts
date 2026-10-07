@@ -36,18 +36,20 @@ export interface GlobLine {
 
 /**
  * The kinds of groups of alternatives. Each `{a,b}` matches any of its values. The `<a,b>` groups of one segment match
- * values that differ from each other.
+ * values that differ from each other. The `<<a,b>>` groups of one segment match values in strictly increasing order,
+ * compared by plain JavaScript string order, without a locale.
  */
-type GroupKind = 'any' | 'distinct';
+type GroupKind = 'any' | 'distinct' | 'increasing';
 
 /** The opener and closer of each kind of group, longest opener first. */
 const GROUPS: Array<{ kind: GroupKind; open: string; close: string }> = [
+  { kind: 'increasing', open: '<<', close: '>>' },
   { kind: 'any', open: '{', close: '}' },
   { kind: 'distinct', open: '<', close: '>' },
 ];
 
-/** The kinds whose groups constrain each other within a segment. */
-const CONSTRAINED: ReadonlySet<GroupKind> = new Set(['distinct']);
+/** The kinds whose groups constrain each other within a segment. A segment may hold only one of them. */
+const CONSTRAINED: ReadonlySet<GroupKind> = new Set(['distinct', 'increasing']);
 
 /** One piece of a segment: literal text, `*`, or a group of alternatives. */
 type Token = { kind: 'text'; text: string } | { kind: 'star' } | { kind: GroupKind; values: string[] };
@@ -178,6 +180,7 @@ function tokenSource(token: Token): string {
 /** True when `value` may follow the values that the earlier groups of the same kind matched. */
 function fits(kind: GroupKind, value: string, used: string[]): boolean {
   if (kind === 'distinct') return !used.includes(value);
+  if (kind === 'increasing') return used.length === 0 || used[used.length - 1]! < value;
   return true;
 }
 
