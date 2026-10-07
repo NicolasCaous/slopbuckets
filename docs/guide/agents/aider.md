@@ -44,7 +44,7 @@ With `git-commit-verify: true` and the pre-commit hook, each commit Aider makes 
 
 ## Limits
 
-- Nothing stops Aider from writing `buckets.lock.json` or running `buckets refresh`. The rules in `AGENTS.md` ask it not to, and that is all.
+- Nothing stops Aider from writing `buckets.lock.json` or `buckets.config.json`, or from running `buckets refresh`. The rules in `AGENTS.md` ask it not to, and that is all.
 - The lint feedback waits for your yes, and it checks one file at a time without the orphan rule or the lock comparison.
 - By default Aider commits with `--no-verify`, so without `git-commit-verify: true` the pre-commit hook does not run for its commits.
 - The `read` line needs no `buckets` command. The git hook fails open, like every slopbuckets integration. On a machine without the CLI, it prints a warning and lets the commit through. What Aider shows when `lint-cmd` names a command that is not installed was not verified.

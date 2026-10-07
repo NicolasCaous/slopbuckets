@@ -31,7 +31,7 @@ Goose runs hook commands with `sh -c`, also on Windows, so Windows needs `sh` on
 
 ## How it works
 
-Before a tool whose name ends in `shell`, `write`, `edit` or `text_editor` runs, Goose runs `buckets hook --agent goose pre-tool-use` with `tool_name`, `tool_input` and `working_dir` on stdin. When a `write` or `edit` targets any `buckets.lock.json`, or a `shell` command names the lock or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"decision": "block", "reason": "..."}`. Goose refuses the call and tells the model not to retry it. For every other call the hook prints nothing and exits with 0, which Goose reads as allow.
+Before a tool whose name ends in `shell`, `write`, `edit` or `text_editor` runs, Goose runs `buckets hook --agent goose pre-tool-use` with `tool_name`, `tool_input` and `working_dir` on stdin. When a `write` or `edit` targets any `buckets.lock.json` or `buckets.config.json`, or a `shell` command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"decision": "block", "reason": "..."}`. Goose refuses the call and tells the model not to retry it. For every other call the hook prints nothing and exits with 0, which Goose reads as allow.
 
 The hook keeps Goose's default `on_failure: "allow"`, so a hook that fails or times out lets the call through. slopbuckets never blocks the agent because the hook itself broke.
 

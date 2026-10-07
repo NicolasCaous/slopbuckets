@@ -33,15 +33,15 @@ Zed reads `agent` settings only from your user settings file, not from a project
       "tools": {
         "terminal": {
           "always_deny": [
-            { "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" },
+            { "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" },
             { "pattern": "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))" }
           ]
         },
-        "edit_file": { "always_deny": [{ "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
-        "write_file": { "always_deny": [{ "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
-        "delete_path": { "always_deny": [{ "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
-        "move_path": { "always_deny": [{ "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
-        "copy_path": { "always_deny": [{ "pattern": "buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] }
+        "edit_file": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
+        "write_file": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
+        "delete_path": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
+        "move_path": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] },
+        "copy_path": { "always_deny": [{ "pattern": "buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso" }] }
       }
     }
   }
@@ -54,7 +54,7 @@ The rules apply to every project you open in Zed. They only deny, so they change
 
 Zed checks each tool call against `tool_permissions` before it runs, and `always_deny` wins over every allow rule and over the tool's default. The terminal tool matches the command text, and Zed splits a chain such as `npm test && buckets refresh` into its commands and checks each one. The file tools match the path. Zed matches without regard to case.
 
-- The first pattern denies any command or path that names `buckets.lock.json`, or a Windows 8.3 short name such as `BUCKET~1.JSO`.
+- The first pattern denies any command or path that names `buckets.lock.json` or `buckets.config.json`, or a Windows 8.3 short name such as `BUCKET~1.JSO`. A human owns both files, in every project.
 - The second pattern denies `buckets refresh` unless the next word is exactly `--web` with no other flag after it. `buckets refresh --web > refresh.log 2>&1` passes.
 
 ## Limits

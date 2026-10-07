@@ -14,6 +14,8 @@ describe('the managed block of AGENTS.md', () => {
     expect(AGENTS_BLOCK).toContain('https://nicolascaous.github.io/slopbuckets/');
     expect(AGENTS_BLOCK).toContain('.agents/skills/slopbuckets/SKILL.md');
     expect(AGENTS_BLOCK).toContain('buckets refresh --web');
+    expect(AGENTS_BLOCK).toContain('Never write any `buckets.lock.json` or `buckets.config.json`');
+    expect(AGENTS_BLOCK).toMatch(/`access-denied` or `access-ambiguous`[^\n]*stop and ask the human/);
     expect(AGENTS_BLOCK).not.toMatch(new RegExp("[\u2013\u2014]"));
   });
 
@@ -72,6 +74,14 @@ describe('installInstructions', () => {
     expect(installInstructions(dir, '# skill\n')[0]).toEqual({ status: 'done', text: 'Updated the slopbuckets rules in AGENTS.md' });
     expect(count(readFile(dir, 'AGENTS.md'), BLOCK_START)).toBe(1);
     expect(readFile(dir, 'AGENTS.md')).toContain('Use tabs.');
+  });
+
+  it('adds the config and access rules to a block written by 1.0.0, which named only the lock', () => {
+    const old = `${BLOCK_START}\n## slopbuckets\n\n- Never write any \`buckets.lock.json\`, under any name, and never run \`buckets refresh\` without exactly the \`--web\` flag. Read the lock with a file reading tool, not a shell command.\n${BLOCK_END}\n`;
+    const dir = makeProject({ 'AGENTS.md': `# Mine\n\n${old}` }, false);
+    expect(installInstructions(dir, '# skill\n')[0]).toEqual({ status: 'done', text: 'Updated the slopbuckets rules in AGENTS.md' });
+    expect(readFile(dir, 'AGENTS.md')).toBe(`# Mine\n\n${AGENTS_BLOCK}\n`);
+    expect(readFile(dir, 'AGENTS.md')).toContain('`buckets.config.json`, nested ones included');
   });
 
   it('reports a missing skill once as a failure and still writes AGENTS.md', () => {

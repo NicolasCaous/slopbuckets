@@ -35,7 +35,7 @@ Then turn hooks on:
 
 ## How it works
 
-Before each tool call, Cline runs `PreToolUse` with the tool name and its parameters. The hook reads the `editor` tool's `path`, the file headers of an `apply_patch` patch and each command of `run_commands`, plus the tool names of older Cline builds. When a call would write any `buckets.lock.json`, or a command runs `buckets refresh` with anything but exactly `--web`, the hook answers `{"cancel": true}` with an `errorMessage` that says why the task stopped. Every other call gets `{"cancel": false}`.
+Before each tool call, Cline runs `PreToolUse` with the tool name and its parameters. The hook reads the `editor` tool's `path`, the file headers of an `apply_patch` patch and each command of `run_commands`, plus the tool names of older Cline builds. When a call would write any `buckets.lock.json` or `buckets.config.json`, nested projects included, or a command runs `buckets refresh` with anything but exactly `--web`, the hook answers `{"cancel": true}` with an `errorMessage` that says why the task stopped. Every other call gets `{"cancel": false}`.
 
 After an `editor` or `apply_patch` call, `PostToolUse` runs `buckets check --file` on each edited file inside the root bucket folder. When a file has problems, the hook answers with the report in `contextModification`, and Cline adds it to the next request so the model can fix the file.
 
@@ -43,7 +43,7 @@ Each command in a `run_commands` list is judged on its own, so `buckets refresh 
 
 ## Limits
 
-- Cline has no way to refuse one tool call. `{"cancel": true}` ends the whole task, so the hook uses it only for a lock write and a plain `buckets refresh`. You start a new task after it.
+- Cline has no way to refuse one tool call. `{"cancel": true}` ends the whole task, so the hook uses it only for a lock or config write and a plain `buckets refresh`. You start a new task after it.
 - Nothing runs `buckets check` before the agent ends its turn. The rules in `AGENTS.md` ask the agent to run it, but nothing enforces that.
 - The hooks fail open, like every slopbuckets integration. On a machine without the `buckets` command, the scripts print a warning and allow everything. Cline also lets a call through when a hook fails, times out or prints something that is not JSON.
 - The Cline CLI with `--yolo` runs no hooks at all.

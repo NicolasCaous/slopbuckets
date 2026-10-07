@@ -8,7 +8,7 @@ import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { fakeIo, testContext } from '../../testing/harness.js';
 import { addAgentsRead, AIDER_CONFIG, aiderAdapter, removeAgentsRead } from './aider.js';
 import { continueAdapter } from './continue.js';
-import { ZED_LOCK_PATTERN, ZED_REFRESH_PATTERN, ZED_TOOL_PERMISSIONS, zedAdapter } from './zed.js';
+import { ZED_GUARDED_PATTERN, ZED_REFRESH_PATTERN, ZED_TOOL_PERMISSIONS, zedAdapter } from './zed.js';
 
 afterEach(cleanupProjects);
 
@@ -34,7 +34,7 @@ describe('harnesses without hooks', () => {
 describe('zed tool permissions', () => {
   // Zed matches case-insensitively by default. These patterns use no syntax that Rust's regex crate lacks.
   const refresh = new RegExp(ZED_REFRESH_PATTERN, 'i');
-  const lock = new RegExp(ZED_LOCK_PATTERN, 'i');
+  const guarded = new RegExp(ZED_GUARDED_PATTERN, 'i');
 
   it('denies plain buckets refresh and lets buckets refresh --web through', () => {
     for (const command of ['buckets refresh', 'npx slopbuckets refresh', 'buckets refresh --web --yes', 'buckets.cmd refresh', 'buckets --verbose refresh', 'buckets refresh --webx']) {
@@ -43,9 +43,11 @@ describe('zed tool permissions', () => {
     for (const command of ['buckets refresh --web', 'buckets refresh --web > refresh.log 2>&1', 'buckets check', 'buckets refresh --web &']) expect(refresh.test(command), command).toBe(false);
   });
 
-  it('denies the lock by name and by 8.3 short name', () => {
-    for (const target of ['buckets.lock.json', 'C:\\shop\\BUCKETS.LOCK.JSON', 'cat BUCKET~1.JSO']) expect(lock.test(target), target).toBe(true);
-    for (const target of ['package.json', 'root/_/buckets.ts']) expect(lock.test(target), target).toBe(false);
+  it('denies the lock and the config by name and by 8.3 short name', () => {
+    for (const target of ['buckets.lock.json', 'C:\\shop\\BUCKETS.LOCK.JSON', 'cat BUCKET~1.JSO', 'buckets.config.json', 'root/log/_/engine/Buckets.Config.json']) {
+      expect(guarded.test(target), target).toBe(true);
+    }
+    for (const target of ['package.json', 'root/_/buckets.ts', 'buckets.links.json']) expect(guarded.test(target), target).toBe(false);
   });
 
   it('has no look-around, which Rust regex rejects', () => {

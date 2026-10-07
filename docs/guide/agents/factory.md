@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .factory/hooks.json for Facto
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` denies `Create`, `Edit` and `ApplyPatch` on a lock and an `Execute` command that names it or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `PreToolUse` denies `Create`, `Edit` and `ApplyPatch` on a lock or a config and an `Execute` command that names one or runs plain `buckets refresh` |
 | Feedback after edits | yes | `PostToolUse` hands the `buckets check --file` report to Droid after each edit |
 | Block the end of a turn | yes | `Stop` and `SubagentStop` block once with the `buckets check` report |
 
@@ -28,7 +28,7 @@ Droid reads the project hooks when a session starts. Start a new session after `
 
 Droid sends Claude Code style JSON on stdin: `session_id`, `cwd`, `tool_name`, `tool_input` and, at a stop, `stop_hook_active`. The hook takes the session folder from `FACTORY_PROJECT_DIR` when Droid sets it.
 
-- `PreToolUse`, with the matcher `Execute|Create|Edit|MultiEdit|ApplyPatch`. When `file_path` names a lock, also as a Windows path, with a stream suffix or with a trailing dot, or a header of the `ApplyPatch` text does, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}` with the reason. It does the same for an `Execute` command that names the lock or runs `buckets refresh` with anything but exactly `--web`.
+- `PreToolUse`, with the matcher `Execute|Create|Edit|MultiEdit|ApplyPatch`. When `file_path` names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or a header of the `ApplyPatch` text does, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}` with the reason. It does the same for an `Execute` command that names either file or runs `buckets refresh` with anything but exactly `--web`.
 - The hook never answers allow. In Droid, a hook that answers allow skips Droid's own permission prompts, so every other call gets no output and Droid asks you as usual.
 - `PostToolUse`, with the matcher `Create|Edit|MultiEdit|ApplyPatch`. The hook runs `buckets check --file` on each edited file and prints `{"decision": "block", "reason": "<report>"}`, which Droid hands to the model.
 - `Stop` and `SubagentStop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and Droid keeps working. The next stop carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.

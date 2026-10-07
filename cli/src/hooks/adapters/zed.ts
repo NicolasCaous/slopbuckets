@@ -10,8 +10,8 @@ const TITLE = 'Zed';
 /** A plain `buckets refresh`: no flag after it, or a first argument that is not exactly `--web`, or a flag after `--web`. */
 export const ZED_REFRESH_PATTERN =
   "buckets(?:\\.cmd|\\.exe)?['\"]?\\s+(?:--?[\\w-]+\\s+)*refresh(?:\\s*$|\\s+(?:[^-\\s]|-[^-]|--[^w]|--w[^e]|--we[^b]|--web\\S|--web\\s+-))";
-/** The lock under its own name, or a Windows 8.3 short name such as `BUCKET~1.JSO`. */
-export const ZED_LOCK_PATTERN = 'buckets\\.lock\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso';
+/** The lock or the config under its own name, or a Windows 8.3 short name such as `BUCKET~1.JSO`. */
+export const ZED_GUARDED_PATTERN = 'buckets\\.(?:lock|config)\\.json|(?:^|[\\\\/\\s])bu[a-z0-9]{0,6}~[0-9]+\\.jso';
 
 const deny = (patterns: string[]) => ({ always_deny: patterns.map((pattern) => ({ pattern })) });
 
@@ -20,12 +20,12 @@ export const ZED_TOOL_PERMISSIONS = {
   agent: {
     tool_permissions: {
       tools: {
-        terminal: deny([ZED_LOCK_PATTERN, ZED_REFRESH_PATTERN]),
-        edit_file: deny([ZED_LOCK_PATTERN]),
-        write_file: deny([ZED_LOCK_PATTERN]),
-        delete_path: deny([ZED_LOCK_PATTERN]),
-        move_path: deny([ZED_LOCK_PATTERN]),
-        copy_path: deny([ZED_LOCK_PATTERN]),
+        terminal: deny([ZED_GUARDED_PATTERN, ZED_REFRESH_PATTERN]),
+        edit_file: deny([ZED_GUARDED_PATTERN]),
+        write_file: deny([ZED_GUARDED_PATTERN]),
+        delete_path: deny([ZED_GUARDED_PATTERN]),
+        move_path: deny([ZED_GUARDED_PATTERN]),
+        copy_path: deny([ZED_GUARDED_PATTERN]),
       },
     },
   },

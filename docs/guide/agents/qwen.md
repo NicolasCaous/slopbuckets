@@ -7,7 +7,7 @@ description: The hooks that buckets init writes in .qwen/settings.json for Qwen 
 
 | Protection | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` denies `write_file` and `edit` on a lock and a `run_shell_command` that names it or runs plain `buckets refresh` |
+| Block lock writes and plain refresh | yes | `PreToolUse` denies `write_file` and `edit` on a lock or a config and a `run_shell_command` that names one or runs plain `buckets refresh` |
 | Feedback after edits | yes | `PostToolUse` adds the `buckets check --file` report after the tool result |
 | Block the end of a turn | yes | `Stop` and `SubagentStop` block once with the `buckets check` report |
 
@@ -30,7 +30,7 @@ Qwen Code reads `QWEN.md` for project instructions by default. To make it read t
 
 Qwen Code sends Claude Code style JSON on stdin, sets `QWEN_PROJECT_DIR` for every hook, and the hook takes the session folder from it.
 
-- `PreToolUse`, with the matcher `write_file|edit|replace|run_shell_command`. When `file_path` names a lock, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names the lock or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}`, writes the reason on stderr and exits with 2. Qwen Code blocks the call on either signal. The Claude names `Write`, `Edit` and `Bash` work too.
+- `PreToolUse`, with the matcher `write_file|edit|replace|run_shell_command`. When `file_path` names any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"hookSpecificOutput": {"permissionDecision": "deny", ...}}`, writes the reason on stderr and exits with 2. Qwen Code blocks the call on either signal. The Claude names `Write`, `Edit` and `Bash` work too.
 - `PostToolUse`, with the matcher `write_file|edit|replace`. The hook runs `buckets check --file` on the edited file and returns the report in `hookSpecificOutput.additionalContext`.
 - `Stop` and `SubagentStop`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "block", "reason": "<report>"}` and Qwen Code keeps working. The next stop carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.
 

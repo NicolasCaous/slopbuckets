@@ -26,7 +26,7 @@ Your own hooks, settings and comments stay as they were. Crush reads the hook wh
 
 ## How it works
 
-Before a call to `bash`, `edit`, `multiedit`, `write` or `download`, Crush runs `buckets hook --agent crush pre-tool-use` with `tool_name`, `tool_input` and `cwd` on stdin. The session folder is `CRUSH_PROJECT_DIR`. When a file tool's `file_path` is any `buckets.lock.json`, or a `bash` command names the lock or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"decision": "deny", "reason": "..."}`. Crush blocks the call before its permission prompt and shows the reason to the model.
+Before a call to `bash`, `edit`, `multiedit`, `write` or `download`, Crush runs `buckets hook --agent crush pre-tool-use` with `tool_name`, `tool_input` and `cwd` on stdin. The session folder is `CRUSH_PROJECT_DIR`. When a file tool's `file_path` is any `buckets.lock.json` or `buckets.config.json`, or a `bash` command names either file or runs `buckets refresh` with anything but exactly `--web`, the hook prints `{"decision": "deny", "reason": "..."}`. Crush blocks the call before its permission prompt and shows the reason to the model.
 
 For every other call the hook prints nothing. It never answers `allow`, because Crush takes that as approval and skips its permission prompt.
 
