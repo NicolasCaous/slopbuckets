@@ -112,38 +112,46 @@ function rootPrefixProblem(side: string, root: string): string | null {
   return `must start with the root path "${root}" or with "**", because every bucket path starts with "${root}", such as "${root}/billing". If the root folder moved, write the new root path at the start of the line.`;
 }
 
+/**
+ * A config-invalid violation about `access`. An agent reads it too, but only the human may fix the config, so every
+ * such message ends by telling the agent to stop.
+ */
+function accessInvalid(message: string): Violation {
+  return invalid(`${message} ${CONFIG_FILE} belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.`);
+}
+
 /** Validates the `access` field and puts every line in canonical form. Pushes the problems into `violations`. */
 function validateAccess(raw: unknown, root: string, violations: Violation[]): AccessConfig | undefined {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    violations.push(invalid('Field "access" must be an object such as {"default": "deny", "allow": ["** -> root/log"]}. Fix it or remove it.'));
+    violations.push(accessInvalid('Field "access" must be an object such as {"default": "deny", "allow": ["** -> root/log"]}. Fix it or remove it.'));
     return undefined;
   }
   const obj = raw as Record<string, unknown>;
   const before = violations.length;
   for (const key of Object.keys(obj)) {
     if (!ACCESS_KEYS.has(key)) {
-      violations.push(invalid(`Unknown field "access.${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are default, allow and deny.`));
+      violations.push(accessInvalid(`Unknown field "access.${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are default, allow and deny.`));
     }
   }
   if (obj.default !== 'allow' && obj.default !== 'deny') {
-    violations.push(invalid('Field "access.default" must be "allow" or "deny". Set it, because it decides the imports that no line matches.'));
+    violations.push(accessInvalid('Field "access.default" must be "allow" or "deny". Set it, because it decides the imports that no line matches.'));
   }
   const lists: Record<'allow' | 'deny', string[]> = { allow: [], deny: [] };
   for (const list of ['allow', 'deny'] as const) {
     if (!(list in obj)) continue;
     const items = obj[list];
     if (!Array.isArray(items)) {
-      violations.push(invalid(`Field "access.${list}" must be an array of lines such as "root/api/** -> root/log".`));
+      violations.push(accessInvalid(`Field "access.${list}" must be an array of lines such as "root/api/** -> root/log".`));
       continue;
     }
     for (const item of items) {
       if (typeof item !== 'string') {
-        violations.push(invalid(`Field "access.${list}" must contain only strings, such as "root/api/** -> root/log".`));
+        violations.push(accessInvalid(`Field "access.${list}" must contain only strings, such as "root/api/** -> root/log".`));
         continue;
       }
       const parsed = parseAccessLine(item);
       if ('error' in parsed) {
-        violations.push(invalid(`Field "access.${list}": ${parsed.error}`));
+        violations.push(accessInvalid(`Field "access.${list}" has a line that is not valid. ${parsed.error}`));
         continue;
       }
       let rootOk = true;
@@ -151,11 +159,11 @@ function validateAccess(raw: unknown, root: string, violations: Violation[]): Ac
         const problem = rootPrefixProblem(pattern.text, root);
         if (problem === null) continue;
         rootOk = false;
-        violations.push(invalid(`Field "access.${list}": the ${side} side "${pattern.text}" of "${parsed.line.text}" ${problem}`));
+        violations.push(accessInvalid(`Field "access.${list}" has a line that is not valid. The ${side} side "${pattern.text}" of "${parsed.line.text}" ${problem}`));
       }
       if (!rootOk) continue;
       if (lists[list].includes(parsed.line.text)) {
-        violations.push(invalid(`Field "access.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
+        violations.push(accessInvalid(`Field "access.${list}" lists "${parsed.line.text}" twice. Remove one of them.`));
       } else {
         lists[list].push(parsed.line.text);
       }
@@ -163,7 +171,7 @@ function validateAccess(raw: unknown, root: string, violations: Violation[]): Ac
   }
   for (const line of lists.deny) {
     if (lists.allow.includes(line)) {
-      violations.push(invalid(`Fields "access.allow" and "access.deny" both list "${line}". Remove it from one of them.`));
+      violations.push(accessInvalid(`Fields "access.allow" and "access.deny" both list "${line}". Remove it from one of them.`));
     }
   }
   if (violations.length > before) return undefined;

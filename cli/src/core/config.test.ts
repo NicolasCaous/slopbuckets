@@ -56,6 +56,16 @@ describe('access', () => {
     expect(violations[0]!.message).toContain('Remove it from one of them');
   });
 
+  it('tells an agent to stop and show every access error to the human', () => {
+    const { violations } = validateConfig({
+      access: { default: 'maybe', extra: 1, allow: ['root/a', 'root/a -> root/b', 'root/a->root/b', 7], deny: 'root/a -> root/b' },
+    });
+    expect(violations.length).toBeGreaterThanOrEqual(5);
+    for (const v of violations) expect(v.message).toMatch(/^(?:Field|Unknown field) "access[^"]*".*\. buckets\.config\.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human\.$/);
+    expect(validateConfig({ access: 'all' }).violations[0]!.message).toContain('an AI agent does not fix this');
+    expect(validateConfig({ access: { default: 'deny', allow: ['root/a -> root/{b'] } }).violations[0]!.message).toMatch(/^Field "access\.allow" has a line that is not valid\. The right side of "root\/a -> root\/\{b" has a "\{" without a "\}"/);
+  });
+
   it('accepts a deny line that carves an exception out of a broader allow line', () => {
     const { config, violations } = validateConfig({ access: { default: 'deny', allow: ['root/** -> root/log'], deny: ['root/billing -> root/log'] } });
     expect(violations).toEqual([]);
@@ -78,9 +88,9 @@ describe('access', () => {
   it('rejects a side that does not start with the root path, comparing whole segments', () => {
     const { violations } = validateConfig({ access: { default: 'deny', allow: ['rootx/billing -> root/log'], deny: ['root/api -> log', '* -> root/sql'] } });
     expect(violations.map((v) => v.message)).toEqual([
-      'Field "access.allow": the left side "rootx/billing" of "rootx/billing -> root/log" must start with the root path "root" or with "**", because every bucket path starts with "root", such as "root/billing". If the root folder moved, write the new root path at the start of the line.',
-      expect.stringContaining('the right side "log" of "root/api -> log" must start with the root path "root"'),
-      expect.stringContaining('the left side "*" of "* -> root/sql"'),
+      'Field "access.allow" has a line that is not valid. The left side "rootx/billing" of "rootx/billing -> root/log" must start with the root path "root" or with "**", because every bucket path starts with "root", such as "root/billing". If the root folder moved, write the new root path at the start of the line. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+      expect.stringContaining('The right side "log" of "root/api -> log" must start with the root path "root"'),
+      expect.stringContaining('The left side "*" of "* -> root/sql"'),
     ]);
     expect(violations.every((v) => v.rule === 'config-invalid' && v.file === 'buckets.config.json')).toBe(true);
   });
@@ -88,9 +98,9 @@ describe('access', () => {
   it('rejects lines that keep the old root path after the root moved', () => {
     const { violations } = validateConfig({ root: 'src/root', access: { default: 'deny', allow: ['root/api -> src/root/log', 'src/api -> src/root/log', 'src/root/api -> src/rootx'] } });
     expect(violations.map((v) => v.message.slice(0, v.message.indexOf(' must')))).toEqual([
-      'Field "access.allow": the left side "root/api" of "root/api -> src/root/log"',
-      'Field "access.allow": the left side "src/api" of "src/api -> src/root/log"',
-      'Field "access.allow": the right side "src/rootx" of "src/root/api -> src/rootx"',
+      'Field "access.allow" has a line that is not valid. The left side "root/api" of "root/api -> src/root/log"',
+      'Field "access.allow" has a line that is not valid. The left side "src/api" of "src/api -> src/root/log"',
+      'Field "access.allow" has a line that is not valid. The right side "src/rootx" of "src/root/api -> src/rootx"',
     ]);
     expect(violations[0]!.message).toContain('must start with the root path "src/root" or with "**"');
   });
