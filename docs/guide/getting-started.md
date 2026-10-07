@@ -37,15 +37,16 @@ cd your-project
 buckets init
 ```
 
-It asks 3 questions. Press Enter to keep the default in brackets:
+It asks 2 questions. Press Enter to keep the default in brackets:
 
 | Question | Default | Config field |
 |---|---|---|
 | Root bucket folder | `root` | `root` |
 | Import alias for internal imports (unique, so other projects can link this one) | `@<root folder>-` and 8 random characters, such as `@root-k3x9pm2a` | `alias` |
-| Maximum bucket depth (the root bucket is depth 0) | `2` | `maxDepth` |
 
 The alias is the prefix of every internal import, such as `import { logger } from '@root-k3x9pm2a/dmz/log/.self'`. `init` generates a new one for each project from lowercase letters and digits, without `0`, `o`, `1`, `l` and `i`, which are easy to confuse. So two projects that later [link each other](./projects-and-links#links) never share an alias. Keep the generated one unless you have a reason to pick your own. Projects set up with older versions use `@root`, which keeps working.
+
+`init` also writes `"layout": {"default": "deny", "allow": ["<root>/*/*"]}`, so buckets may go two levels below the root bucket, such as `root/billing/invoices`. A human changes that limit in the file. See [Layout](./concepts#layout).
 
 `buckets init --yes` takes the defaults without asking. Without `--yes`, `init` needs an interactive terminal when the project has no `buckets.config.json` yet.
 

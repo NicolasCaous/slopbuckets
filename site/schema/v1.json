@@ -28,12 +28,6 @@
       "default": "@root",
       "description": "Import prefix for every internal import."
     },
-    "maxDepth": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 2,
-      "description": "Maximum depth of the bucket tree. The root bucket is level 0."
-    },
     "access": {
       "type": "object",
       "additionalProperties": false,

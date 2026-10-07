@@ -7,7 +7,7 @@ description: Rules for working in a project that uses slopbuckets (has a buckets
 
 This project is split into buckets. Each bucket is a sealed folder. You can write any code inside a bucket. Code in one bucket reaches another bucket only through contract files in `dmz/` folders, and a human approves every contract change.
 
-Read `buckets.config.json` to find the root bucket folder (`root` by default), the import alias and the `access` rules. Never edit it: it belongs to the human. `buckets init` generates a unique alias such as `@root-k3x9pm2a`; older projects use `@root`. The examples below write `@root`.
+Read `buckets.config.json` to find the root bucket folder (`root` by default), the import alias, the `access` rules and the `layout`. Never edit it: it belongs to the human. `buckets init` generates a unique alias such as `@root-k3x9pm2a`; older projects use `@root`. The examples below write `@root`.
 
 ## Reading the structure before you edit
 
@@ -26,7 +26,7 @@ When the human asks for a picture of the structure, `buckets inspect --export me
 
 - A bucket contains only `_/`, `dmz/` and child buckets.
 - All code of a bucket lives in its `_/` folder. Inside `_/` you can create any files and folders.
-- Every other folder inside a bucket is a child bucket. Do not create one to organize code. Creating a bucket needs human approval.
+- Every other folder inside a bucket is a child bucket. Do not create one to organize code. Creating a bucket needs human approval, and the `layout` of the config may forbid it.
 - Do not put files directly in a bucket folder.
 - Do not create symlinks or junctions inside the root folder. `buckets link add` is the only way to place a link, in `<bucket>/_/links/<name>`.
 
@@ -71,7 +71,17 @@ The bucket graph cannot have cycles. If bucket A uses something from B, B cannot
 }
 ```
 
-A line `A -> B` means code in bucket A uses code declared in bucket B's `_/`, whatever DMZ files the symbol passes through. Bucket paths start with the root folder, such as `root/teams/search`. `**` matches any number of bucket names, `*` any characters inside one name. When several lines match, the most specific one decides, and `default` decides when none matches. A pattern with more literal bucket names is more specific. On a tie, more names with `*` or `{}` mixed in win, then more segments that are exactly `*`, then fewer `**`. Where a segment sits does not matter, so `root/**/payments` and `root/teams/**` are equally specific. Read the lines before you add a dependency between buckets, and pick a path they allow.
+A line `A -> B` means code in bucket A uses code declared in bucket B's `_/`, whatever DMZ files the symbol passes through. Bucket paths start with the root folder, such as `root/teams/search`. Each side is a pattern, and each pattern starts with the root path or with `**`:
+
+| Pattern | Matches | Example |
+|---|---|---|
+| `**` | zero or more bucket names | `root/teams/**` matches `root/teams` and every bucket below it |
+| `*` | any characters inside one name | `root/team-*` matches `root/team-a` |
+| `{a,b}` | one of the alternatives | `root/{api,web}` matches `root/api` and `root/web` |
+
+Separate alternatives with commas. A `|` is `config-invalid`, so never write `{api|web}`. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/C+B`. Write the lines you propose to the human in this syntax.
+
+When several lines match, the most specific one decides, and `default` decides when none matches. A pattern with more literal bucket names is more specific. On a tie, more names with `*` or `{}` mixed in win, then more segments that are exactly `*`, then fewer `**`. Where a segment sits does not matter, so `root/**/payments` and `root/teams/**` are equally specific. Read the lines before you add a dependency between buckets, and pick a path they allow.
 
 Under `"default": "deny"`, a parent's `_/` code that imports from a child through `.self` needs an allow line too, such as `root/billing -> root/billing/**`.
 
@@ -79,6 +89,23 @@ Under `"default": "deny"`, a parent's `_/` code that imports from a child throug
 - `access-ambiguous`: an allow line and a deny line both match, and neither is more specific than the other on both sides. Stop and ask the human to add a line that names both buckets, such as `root/teams/search -> root/sql`, in the list that should win. Quote the two lines from the message.
 - `access-unknown-bucket`: a line names a bucket that does not exist, usually because a bucket folder was renamed or moved. If you renamed or moved it, move it back. Otherwise ask the human to fix the line.
 - Never edit `buckets.config.json` to get past a rule, not even to fix a typo. A hook blocks it in agents with slopbuckets hooks.
+
+## Layout
+
+`buckets.config.json` may have a `layout` key that says which bucket folders may exist:
+
+```json
+"layout": {
+  "default": "deny",
+  "allow": ["root/gpu/*", "root/*/*"],
+  "deny": ["root/legacy/**"]
+}
+```
+
+Each line is one pattern, with the syntax of the access patterns above. The most specific matching line decides, and `default` decides when none matches. A bucket also passes when no deny line matches it and an allow line can match a bucket below it, so `root/*/*` lets `root`, `root/billing` and `root/billing/invoices` exist, but not `root/billing/invoices/pdf`. Without `layout`, any bucket folder may exist. Read the layout before you create a bucket folder.
+
+- `layout-denied`: the layout forbids this bucket folder. If the folder only organizes code, move its contents into the `_/` of its parent bucket. Otherwise remove it, or stop and ask the human with the exact line you propose, the list it goes in and why, such as: "Add `root/billing/invoices/pdf` to `layout.allow`, so the PDF renderer gets its own bucket."
+- `layout-ambiguous`: an allow line and a deny line match the folder equally. Stop and ask the human to add a line more specific than both, such as the path of the folder itself, in the list that should win. Quote the two lines from the message.
 
 ## Nested projects
 

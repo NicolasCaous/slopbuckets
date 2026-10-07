@@ -1295,13 +1295,13 @@
 
     <!-- ================= tty5 rules ================= -->
     <section class="screen reveal" id="rules" aria-labelledby="rules-title">
-      <div class="screen-bar" aria-hidden="true"><span>tty5</span><span>rules</span><span>14 checks</span></div>
+      <div class="screen-bar" aria-hidden="true"><span>tty5</span><span>rules</span><span>15 checks</span></div>
       <div class="screen-body">
         <p class="cmdline" aria-hidden="true"><span class="ps">$</span> <span class="typed">buckets check</span></p>
         <h2 id="rules-title">What the check enforces</h2>
         <ol class="rules">
-          <li>A bucket holds only <code translate="no">_/</code>, <code translate="no">dmz/</code> and child buckets, within <code translate="no">maxDepth</code>. Every bucket has a <code translate="no">_/</code>, a bucket without children has no <code translate="no">dmz/</code>, and a bucket name cannot start with <code translate="no">.</code>.
-            <span class="ids" translate="no"><span class="rule-id">folder-loose-file</span><span class="rule-id">folder-max-depth</span><span class="rule-id">folder-missing-code</span><span class="rule-id">folder-unexpected-dmz</span><span class="rule-id">folder-invalid-name</span></span></li>
+          <li>A bucket holds only <code translate="no">_/</code>, <code translate="no">dmz/</code> and child buckets. Every bucket has a <code translate="no">_/</code>, a bucket without children has no <code translate="no">dmz/</code>, and a bucket name cannot start with <code translate="no">.</code>.
+            <span class="ids" translate="no"><span class="rule-id">folder-loose-file</span><span class="rule-id">folder-missing-code</span><span class="rule-id">folder-unexpected-dmz</span><span class="rule-id">folder-invalid-name</span></span></li>
           <li>Symlinks and junctions inside the root folder fail. The only exception is a link registered with <code translate="no">buckets link add</code>.
             <span class="ids" translate="no"><span class="rule-id">folder-symlink</span></span></li>
           <li>A DMZ file sits at <code translate="no">dmz/&lt;provider&gt;/&lt;consumer&gt;.ts</code>, where both names exist. Each re-export points only where that DMZ file may reach, one level per file, and never into a nested project.
@@ -1322,6 +1322,8 @@
             <span class="ids" translate="no"><span class="rule-id">graph-cycle</span></span></li>
           <li>When the config has <code translate="no">access</code> lines, such as <code translate="no">root/teams/** -&gt; root/sql</code>, each import between buckets passes them. The most specific matching line decides, and an allow line and a deny line that match with neither more specific on both sides make the import ambiguous until a human adds a more specific line.
             <span class="ids" translate="no"><span class="rule-id">access-denied</span><span class="rule-id">access-ambiguous</span><span class="rule-id">access-unknown-bucket</span></span></li>
+          <li>When the config has a <code translate="no">layout</code>, such as <code translate="no">"allow": ["root/*/*"]</code>, each bucket folder passes its lines. The parents of an allowed bucket pass too, and <code translate="no">buckets init</code> writes a layout that allows buckets two levels below the root.
+            <span class="ids" translate="no"><span class="rule-id">layout-denied</span><span class="rule-id">layout-ambiguous</span></span></li>
           <li>The config is valid, and no nested project reuses the alias of a project around it. <code translate="no">tsconfig.json</code> covers the root folder, keeps <code translate="no">noUnusedLocals</code> on so an unused import cannot count as a use, and maps the alias.
             <span class="ids" translate="no"><span class="rule-id">config-invalid</span><span class="rule-id">project-config</span></span></li>
           <li>A <code translate="no">buckets.config.json</code> inside the root folder lives only in a subfolder of a bucket's <code translate="no">_/</code>, where it starts a nested project. The nested project needs its own <code translate="no">tsconfig.json</code>, and the <code translate="no">tsconfig.json</code> around it must exclude its folder.
@@ -1353,9 +1355,9 @@
 <span class="o0"><span class="t-e">Exit code 1:</span> bucket rules are broken. Fix every violation above, then run `buckets check` again. If a violation cannot be fixed, explain why in your final message.</span></pre>
 <pre class="term tree" translate="no" tabindex="0" aria-label="All rule ids"><span class="t-c">config </span>  config-invalid  project-config
          project-misplaced
-<span class="t-c">folders</span>  folder-loose-file  folder-max-depth
-         folder-missing-code  folder-unexpected-dmz
-         folder-invalid-name  folder-symlink
+<span class="t-c">folders</span>  folder-loose-file  folder-missing-code
+         folder-unexpected-dmz  folder-invalid-name
+         folder-symlink
 <span class="t-c">dmz    </span>  dmz-path  dmz-syntax  dmz-target  dmz-orphan
 <span class="t-c">imports</span>  import-relative  import-dynamic
          import-unresolved  import-forbidden
@@ -1364,6 +1366,7 @@
 <span class="t-c">graph  </span>  graph-cycle
 <span class="t-c">access </span>  access-denied  access-ambiguous
          access-unknown-bucket
+<span class="t-c">layout </span>  layout-denied  layout-ambiguous
 <span class="t-c">links  </span>  link-missing  link-forbidden-import
          link-missing-dependency</pre>
           </div>
@@ -1785,7 +1788,7 @@
     const BOOT = [
       ['memory test', '640K ok'],
       ['probing buckets', 'http sql log billing invoices payments'],
-      ['reading buckets.config.json', 'adapter ts, maxDepth 2'],
+      ['reading buckets.config.json', 'adapter ts, layout root/*/*'],
       ['verifying buckets.lock.json', 'ok'],
       ['arming PreToolUse lock guard', 'ok'],
       ['loading Stop, SubagentStop, PostToolUse', 'ok']
@@ -3512,7 +3515,7 @@
         return [
           ...(st.tty ? splash(st.columns) : []),
           'Setting up slopbuckets in ' + dir, '',
-          ...item('Created buckets.config.json (root "root", alias "' + ALIAS + '", maxDepth 2)'),
+          ...item('Created buckets.config.json (root "root", alias "' + ALIAS + '", layout allows "root/*/*")'),
           ...item('Created root/_/ for the code of the root bucket'),
           ...item('Updated tsconfig.json: alias ' + ALIAS + '/*'),
           ...item('Installed Claude Code hooks in .claude/settings.json (PreToolUse, PostToolUse, Stop, SubagentStop)'),
@@ -3993,13 +3996,14 @@
       rules: () => [
         L_('rule ids (exit code 1)', 'hi'),
         L_('  config-invalid  project-config  project-misplaced'),
-        L_('  folder-loose-file  folder-max-depth  folder-missing-code'),
-        L_('  folder-unexpected-dmz  folder-invalid-name  folder-symlink'),
+        L_('  folder-loose-file  folder-missing-code  folder-unexpected-dmz'),
+        L_('  folder-invalid-name  folder-symlink'),
         L_('  dmz-path  dmz-syntax  dmz-target  dmz-orphan'),
         L_('  import-relative  import-dynamic  import-unresolved  import-forbidden'),
         L_('  import-namespace-dmz  import-undeclared-package  import-global'),
         L_('  graph-cycle'),
         L_('  access-denied  access-ambiguous  access-unknown-bucket'),
+        L_('  layout-denied  layout-ambiguous'),
         L_('  link-missing  link-forbidden-import  link-missing-dependency'),
         L_('lock differences (exit code 2)', 'hi'),
         L_('  lock-missing  config-changed', 'w'),
@@ -4141,7 +4145,7 @@
       if (name === 'echo') return print([L_(words.slice(1).join(' '))]);
       if (name === 'cat') {
         const f = words[1];
-        if (f === 'buckets.config.json') return print([L_('{'), L_('  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",'), L_('  "adapter": "ts",'), L_('  "root": "root",'), L_('  "alias": "' + ALIAS + '",'), L_('  "maxDepth": 2'), L_('}')]);
+        if (f === 'buckets.config.json') return print([L_('{'), L_('  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",'), L_('  "adapter": "ts",'), L_('  "root": "root",'), L_('  "alias": "' + ALIAS + '",'), L_('  "layout": {'), L_('    "default": "deny",'), L_('    "allow": ["root/*/*"]'), L_('  }'), L_('}')]);
         if (f === 'buckets.lock.json') {
           if (state.approved === null) return print([L_('cat: buckets.lock.json: No such file. Run refresh to create it.', 'w')]);
           return print([L_('The lock records the bucket tree, the config, every DMZ file and the type signature of every symbol a DMZ file exports.'), L_('Only buckets refresh writes it.', 'd')]);

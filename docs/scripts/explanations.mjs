@@ -9,6 +9,7 @@ export const RULE_GROUPS = [
   ['import-', 'Imports'],
   ['graph-', 'Bucket graph'],
   ['access-', 'Access rules'],
+  ['layout-', 'Layout'],
   ['link-', 'Links'],
 ];
 
@@ -16,7 +17,6 @@ export const EXPLAIN_RULE = {
   'config-invalid': '`buckets.config.json` is not valid JSON, a field breaks the schema, or the alias is also the alias of an enclosing project. Also `buckets.links.json` when it cannot be read or registers a link outside a bucket.',
   'project-config': 'The adapter found a project setting the check needs that is missing or wrong: the alias in `tsconfig.json`, `noUnusedLocals`, a build that does not cover the root bucket folder, a build that reaches a nested project, or a linked project the adapter cannot read.',
   'folder-loose-file': 'A file sits directly in a bucket folder. Every file goes in `_/` or in `dmz/`.',
-  'folder-max-depth': 'A bucket is deeper than `maxDepth`. The root bucket is depth 0.',
   'folder-missing-code': 'A bucket has no `_/` folder, or the root bucket folder does not exist.',
   'folder-unexpected-dmz': 'A bucket without child buckets has a `dmz/` folder.',
   'folder-invalid-name': 'A child bucket folder has a name that starts with `.`.',
@@ -36,6 +36,8 @@ export const EXPLAIN_RULE = {
   'access-denied': 'Code in one bucket uses code that originates in another bucket, and the `access` lines of `buckets.config.json` forbid that edge: the most specific line that matches it is a deny line, or no line matches and `access.default` is `"deny"`. The check reports it on the import line, after following the DMZ chain to the bucket that declares the symbol. It also reports it on the export line of a DMZ file when no bucket that may import that file may use the symbol. The message names the deciding line. `buckets.config.json` belongs to a human, so the agent never edits it: it removes the dependency, or stops and asks the human for the `access` line that allows it, written out in full.',
   'access-ambiguous': 'An allow line and a deny line both match an edge, and neither is at least as specific as the other on both sides, so the check cannot tell which one decides. Also a DMZ re-export that no bucket allowed to import the DMZ file may clearly use. The message names both lines. A human settles it by adding a line that is at least as specific as both on both sides, usually one that names both buckets, such as `root/teams/search -> root/sql`, in the list that should win. The agent stops and asks the human for that line, or removes the dependency.',
   'access-unknown-bucket': 'A side of an `access` line names a bucket without `*` or `{`, and no bucket has that path, so the line matches nothing. It usually follows a bucket folder that was renamed, moved or deleted, or a typo. Bucket paths start with the `root` folder of the config, such as `root/billing`. The check reports it on `buckets.config.json`. If the agent moved the bucket, it moves it back. Otherwise a human fixes the line. A pattern with wildcards that matches nothing is not an error.',
+  'layout-denied': 'A bucket folder that the `layout` lines of `buckets.config.json` forbid: the most specific line that matches it is a deny line, or no line matches it or a bucket below it and `layout.default` is `"deny"`. A bucket that no line allows still passes when no deny line matches it and an allow line can match a bucket below it, so the parents of an allowed bucket may exist. The check reports it on the folder and does not look inside it. The message names the deciding line. `buckets.config.json` belongs to a human, so the agent never edits it: it moves the folder into the `_/` of its parent, removes it, or stops and asks the human for the `layout` line that allows it, such as `root/billing/invoices/pdf` in `layout.allow`.',
+  'layout-ambiguous': 'An allow line and a deny line of `layout` both match a bucket folder, and neither is more specific than the other, so the check cannot tell which one decides. The message names both lines. A human settles it by adding a line more specific than both, such as the path of the folder itself, in the list that should win. The agent stops and asks the human for that line, or moves or removes the folder.',
   'project-misplaced': "A `buckets.config.json` sits inside the root bucket folder somewhere other than a subfolder of a bucket's `_/`. Nested projects may live only there.",
   'link-missing': 'A link registered in `buckets.links.json` is not on disk, its target is gone, or a file sits where the link folder should be. `buckets link sync` recreates it.',
   'link-forbidden-import': 'Code, or a DMZ re-export, reaches a file of a linked project other than its published `.external.ts` files.',
@@ -46,7 +48,7 @@ export const EXPLAIN_LOCK = {
   'lock-missing': '`buckets.lock.json` does not exist yet, or cannot be read.',
   'bucket-added': 'A bucket folder exists that the lock does not have.',
   'bucket-removed': 'A bucket in the lock no longer exists.',
-  'config-changed': 'A value in `buckets.config.json` changed. The message, `buckets refresh` and `buckets refresh --web` list each `access` line added or removed and every other key with its old and new value. When the lock is older than version 4, they show the current values only, because that lock kept only a hash.',
+  'config-changed': 'A value in `buckets.config.json` changed. The message, `buckets refresh` and `buckets refresh --web` list each `access` or `layout` line added or removed, a changed default, and every other key with its old and new value. When the lock is older than version 4, they show the current values only, because that lock kept only a hash.',
   'dmz-added': 'A DMZ file exists that the lock does not have.',
   'dmz-removed': 'A DMZ file in the lock was deleted.',
   'dmz-changed': 'The text of a DMZ file changed. Line endings and a leading byte order mark do not count.',

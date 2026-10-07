@@ -5,7 +5,7 @@ description: How a contract change made by the AI reaches buckets.lock.json, wit
 
 # The approval flow
 
-The AI can edit every file in the project, including DMZ files, `buckets.links.json` and the bucket tree. It cannot write `buckets.lock.json` or `buckets.config.json`, because a human owns both: the lock records what the human approved, and the config holds the root folder, the alias and the [access rules](./concepts#access-rules). The skill tells the AI this, and the `PreToolUse` hook enforces it. Every contract change therefore waits for a human:
+The AI can edit every file in the project, including DMZ files, `buckets.links.json` and the bucket tree. It cannot write `buckets.lock.json` or `buckets.config.json`, because a human owns both: the lock records what the human approved, and the config holds the root folder, the alias, the [access rules](./concepts#access-rules) and the [layout](./concepts#layout). The skill tells the AI this, and the `PreToolUse` hook enforces it. Every contract change therefore waits for a human:
 
 1. The AI changes a DMZ file, creates a bucket, adds a link or deletes an orphan chain.
 2. `buckets check` finds a difference between the project and the lock and exits with code 2.
@@ -130,15 +130,15 @@ The agent then asks the human to run `buckets refresh` in their own terminal.
 
 ## Config changes
 
-Only a human edits `buckets.config.json`. When an agent needs a change in it, such as an `access` line that allows a dependency, it stops and asks, with the exact line it proposes. The hooks deny any write to the file, also through a shell command that names it.
+Only a human edits `buckets.config.json`. When an agent needs a change in it, such as an `access` line that allows a dependency or a `layout` line that allows a bucket folder, it stops and asks, with the exact line it proposes. The hooks deny any write to the file, also through a shell command that names it.
 
-The lock stores the whole config, with the defaults filled in, so a change to it is a `config-changed` lock difference and waits for an approval like a contract change. The review lists what changed, one row per change: each `access` line added or removed with its list, a changed `access.default`, and every other key with its old and new value.
+The lock stores the whole config, with the defaults filled in, so a change to it is a `config-changed` lock difference and waits for an approval like a contract change. The review lists what changed, one row per change: each `access` or `layout` line added or removed with its list, a changed `access.default` or `layout.default`, and every other key with its old and new value.
 
 ```text
 ~ config changed          buckets.config.json
     + access.allow  root/teams/search -> root/sql
     - access.deny   root/teams/search -> root/sql
-    ~ maxDepth      2 to 3
+    + layout.allow  root/gpu/*
 ```
 
 The page, `buckets refresh` in a terminal and the confirmation window show the same rows. A lock written before version 4 kept only a hash of the config. When the config changed since such a lock, the review shows the whole current config and says the old values were not recorded. Approving writes a version 4 lock, and later reviews show each change.

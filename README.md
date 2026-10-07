@@ -100,7 +100,7 @@ Each hop is one file. To find out what a bucket uses, open its DMZ files. The [c
 
 ### Lock
 
-`buckets.lock.json` records the last state a human approved: the bucket tree, the whole config, every DMZ file, the type signature of every symbol a DMZ file exports, the nested projects, and each link with the signatures of the symbols the linked project publishes. If the AI changes the signature of an exported function without touching any DMZ file, the signature hash changes and the check fails. Because the lock keeps the config itself and not only its hash, the review of a config change shows each `access` line added or removed and every other value that changed.
+`buckets.lock.json` records the last state a human approved: the bucket tree, the whole config, every DMZ file, the type signature of every symbol a DMZ file exports, the nested projects, and each link with the signatures of the symbols the linked project publishes. If the AI changes the signature of an exported function without touching any DMZ file, the signature hash changes and the check fails. Because the lock keeps the config itself and not only its hash, the review of a config change shows each `access` or `layout` line added or removed and every other value that changed.
 
 Here the agent added a parameter to `createInvoice` and a new DMZ file. Every rule passes, so the check exits with 2 and waits for a human:
 
@@ -174,7 +174,7 @@ With nested projects, the check exits with the most serious code of any project,
 
 Folders:
 
-- A bucket holds only `_/`, `dmz/` and child buckets, within `maxDepth`. Every bucket has a `_/`, a bucket without children has no `dmz/`, and a bucket name cannot start with `.`.
+- A bucket holds only `_/`, `dmz/` and child buckets. Every bucket has a `_/`, a bucket without children has no `dmz/`, and a bucket name cannot start with `.`.
 - Symlinks and junctions inside the root folder fail. The only exception is a link registered with `buckets link add`.
 - A new bucket folder needs human approval, like any contract change.
 
@@ -210,6 +210,22 @@ Access, when the config has an `access` key:
 - A side of a line without wildcards names a bucket that exists, so renaming that bucket fails the check.
 
 The [access rules guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) has a worked example.
+
+Layout, when the config has a `layout` key:
+
+- Each bucket folder passes the `layout` lines of `buckets.config.json`, such as `"root/*/*"`. Each line is one pattern over bucket paths, and the most specific matching line decides, as for access.
+- A bucket also passes when no deny line matches it and an allow line can match a bucket below it, so `"allow": ["root/gpu/*"]` lets `root` and `root/gpu` exist too.
+- A folder that fails is `layout-denied`, or `layout-ambiguous` when an allow line and a deny line tie. `buckets init` writes `"allow": ["root/*/*"]` under `"default": "deny"`, so a new project allows buckets two levels below the root.
+
+The [layout guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#layout) has an example.
+
+Access and layout lines use the same patterns over bucket paths. Each pattern starts with the root path or with `**`:
+
+| Pattern | Matches | Example |
+|---|---|---|
+| `**` | zero or more bucket names | `root/teams/**` matches `root/teams` and every bucket below it |
+| `*` | any characters inside one name | `root/team-*` matches `root/team-a` |
+| `{a,b}` | one of the alternatives, separated by commas, never by `\|` | `root/{api,web}` matches `root/api` and `root/web` |
 
 Every rule id, with what it means and how to fix it, is in the [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html).
 
@@ -363,7 +379,10 @@ npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
   "adapter": "ts",
   "root": "root",
   "alias": "@root-k3x9pm2a",
-  "maxDepth": 2
+  "layout": {
+    "default": "deny",
+    "allow": ["root/*/*"]
+  }
 }
 ```
 
@@ -372,7 +391,7 @@ npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
 | `adapter` | `"ts"` | language adapter the CLI uses to read the project |
 | `root` | `"root"` | folder of the root bucket |
 | `alias` | `"@root"` | import prefix for internal imports. `buckets init` writes a unique one. A nested project and each linked project need an alias of their own |
-| `maxDepth` | `2` | maximum depth of the bucket tree |
+| `layout` | not set | which bucket folders may exist, as patterns in `allow` and `deny` with a `default`. `buckets init` writes `"allow": ["<root>/*/*"]` under `"default": "deny"`. See [layout](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#layout) |
 | `access` | not set | which buckets may use code from which other buckets, as `"A -> B"` lines in `allow` and `deny` with a `default`. See [access rules](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) |
 
 Only a human edits `buckets.config.json`. The agent hooks deny writes to it, and an agent that needs a change asks for it with the exact line.

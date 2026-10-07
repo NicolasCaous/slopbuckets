@@ -867,7 +867,7 @@ ${table(['Field', 'Holds'], [
   ['<code>lockVersion</code>', `The format version, ${lockVersion} today.`],
   ['<code>cli</code>', 'The CLI version that wrote the lock. <code>buckets check</code> refuses to run with another version and exits with code 3. CI installs this version.'],
   ['<code>adapter</code>', 'The adapter name and version, and <code>toolchain</code>: the tools whose version can change signature hashes, such as <code>typescript@5.9.3</code>. A different toolchain alone is not a problem. The check exits with code 3 only when the toolchain changed and a signature hash changed too.'],
-  ['<code>config</code>', '<code>buckets.config.json</code> with the defaults filled in, its keys sorted and without <code>$schema</code>, so a formatting change is not a difference. <code>access</code> is there only when the config has it, with <code>allow</code> and <code>deny</code> always present and each line in the form <code>A -&gt; B</code>. Locks of versions 1 to 3 hold a <code>sha256:</code> hash of the same object instead.'],
+  ['<code>config</code>', '<code>buckets.config.json</code> with the defaults filled in, its keys sorted and without <code>$schema</code>, so a formatting change is not a difference. <code>access</code> and <code>layout</code> are there only when the config has them, with <code>allow</code> and <code>deny</code> always present and sorted. Each access line is in the form <code>A -&gt; B</code>. Locks of versions 1 to 3 hold a <code>sha256:</code> hash of the same object instead.'],
   ['<code>buckets</code>', 'Every bucket folder, sorted.'],
   ['<code>dmz</code>', 'For each DMZ file, <code>.external.ts</code> files included, a hash of its text and a hash of the type signature of each symbol it re-exports. The text hash ignores line endings (CRLF counts as LF) and a leading byte order mark, so an editor that adds or drops either one does not change it.'],
   ['<code>projects</code>', 'Nested projects, relative to this project. Each one has its own lock. Left out when there are none.'],
@@ -886,7 +886,7 @@ ${codeBlock('json', JSON.stringify({
   adapter: { name: 'ts', toolchain: 'typescript@5.9.3', version: pkg.version },
   buckets: ['root', 'root/api', 'root/store', 'root/web'],
   cli: pkg.version,
-  config: { access: { allow: ['** -> root/store'], default: 'deny', deny: [] }, adapter: 'ts', alias: '@root', maxDepth: 2, root: 'root' },
+  config: { access: { allow: ['** -> root/store'], default: 'deny', deny: [] }, adapter: 'ts', alias: '@root', layout: { allow: ['root/*/*'], default: 'deny', deny: [] }, root: 'root' },
   dmz: {
     'root/dmz/api/web.ts': { symbols: { route: 'sha256:a361...' }, text: 'sha256:2dda...' },
     'root/dmz/store/api.ts': { symbols: { query: 'sha256:6b13...' }, text: 'sha256:cff1...' },
@@ -958,6 +958,8 @@ ${table(['Field', 'Type', 'Required', 'Allowed values', 'Meaning'], fields.map((
 ${itemsText}
 ${k === 'access' ? `
 A malformed line, a line listed twice in one list, the same line in both lists and an unknown field inside <code>access</code> are <a href="./rules#config-invalid"><code>config-invalid</code></a>. How a line matches an import, which line decides when several match, and what the agent does when an import is denied are in [Access rules](../guide/concepts#access-rules). The violations are on the [rules reference](./rules#access-rules).
+` : ''}${k === 'layout' ? `
+A malformed line, a line listed twice in one list, the same line in both lists and an unknown field inside <code>layout</code> are <a href="./rules#config-invalid"><code>config-invalid</code></a>. The lines use the patterns of access lines, and the most specific matching line decides in the same way. How the parents of an allowed bucket pass, and what the agent does when a folder is denied, are in [Layout](../guide/concepts#layout). The violations are on the [rules reference](./rules#layout).
 ` : ''}`;
   }).join('');
   pages['config.md'] = front('Config reference', 'Every field of buckets.config.json, from the published JSON Schema.') +
@@ -975,7 +977,7 @@ ${schema.additionalProperties === false ? 'Unknown fields are not allowed. The c
 
 A human owns this file. The agent hooks deny every write to any <code>buckets.config.json</code>, nested ones included, as they do for the lock, and the reason they return tells the agent to ask the human for the change. See [Claude Code hooks](./hooks#pre-tool-use).
 
-The lock stores the config with the defaults filled in, its keys sorted and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>. The review lists each change: every <code>access</code> line added or removed, a changed <code>access.default</code>, and every other key with its old and new value. Locks older than version 4 store only a hash of the config. See [Lock file](./lockfile).
+The lock stores the config with the defaults filled in, its keys sorted and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>. The review lists each change: every <code>access</code> or <code>layout</code> line added or removed, a changed <code>access.default</code> or <code>layout.default</code>, and every other key with its old and new value. Locks older than version 4 store only a hash of the config. See [Lock file](./lockfile).
 
 The default of <code>alias</code> applies only to a config that leaves the field out. <code>buckets init</code> always writes an alias of its own: <code>@</code>, the name of the root bucket folder, a dash and 8 random lowercase letters and digits, such as <code>@root-k3x9pm2a</code>. The 8 characters leave out <code>0</code>, <code>o</code>, <code>1</code>, <code>l</code> and <code>i</code>, which are easy to confuse. Projects that link each other import through each other's alias, so no two projects should share one. Older projects with <code>@root</code> keep working, but <code>buckets link add</code> refuses to link two projects with the same alias.
 

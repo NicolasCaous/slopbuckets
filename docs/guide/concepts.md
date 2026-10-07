@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules and the lock.
+description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules, the layout and the lock.
 ---
 
 # Concepts
@@ -43,7 +43,7 @@ The folder rules:
 1. A bucket holds only `_/`, `dmz/` and child buckets. A file directly in a bucket folder fails the check.
 2. Every other folder inside a bucket is a child bucket. Inside `_/`, nothing is a bucket.
 3. A `dmz/` folder in a bucket without children fails the check. A bucket with children may leave `dmz/` out, which counts as an empty DMZ.
-4. The root bucket is depth 0. The tree is 2 levels deep by default (`root/billing/invoices`), and `maxDepth` in the config changes the limit.
+4. The `layout` key of the config can limit which bucket folders may exist. `buckets init` writes a layout that allows buckets down to two levels below the root, such as `root/billing/invoices`. See [Layout](#layout).
 5. Bucket names cannot start with `.`, and symbolic links or junctions are not allowed anywhere inside the root bucket folder, except the links that `buckets link add` registers in `<bucket>/_/links/<name>`.
 6. The lock records the list of buckets, so a new bucket folder fails the check until a human approves it.
 7. A folder inside `_/` with its own `buckets.config.json` is a separate, nested project, with its own `tsconfig.json`. The check skips it here and checks it on its own. See [Projects and links](./projects-and-links).
@@ -181,7 +181,7 @@ Each side of a line is a pattern over bucket paths. A bucket path is the folder 
 
 - `**` as a whole segment matches zero or more bucket names. `root/teams/**` matches `root/teams` and every bucket below it, and `**` alone matches every bucket.
 - `*` matches any characters inside one name. `root/teams/*` matches each child of `root/teams` but not `root/teams` itself, and `root/team-*` matches `root/team-a`.
-- `{a,b}` matches one of the alternatives, as in `root/{api,web}`. Alternatives cannot nest.
+- `{a,b}` matches one of the alternatives, as in `root/{api,web}`. Commas separate the alternatives, and alternatives cannot nest. A `|`, as in `{api|web}`, is [`config-invalid`](../reference/rules#config-invalid), because no folder name may contain it on Windows. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/A+A` and `root/repository/C+B`, but not `root/repository/A+D` or `root/repository/A`.
 - Every other character is literal. `root/teams` matches only that bucket.
 
 Each side starts with the root path or with `**`. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
@@ -333,6 +333,44 @@ A human edits `buckets.config.json` and approves the change like any other. The 
 ```
 
 Locks written before version 4 kept only a hash of the config. When the config changed since such a lock, the review shows the whole current config instead and says the old values were not recorded. See [The approval flow](./approval#config-changes).
+
+## Layout
+
+Access rules decide which buckets may use which. The layout decides which bucket folders may exist. It lives in the `layout` key of `buckets.config.json`, and only a human writes it. Without the key, any bucket folder may exist.
+
+```json
+{
+  "layout": {
+    "default": "deny",
+    "allow": ["root/gpu/*", "root/*/*"],
+    "deny": ["root/legacy/**"]
+  }
+}
+```
+
+The layout has the shape of `access`, with one pattern per line instead of two:
+
+- `default` is `"allow"` or `"deny"`, and it is required. It decides a bucket folder that no line matches.
+- `allow` and `deny` are lists of patterns over bucket paths, with the syntax of [access patterns](#patterns). Both are optional. Each pattern starts with the root path or with `**`.
+- The most specific matching line decides, counted as in [Which line decides](#which-line-decides). An allow line and a deny line that are equally specific make the folder `layout-ambiguous`.
+
+A bucket also passes when no line allows it, if no deny line matches it and some allow line can match a bucket below it. So a layout that allows a bucket also lets its parents exist. `"allow": ["root/gpu/*"]` lets `root`, `root/gpu` and every child of `root/gpu` exist, and nothing else. `"allow": ["root/*/*"]` lets `root`, `root/billing` and `root/billing/invoices` exist, but not `root/billing/invoices/pdf`.
+
+With the layout above:
+
+| Bucket folder | Result | Decided by |
+|---|---|---|
+| `root/gpu/cuda` | allowed | `root/gpu/*` |
+| `root/billing/invoices` | allowed | `root/*/*` |
+| `root/billing` | allowed | `root/*/*` matches buckets below it |
+| `root/billing/invoices/pdf` | `layout-denied` | `default`, because no line matches it or a bucket below it |
+| `root/legacy` | `layout-denied` | the deny line `root/legacy/**` |
+
+`buckets init` writes `"layout": {"default": "deny", "allow": ["root/*/*"]}` with the root path of the project, so a new project allows buckets down to two levels below the root. Older configs limited the depth of the tree with a field of their own. The check now reports that field as [`config-invalid`](../reference/rules#config-invalid), and the message gives the layout that allows the same folders.
+
+The check reports `layout-denied` or `layout-ambiguous` on the bucket folder. A folder that fails is not a bucket, and the check does not look inside it, so a misplaced subtree gives one violation. The root bucket always exists. A layout that forbids it is reported, and the check goes on.
+
+The agent cannot change the layout. It moves the folder into the `_/` of its parent when the folder only organizes code, removes it, or stops and asks the human for the exact line it proposes, such as "add `root/billing/invoices/pdf` to `layout.allow`". Every rule id and its messages are on the [rules reference](../reference/rules#layout).
 
 ## The lock
 
