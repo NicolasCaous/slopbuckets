@@ -6,6 +6,7 @@ import { runCheck, type CheckOptions, type CheckResult } from './check.js';
 import { loadConfig } from './config.js';
 import { readLinksManifest } from './links.js';
 import { scanProject } from './scan.js';
+import { resolveScripts } from './scripts.js';
 import type { CheckReport, Context, ExitCode } from './types.js';
 
 export interface ProjectRun {
@@ -77,26 +78,31 @@ export function discoverProjects(ctx: Context, projectDir: string, recursive = t
   const visit = (dir: string, rel: string): void => {
     out.push({ path: rel, dir });
     if (!recursive || info === null) return;
-    for (const nested of scanNested(dir, info)) visit(path.join(dir, nested), joinProject(rel, nested));
+    for (const nested of scanNested(ctx, dir, info)) visit(path.join(dir, nested), joinProject(rel, nested));
   };
   visit(projectDir, '.');
   return out;
 }
 
-/** The projects nested directly in the project at `dir`, relative to it, sorted. Empty when its config is missing or invalid. */
+/**
+ * The projects nested directly in the project at `dir`, relative to it, sorted. Empty when its config is missing or
+ * invalid, or when one of its scripts fails.
+ */
 export function nestedProjectsOf(ctx: Context, dir: string): string[] {
   try {
-    return scanNested(dir, ctx.adapter.info());
+    return scanNested(ctx, dir, ctx.adapter.info());
   } catch {
     return [];
   }
 }
 
-function scanNested(dir: string, info: Pick<InfoResponse, 'extensions' | 'dmzExtension'>): string[] {
+function scanNested(ctx: Context, dir: string, info: Pick<InfoResponse, 'extensions' | 'dmzExtension'>): string[] {
   const config = loadConfig(dir);
   if (config.kind !== 'ok') return [];
+  const scripts = resolveScripts(ctx, dir, config.config);
+  if ('violations' in scripts) return [];
   const manifest = readLinksManifest(dir);
   const links = new Set(manifest.kind === 'ok' ? Object.keys(manifest.links) : []);
-  const layout = scanProject(dir, config.config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links });
+  const layout = scanProject(dir, config.config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links, scripts: scripts.values });
   return [...layout.nestedProjects].sort();
 }

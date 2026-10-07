@@ -1,6 +1,18 @@
 // Globs over bucket paths, as the lock lists them, such as `root/billing`, and the "most specific line decides" rule
 // that the `access` and `layout` keys of buckets.config.json share. Hand written so the CLI has no runtime dependency.
 
+/**
+ * The values of each script of the config, by script name: the lines the script printed, sorted and without
+ * duplicates. A pattern names a script with backticks, as in `` {A,`repos`} ``, and its values join the group.
+ */
+export type ScriptValues = Readonly<Record<string, readonly string[]>>;
+
+/** No scripts. One shared object, so the compiled lines of a config without scripts are reused. */
+export const NO_SCRIPTS: ScriptValues = Object.freeze({});
+
+/** What a script name looks like: a letter or `_`, then letters, digits, `_` and `-`. */
+export const SCRIPT_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
 /** A key of the config made of an outcome for what no line matches and two lists of lines: `access` and `layout`. */
 export interface LineLists {
   default: 'allow' | 'deny';
@@ -22,8 +34,9 @@ export interface BucketPattern {
   /** One entry per `/` segment: `**`, or a matcher for the whole segment. */
   segments: Array<'**' | NameMatcher>;
   /**
-   * The specificity tuple: the number of literal segments, of segments with `*` or a group mixed with other text (such
-   * as `team-*` or `{api,web}`), of segments that are exactly `*`, and minus the number of `**` segments.
+   * The specificity tuple: the number of literal segments, of segments with `*`, a group or a script mixed with other
+   * text (such as `team-*`, `{api,web}` or `` `repos` ``), of segments that are exactly `*`, and minus the number of
+   * `**` segments.
    */
   specificity: [number, number, number, number];
 }
@@ -59,8 +72,13 @@ type Token = { kind: 'text'; text: string } | { kind: 'star' } | { kind: GroupKi
  * Parses one pattern. `**` as a whole segment matches zero or more bucket names, `*` matches any characters inside a
  * segment, and a group such as `{a,b}` matches one of its alternatives. Every other character is literal, except `|`,
  * which is an error. A segment can hold several groups, such as `{a,b}+{c,d}`.
+ *
+ * A script name in backticks, such as `` `repos` ``, stands for the values of that script. Inside a group it is one
+ * value between commas, and its values join the group. Outside a group it is a group of its own, so `` `repos` ``
+ * means `` {`repos`} ``. `scripts` gives the values of each script. Without it, any well-formed name is accepted with
+ * no values, which is enough to check the syntax and to read the canonical text.
  */
-export function parsePattern(text: string): { pattern: BucketPattern } | { error: string } {
+export function parsePattern(text: string, scripts?: ScriptValues): { pattern: BucketPattern } | { error: string } {
   if (text === '') return { error: 'is empty. Write a bucket path such as "root/billing", or "**" for every bucket.' };
   const segments: BucketPattern['segments'] = [];
   const specificity: BucketPattern['specificity'] = [0, 0, 0, 0];
@@ -73,7 +91,7 @@ export function parsePattern(text: string): { pattern: BucketPattern } | { error
       literal = false;
       continue;
     }
-    const parsed = tokenize(segment);
+    const parsed = tokenize(segment, scripts);
     if ('error' in parsed) return parsed;
     const { tokens } = parsed;
     const plain = tokens.every((t) => t.kind === 'text');
@@ -85,30 +103,58 @@ export function parsePattern(text: string): { pattern: BucketPattern } | { error
 }
 
 /**
- * Splits `text` at each `->` outside every group, so a group value that ends in `-`, as in `<a,b->`, stays whole. A
- * group runs from its opener to its closer, or to the end of the text when it has none.
+ * Splits `text` at each `->` outside every group and every script name, so a group value that ends in `-`, as in
+ * `<a,b->`, stays whole. A group or a script name runs from its opener to its closer, or to the end of the text when
+ * it has none.
  */
 export function splitAtArrows(text: string): string[] {
   const parts: string[] = [];
   let start = 0;
+  let close: string | null = null;
   let i = 0;
   while (i < text.length) {
-    if (text.startsWith('->', i)) {
+    if (text[i] === '`') {
+      const end = text.indexOf('`', i + 1);
+      i = end === -1 ? text.length : end + 1;
+    } else if (close !== null) {
+      if (text.startsWith(close, i)) {
+        i += close.length;
+        close = null;
+      } else i++;
+    } else if (text.startsWith('->', i)) {
       parts.push(text.slice(start, i));
       i += 2;
       start = i;
-      continue;
+    } else {
+      const group = groupAt(text, i);
+      if (group === undefined) i++;
+      else {
+        close = group.close;
+        i += group.open.length;
+      }
     }
-    const group = groupAt(text, i);
-    if (group === undefined) {
-      i++;
-      continue;
-    }
-    const end = text.indexOf(group.close, i + group.open.length);
-    i = end === -1 ? text.length : end + group.close.length;
   }
   parts.push(text.slice(start));
   return parts;
+}
+
+const SCRIPT_EXAMPLE = 'as in "{A,`repos`}"';
+
+/**
+ * Reads the script name in backticks that starts at `segment[i]`. Returns the values of the script and the index after
+ * the closing backtick, or says what is wrong.
+ */
+function readScript(segment: string, i: number, scripts: ScriptValues | undefined): { values: readonly string[]; end: number } | { error: string } {
+  const close = segment.indexOf('`', i + 1);
+  if (close === -1) return { error: `has a "\`" without a closing "\`" in "${segment}". Write a script name between two backticks, ${SCRIPT_EXAMPLE}.` };
+  const name = segment.slice(i + 1, close);
+  if (name === '') return { error: `has an empty script name "\`\`" in "${segment}". Write a script name between the backticks, ${SCRIPT_EXAMPLE}.` };
+  if (!SCRIPT_NAME.test(name)) {
+    return { error: `has "\`${name}\`" in "${segment}", which is not a script name. A script name starts with a letter or "_" and holds only letters, digits, "_" and "-". Backticks hold only a script name.` };
+  }
+  if (scripts === undefined) return { values: [], end: close + 1 };
+  if (!Object.hasOwn(scripts, name)) return { error: `uses the script "\`${name}\`" in "${segment}", but "scripts" has no script named "${name}". Add it to "scripts" or fix the name.` };
+  return { values: scripts[name]!, end: close + 1 };
 }
 
 /** Users write {a|b} for alternatives, and Windows forbids | in a folder name, so it is never a literal. */
@@ -134,7 +180,7 @@ function openerOf(close: string): string {
 }
 
 /** Splits a segment into tokens, or says what is wrong with it. */
-function tokenize(segment: string): { tokens: Token[] } | { error: string } {
+function tokenize(segment: string, scripts: ScriptValues | undefined): { tokens: Token[] } | { error: string } {
   const tokens: Token[] = [];
   let text = '';
   const flush = (): void => {
@@ -144,6 +190,14 @@ function tokenize(segment: string): { tokens: Token[] } | { error: string } {
   let i = 0;
   while (i < segment.length) {
     const char = segment[i]!;
+    if (char === '`') {
+      const script = readScript(segment, i, scripts);
+      if ('error' in script) return script;
+      flush();
+      tokens.push({ kind: 'any', values: [...script.values] });
+      i = script.end;
+      continue;
+    }
     if (char === '|') return barError(segment);
     const stray = closerAt(segment, i);
     if (stray !== null) return { error: `has a "${stray}" without a "${openerOf(stray)}" in "${segment}".` };
@@ -161,15 +215,34 @@ function tokenize(segment: string): { tokens: Token[] } | { error: string } {
     }
     flush();
     const { kind, open, close } = group;
-    const values = [''];
+    const values: string[] = [];
+    let value = '';
+    // The values of a script reference that makes up the current value, or null.
+    let script: readonly string[] | null = null;
+    const mixed = { error: `mixes a script name with other text in one value of "${segment}". A script name in backticks is a whole value between commas, ${SCRIPT_EXAMPLE}.` };
+    const endValue = (): void => {
+      if (script !== null) values.push(...script);
+      else values.push(value);
+      value = '';
+      script = null;
+    };
     let j = i + open.length;
     for (;;) {
       if (j >= segment.length) return { error: `has a "${open}" without a "${close}" in "${segment}".` };
       const inner = segment[j]!;
+      if (inner === '`') {
+        if (value !== '' || script !== null) return mixed;
+        const read = readScript(segment, j, scripts);
+        if ('error' in read) return read;
+        script = read.values;
+        j = read.end;
+        continue;
+      }
       if (inner === '|') return barError(segment);
       if (inner === '{' || inner === '<') return { error: `nests "${inner}" inside "${open}" in "${segment}". A group of alternatives cannot contain another group.` };
       const end = closerAt(segment, j);
       if (end === close) {
+        endValue();
         j += close.length;
         break;
       }
@@ -177,8 +250,9 @@ function tokenize(segment: string): { tokens: Token[] } | { error: string } {
       if (inner === '*' && kind !== 'any') {
         return { error: `has a "*" inside "${open}...${close}" in "${segment}". This group must list exact values, so write each value instead of "*".` };
       }
-      if (inner === ',') values.push('');
-      else values[values.length - 1] += inner;
+      if (inner === ',') endValue();
+      else if (script !== null) return mixed;
+      else value += inner;
       j++;
     }
     tokens.push({ kind, values });
@@ -202,6 +276,8 @@ function escapeText(text: string): string {
 function tokenSource(token: Token): string {
   if (token.kind === 'text') return escapeText(token.text);
   if (token.kind === 'star') return '.*';
+  // A group can be empty only while the syntax is checked without the values of its scripts. It matches nothing.
+  if (token.values.length === 0) return '(?!)';
   return `(?:${token.values.map((v) => v.split('*').map(escapeText).join('.*')).join('|')})`;
 }
 
@@ -327,23 +403,26 @@ export function decide<L extends GlobLine>(fallback: LineLists['default'], lines
 }
 
 /**
- * Parses every line of `lists` once per config object. A resolved config holds only valid lines, so a parse error
- * here is a bug.
+ * Parses every line of `lists` once per config object and set of script values. A resolved config holds only valid
+ * lines, so a parse error here is a bug, such as a line that names a script whose values were not passed.
  */
-export function compiler<L>(parse: (text: string) => { line: L } | { error: string }, key: string): (lists: LineLists) => { allow: L[]; deny: L[] } {
-  const compiled = new WeakMap<LineLists, { allow: L[]; deny: L[] }>();
-  return (lists) => {
-    let lines = compiled.get(lists);
-    if (lines === undefined) {
+export function compiler<L>(
+  parse: (text: string, scripts: ScriptValues) => { line: L } | { error: string },
+  key: string,
+): (lists: LineLists, scripts: ScriptValues) => { allow: L[]; deny: L[] } {
+  const compiled = new WeakMap<LineLists, { scripts: ScriptValues; lines: { allow: L[]; deny: L[] } }>();
+  return (lists, scripts) => {
+    let entry = compiled.get(lists);
+    if (entry === undefined || entry.scripts !== scripts) {
       const each = (list: string[]): L[] =>
         list.map((text) => {
-          const result = parse(text);
+          const result = parse(text, scripts);
           if ('error' in result) throw new Error(`Invalid ${key} line in a resolved config: ${result.error}`);
           return result.line;
         });
-      lines = { allow: each(lists.allow), deny: each(lists.deny) };
-      compiled.set(lists, lines);
+      entry = { scripts, lines: { allow: each(lists.allow), deny: each(lists.deny) } };
+      compiled.set(lists, entry);
     }
-    return lines;
+    return entry.lines;
   };
 }

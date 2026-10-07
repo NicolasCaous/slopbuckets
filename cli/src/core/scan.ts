@@ -1,6 +1,7 @@
 // Folder rules: walks the bucket tree, validates its shape and DMZ paths, and collects the files the adapter analyzes.
 import { existsSync, lstatSync, statSync } from 'node:fs';
 import path from 'node:path';
+import type { ScriptValues } from './bucket-glob.js';
 import type { ResolvedConfig } from './config.js';
 import { classifyDmzPath, EXTERNAL, type DmzFile } from './dmz-path.js';
 import { listDir, listFilesRecursive } from './fs-walk.js';
@@ -38,6 +39,8 @@ export interface ScanOptions {
   dmzExtension: string;
   /** Registered link folders (`<bucket>/_/links/<name>`). The scan accepts them as links and never enters them. */
   links?: ReadonlySet<string>;
+  /** The values of the scripts of the config, which the layout lines may name. */
+  scripts?: ScriptValues;
 }
 
 function misplacedViolation(config: ResolvedConfig, file: string): Violation {
@@ -124,7 +127,7 @@ export function scanProject(projectDir: string, config: ResolvedConfig, options:
     return layout;
   }
   // The root bucket always exists, so a layout that forbids it is reported and the scan goes on.
-  const rootDenied = layoutViolation(config, config.root, null);
+  const rootDenied = layoutViolation(config, config.root, null, options.scripts);
   if (rootDenied !== null) layout.violations.push(rootDenied);
   visitBucket(projectDir, config, options, layout, config.root, null, 0);
   layout.codeFiles.sort();
@@ -184,7 +187,7 @@ function visitBucket(
       notBuckets.push(entry.name);
     } else {
       // A folder the layout forbids is opaque too: one violation for it, and none for the folders inside it.
-      const denied = layoutViolation(config, entryPath, bucketPath);
+      const denied = layoutViolation(config, entryPath, bucketPath, options.scripts);
       if (denied === null) {
         childNames.push(entry.name);
       } else {

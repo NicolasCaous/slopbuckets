@@ -238,6 +238,69 @@ describe('{{...}} groups', () => {
   });
 });
 
+describe('script names in backticks', () => {
+  const scripts = { repos: ['api', 'web'], teams: ['b', 'a'], dash: ['x-'] };
+  const glob = (text: string) => {
+    const result = parsePattern(text, scripts);
+    if ('error' in result) throw new Error(result.error);
+    return result.pattern;
+  };
+  const all = (text: string, names: string[]): boolean[] => names.map((name) => matchesBucket(glob(text), name));
+
+  it('adds the values of the script to the group, next to fixed values', () => {
+    expect(all('root/{A,`repos`}', ['root/A', 'root/api', 'root/web', 'root/B', 'root/repos'])).toEqual([true, true, true, false, false]);
+    expect(all('root/svc-{`repos`,`teams`}', ['root/svc-api', 'root/svc-a', 'root/svc-x'])).toEqual([true, true, false]);
+  });
+
+  it('reads a bare name in a segment as a group of its own', () => {
+    expect(all('root/`repos`', ['root/api', 'root/web', 'root/other'])).toEqual([true, true, false]);
+    expect(all('root/svc-`repos`/*', ['root/svc-api/x', 'root/svc-web', 'root/svc-x/y'])).toEqual([true, false, false]);
+    expect(all('root/`repos`+`teams`', ['root/api+a', 'root/web+b', 'root/a+api'])).toEqual([true, true, false]);
+  });
+
+  it('follows the rules of the group it is in', () => {
+    expect(all('root/<`repos`>+<`repos`>', ['root/api+web', 'root/api+api'])).toEqual([true, false]);
+    expect(all('root/<<`teams`>>+<<`teams`>>', ['root/a+b', 'root/b+a', 'root/a+a'])).toEqual([true, false, false]);
+    expect(all('root/{{A,`teams`}}+{{A,`teams`}}', ['root/A+a', 'root/a+a', 'root/a+A'])).toEqual([true, true, false]);
+  });
+
+  it('treats the values as literal text', () => {
+    expect(all('root/`dash`', ['root/x-', 'root/x'])).toEqual([true, false]);
+  });
+
+  it('counts as a partial wildcard and is not literal', () => {
+    expect(glob('root/`repos`').literal).toBe(false);
+    expect(glob('root/`repos`').specificity).toEqual([1, 1, 0, 0]);
+    expect(glob('root/{A,`repos`}').specificity).toEqual([1, 1, 0, 0]);
+    expect(compareSpecificity(glob('root/api'), glob('root/`repos`'))).toBeGreaterThan(0);
+    expect(compareSpecificity(glob('root/`repos`'), glob('root/*'))).toBeGreaterThan(0);
+  });
+
+  it('checks only the syntax when no values are given', () => {
+    const result = parsePattern('root/{A,`anything`}');
+    expect('pattern' in result && result.pattern.text).toBe('root/{A,`anything`}');
+  });
+
+  it('splits an access line at the arrow outside the backticks', () => {
+    const result = parseAccessLine('root/{`dash`,b-} -> root/`repos`', scripts);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.line.text).toBe('root/{`dash`,b-} -> root/`repos`');
+  });
+
+  it.each([
+    ['root/`nope`', 'uses the script "`nope`" in "`nope`", but "scripts" has no script named "nope". Add it to "scripts" or fix the name.'],
+    ['root/`repos', 'has a "`" without a closing "`" in "`repos". Write a script name between two backticks, as in "{A,`repos`}".'],
+    ['root/{A,``}', 'has an empty script name "``" in "{A,``}". Write a script name between the backticks, as in "{A,`repos`}".'],
+    ['root/`re pos`', 'has "`re pos`" in "`re pos`", which is not a script name. A script name starts with a letter or "_" and holds only letters, digits, "_" and "-". Backticks hold only a script name.'],
+    ['root/`{a,b}`', 'has "`{a,b}`" in "`{a,b}`", which is not a script name. A script name starts with a letter or "_" and holds only letters, digits, "_" and "-". Backticks hold only a script name.'],
+    ['root/{a`repos`}', 'mixes a script name with other text in one value of "{a`repos`}". A script name in backticks is a whole value between commas, as in "{A,`repos`}".'],
+    ['root/{`repos`a}', 'mixes a script name with other text in one value of "{`repos`a}". A script name in backticks is a whole value between commas, as in "{A,`repos`}".'],
+    ['root/<`repos``teams`>', 'mixes a script name with other text in one value of "<`repos``teams`>". A script name in backticks is a whole value between commas, as in "{A,`repos`}".'],
+  ])('rejects %j', (text, error) => {
+    expect(parsePattern(text, scripts)).toEqual({ error });
+  });
+});
+
 describe('parseAccessLine', () => {
   it('puts the line in canonical form', () => {
     const result = parseAccessLine('  root/api/**->root/log ');

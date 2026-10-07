@@ -1,5 +1,6 @@
 // The joined view of the folder scan and the adapter response that every rule reads.
 import type { DmzExport } from '@slopbuckets/adapter-ts';
+import { NO_SCRIPTS, type ScriptValues } from './bucket-glob.js';
 import type { ResolvedConfig } from './config.js';
 import type { LinkedAnalyzeResponse } from './types.js';
 import { codeBucket, splitBucketPath } from './paths.js';
@@ -21,6 +22,8 @@ export interface Model {
    * approved the removal yet): the alias of each origin, mapped to the link path.
    */
   removedLinks: ReadonlyMap<string, string>;
+  /** The values of the scripts of the config, which the access lines may name. */
+  scripts: ScriptValues;
 }
 
 export interface LinkInfo {
@@ -36,6 +39,7 @@ export function buildModel(
   links: ReadonlySet<string> = new Set(),
   linkInfo: ReadonlyMap<string, LinkInfo> = new Map(),
   removedLinks: ReadonlyMap<string, string> = new Map(),
+  scripts: ScriptValues = NO_SCRIPTS,
 ): Model {
   const exports = new Map<string, Map<string, DmzExport>>();
   for (const file of layout.dmzFiles.keys()) {
@@ -45,7 +49,7 @@ export function buildModel(
     }
     exports.set(file, byName);
   }
-  return { config, layout, response, dmzExtension, exports, links, linkInfo, removedLinks };
+  return { config, layout, response, dmzExtension, exports, links, linkInfo, removedLinks, scripts };
 }
 
 function within(file: string, folder: string): boolean {

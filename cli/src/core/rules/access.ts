@@ -55,7 +55,7 @@ function failedImports(model: Model, access: AccessConfig, uses: DmzUse[], dmzFi
   const violations: Violation[] = [];
   const seen = new Set<string>();
   for (const edge of buildEdges(model, uses)) {
-    const decision = evaluateAccess(access, edge.from, edge.to);
+    const decision = evaluateAccess(access, edge.from, edge.to, model.scripts);
     if (decision.allowed) continue;
     const advice = decision.by === 'ambiguous' ? ambiguousAdvice : deniedAdvice;
     const head = heading(decision, `${edge.from} -> ${edge.to}`);
@@ -129,7 +129,7 @@ function failedReexports(model: Model, access: AccessConfig, reported: Set<strin
       const to = origin.bucket;
       // A consumer that is the origin itself uses its own code, which is never an edge.
       if (consumers.includes(to)) continue;
-      const decisions = consumers.map((consumer) => ({ consumer, decision: evaluateAccess(access, consumer, to) }));
+      const decisions = consumers.map((consumer) => ({ consumer, decision: evaluateAccess(access, consumer, to, model.scripts) }));
       if (decisions.some((d) => d.decision.allowed)) continue;
       const ambiguous = decisions.some((d) => d.decision.by === 'ambiguous');
       const who =

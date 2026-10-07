@@ -2,6 +2,7 @@
 // public contract described in SPEC.md ("Implementação"), so their values must not change.
 import type { AnalyzeRequest, AnalyzeResponse, InfoResponse, InitRequest, InitResponse } from '@slopbuckets/adapter-ts';
 import type { ResolvedConfig } from './config.js';
+import type { ScriptRunner } from './scripts.js';
 
 export type RuleId =
   | 'config-invalid'
@@ -179,6 +180,8 @@ export interface Adapter {
 export interface Context {
   adapter: Adapter;
   cliVersion: string;
+  /** Runs the scripts of the config. `runNodeScript` when absent; tests inject fakes. */
+  runScript?: ScriptRunner;
 }
 
 /** Raised for problems that stop the check with exit code 3. */

@@ -1,5 +1,6 @@
 // Layout rule: the `layout` lines of buckets.config.json decide which bucket folders may exist. The scan asks this
 // rule about every bucket folder it finds, and a folder that fails is not a bucket.
+import { NO_SCRIPTS, type ScriptValues } from '../bucket-glob.js';
 import type { ResolvedConfig } from '../config.js';
 import { evaluateLayout } from '../layout-glob.js';
 import { CONFIG_FILE } from '../paths.js';
@@ -9,12 +10,13 @@ const OWNER = `${CONFIG_FILE} belongs to a human, so an AI agent never edits it.
 
 /**
  * layout-denied or layout-ambiguous for the bucket folder `bucketPath`, or null when it may exist or the config has
- * no `layout`. `parent` is the bucket that holds the folder, null for the root bucket.
+ * no `layout`. `parent` is the bucket that holds the folder, null for the root bucket. `scripts` holds the values of
+ * the scripts of the config.
  */
-export function layoutViolation(config: ResolvedConfig, bucketPath: string, parent: string | null): Violation | null {
+export function layoutViolation(config: ResolvedConfig, bucketPath: string, parent: string | null, scripts: ScriptValues = NO_SCRIPTS): Violation | null {
   const layout = config.layout;
   if (layout === undefined) return null;
-  const decision = evaluateLayout(layout, bucketPath);
+  const decision = evaluateLayout(layout, bucketPath, scripts);
   if (decision.allowed) return null;
   const proposal = `"${bucketPath}" in layout.allow`;
   const ask = `stop and ask the human to change "layout" in ${CONFIG_FILE}, with the exact line you propose, such as ${proposal}`;

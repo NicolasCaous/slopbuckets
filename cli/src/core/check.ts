@@ -28,6 +28,7 @@ import { checkOrphans, type OrphanChain } from './rules/orphans.js';
 import { checkDmzTargets } from './rules/targets.js';
 import { aliasReuseViolations } from './project.js';
 import { scanProject } from './scan.js';
+import { resolveScripts } from './scripts.js';
 import { compareVersions } from './update.js';
 import {
   EnvironmentError,
@@ -400,6 +401,12 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
   }
   const config = configResult.config;
   const singleFile = options.file !== undefined;
+  // The scripts run before any line is matched, also for check --file, since their values decide what the lines match.
+  const resolved = resolveScripts(ctx, projectDir, config);
+  if ('violations' in resolved) {
+    return { report: { exitCode: 1, violations: [...resolved.violations].sort(compareViolations), lockChanges: [] }, orphanChains: [], nestedProjects: [] };
+  }
+  const scripts = resolved.values;
 
   let info: InfoResponse;
   try {
@@ -423,7 +430,7 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
   const manifest = readLinksManifest(projectDir);
   const requests = manifest.kind === 'ok' ? manifest.links : {};
   const linkSet = new Set(Object.keys(requests));
-  const layout = scanProject(projectDir, config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links: linkSet });
+  const layout = scanProject(projectDir, config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links: linkSet, scripts });
   const linkEntries = linkStatus(projectDir, requests, new Set(layout.buckets.keys()));
   const presentLinks = linkEntries.entries.filter(present);
   const request: LinkedAnalyzeRequest = {
@@ -476,7 +483,7 @@ export async function runCheck(ctx: Context, projectDir: string, options: CheckO
   normalizeLinkPaths(projectDir, response, linkSet);
 
   const linkInfo = new Map(linkEntries.entries.map((e) => [e.path, { alias: e.request.alias, present: present(e) }]));
-  const model = buildModel(config, layout, response, info.dmzExtension, linkSet, linkInfo, removedLinks(singleFile ? readLock(projectDir) : lockRead, requests));
+  const model = buildModel(config, layout, response, info.dmzExtension, linkSet, linkInfo, removedLinks(singleFile ? readLock(projectDir) : lockRead, requests), scripts);
   const imports = checkImports(model);
   const target = singleFile ? normalizeTarget(projectDir, options.file!) : null;
   // When the single file is a DMZ file, cycles and denied edges that pass through its re-exports are reported on it too.

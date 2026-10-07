@@ -31,6 +31,7 @@ import { CONFIG_FILE, relativeToProject, splitBucketPath, toPosix } from '../cor
 import { findProjectDir } from '../core/project.js';
 import { discoverProjects } from '../core/recursive.js';
 import { scanProject } from '../core/scan.js';
+import { resolveScripts } from '../core/scripts.js';
 import { addLinkExclude, addLinkPath, bundlerInstructions, removeLinkExclude, removeLinkPath, TSCONFIG, type ExcludeEdit, type TsconfigEdit } from '../core/tsconfig-paths.js';
 import type { Context } from '../core/types.js';
 import type { Io } from './io.js';
@@ -144,10 +145,15 @@ function parseFlags(args: string[], allowed: { bucket?: boolean; copy?: boolean;
   return { positional, ...(bucket !== undefined ? { bucket } : {}), copy, recursive };
 }
 
-/** The buckets the scan finds in a project, the only places where a link folder may be created or deleted. */
+/**
+ * The buckets the scan finds in a project, the only places where a link folder may be created or deleted. Throws a
+ * LinkError when a script of the config fails, because the layout lines may need its values.
+ */
 function scannedBuckets(ctx: Context, dir: string, config: ResolvedConfig, links: Record<string, LinkRequest>): Set<string> {
   const info = ctx.adapter.info();
-  const layout = scanProject(dir, config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links: new Set(Object.keys(links)) });
+  const scripts = resolveScripts(ctx, dir, config);
+  if ('violations' in scripts) throw new LinkError(`A script of ${CONFIG_FILE} in ${dir} failed. Run \`buckets check\` to see why, fix it, and try again.`);
+  const layout = scanProject(dir, config, { extensions: info.extensions, dmzExtension: info.dmzExtension, links: new Set(Object.keys(links)), scripts: scripts.values });
   return new Set(layout.buckets.keys());
 }
 
@@ -326,7 +332,16 @@ async function syncLinks(ctx: Context, io: Io, args: string[]): Promise<number> 
       failed++;
       continue;
     }
-    const buckets = scannedBuckets(ctx, dir, config.config, manifest.links);
+    let buckets: Set<string>;
+    try {
+      buckets = scannedBuckets(ctx, dir, config.config, manifest.links);
+    } catch (error) {
+      if (!(error instanceof LinkError)) throw error;
+      io.stderr(`${error.message} The links of ${rel} were not synced.
+`);
+      failed++;
+      continue;
+    }
     const prefix = rel === '.' ? '' : `${rel}/`;
     for (const [p, request] of Object.entries(manifest.links).sort(([a], [b]) => (a < b ? -1 : 1))) {
       const problem = linkPathProblem(p, buckets);

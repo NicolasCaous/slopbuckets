@@ -48,6 +48,16 @@ describe('validateConfig', () => {
     ['layout line outside the root path', { layout: { default: 'deny', allow: ['src/*'] } }],
     ['layout line listed twice', { layout: { default: 'deny', allow: ['root/*', ' root/* '] } }],
     ['layout line in both allow and deny', { layout: { default: 'deny', allow: ['root/a'], deny: ['root/a'] } }],
+    ['scripts not an object', { scripts: ['tools/repos.js'] }],
+    ['script name with a space', { scripts: { 're pos': 'tools/repos.js' } }],
+    ['script name starting with a digit', { scripts: { '1repos': 'tools/repos.js' } }],
+    ['script path not a string', { scripts: { repos: 1 } }],
+    ['empty script path', { scripts: { repos: ' ' } }],
+    ['absolute script path', { scripts: { repos: '/tools/repos.js' } }],
+    ['script path with a drive letter', { scripts: { repos: 'C:\\tools\\repos.js' } }],
+    ['line naming an unknown script', { scripts: { repos: 'tools/repos.js' }, layout: { default: 'deny', allow: ['root/`nope`'] } }],
+    ['access line naming a script without "scripts"', { access: { default: 'deny', allow: ['root/`repos` -> root/log'] } }],
+    ['line mixing a script name with text in a value', { scripts: { repos: 'r.js' }, layout: { default: 'deny', allow: ['root/{a`repos`}'] } }],
   ])('rejects %s', (_name, raw) => {
     const result = validateConfig(raw);
     expect(result.config).toBeUndefined();
@@ -193,6 +203,48 @@ describe('layout', () => {
     const c = configHash(validateConfig({ layout: { default: 'deny', allow: ['root/*/*'] } }).config!);
     expect(a).toBe(b);
     expect(a).not.toBe(c);
+  });
+});
+
+describe('scripts', () => {
+  it('stores each script path with "/" separators and accepts lines that name the scripts', () => {
+    const { config, violations } = validateConfig({
+      scripts: { repos: 'tools\\repos.js', _teams: './tools/teams.mjs' },
+      layout: { default: 'deny', allow: ['root/{A,`repos`}', 'root/`_teams`/*'] },
+      access: { default: 'deny', allow: ['root/`repos` -> root/<`_teams`>'] },
+    });
+    expect(violations).toEqual([]);
+    expect(config?.scripts).toEqual({ repos: 'tools/repos.js', _teams: 'tools/teams.mjs' });
+    expect(config?.layout?.allow).toEqual(['root/`_teams`/*', 'root/{A,`repos`}']);
+    expect(config?.access?.allow).toEqual(['root/`repos` -> root/<`_teams`>']);
+  });
+
+  it('says which script a line names that "scripts" does not list', () => {
+    const { violations } = validateConfig({ scripts: { repos: 'tools/repos.js' }, layout: { default: 'deny', allow: ['root/`repo`'] } });
+    expect(violations.map((v) => v.message)).toEqual([
+      'Field "layout.allow" has a line that is not valid. "root/`repo`" uses the script "`repo`" in "`repo`", but "scripts" has no script named "repo". Add it to "scripts" or fix the name. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+  });
+
+  it('does not report the names a second time when "scripts" itself is broken', () => {
+    const { violations } = validateConfig({ scripts: 'tools/repos.js', layout: { default: 'deny', allow: ['root/`repos`'] } });
+    expect(violations.map((v) => v.message)).toEqual([expect.stringContaining('Field "scripts" must be an object')]);
+  });
+
+  it('leaves the key out of the resolved config when the file has none', () => {
+    expect('scripts' in validateConfig({ root: 'root' }).config!).toBe(false);
+  });
+
+  it('is config-invalid when a script file does not exist, and accepts one that does', () => {
+    const config = JSON.stringify({ root: 'root', scripts: { repos: 'tools/repos.js' } });
+    const missing = loadConfig(makeProject({ 'buckets.config.json': config, 'root/_/a.ts': '' }, false));
+    expect(missing.kind === 'invalid' && missing.violations.map((v) => v.message)).toEqual([
+      'Field "scripts.repos" names the file tools/repos.js, which does not exist or is not a file. The path is relative to the folder of buckets.config.json. Create the script or fix the path. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+    const folder = loadConfig(makeProject({ 'buckets.config.json': config, 'tools/repos.js/x': '' }, false));
+    expect(folder.kind).toBe('invalid');
+    const present = loadConfig(makeProject({ 'buckets.config.json': config, 'tools/repos.js': '' }, false));
+    expect(present.kind).toBe('ok');
   });
 });
 

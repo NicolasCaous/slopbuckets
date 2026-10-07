@@ -1,9 +1,9 @@
 // Loading and validation of buckets.config.json. The rules mirror site/schema/v1.json, checked by hand
 // so the CLI has no runtime dependency.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { parseAccessLine, type AccessConfig } from './access-glob.js';
-import { rootPrefixProblem, type GlobLine, type LineLists } from './bucket-glob.js';
+import { rootPrefixProblem, SCRIPT_NAME, type GlobLine, type LineLists, type ScriptValues } from './bucket-glob.js';
 import { parseLayoutLine, type LayoutConfig } from './layout-glob.js';
 import { canonicalJson, sha256 } from './hash.js';
 import { parseJson } from './json.js';
@@ -17,6 +17,11 @@ export interface ResolvedConfig {
   adapter: string;
   root: string;
   alias: string;
+  /**
+   * The scripts that access and layout lines name in backticks: script name to file, relative to the project folder
+   * with `/` separators. Absent when the config has no `scripts` key.
+   */
+  scripts?: Record<string, string>;
   /** Absent when the config has no `access` key, so the hash of a config without it stays the same. */
   access?: AccessConfig;
   /** Absent when the config has no `layout` key. Then any bucket folder may exist. */
@@ -26,7 +31,7 @@ export interface ResolvedConfig {
 export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', alias: '@root' };
 
 const ADAPTERS = ['ts'];
-const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'access', 'layout']);
+const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'scripts', 'access', 'layout']);
 const LINES_KEYS = new Set(['default', 'allow', 'deny']);
 
 export type ConfigResult =
@@ -48,7 +53,7 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
   for (const key of Object.keys(obj)) {
     // maxDepth has a message of its own below, once the root path is known.
     if (!KNOWN_KEYS.has(key) && key !== 'maxDepth') {
-      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, access and layout.`));
+      violations.push(invalid(`Unknown field "${key}" in ${CONFIG_FILE}. Remove it. The allowed fields are adapter, root, alias, scripts, access and layout.`));
     }
   }
   const config: ResolvedConfig = { ...DEFAULT_CONFIG };
@@ -92,17 +97,63 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
 
   if ('maxDepth' in obj) violations.push(removedMaxDepth(obj.maxDepth, config.root));
 
+  if ('scripts' in obj) {
+    const scripts = validateScripts(obj.scripts, violations);
+    if (scripts) config.scripts = scripts;
+  }
+  const names = scriptNames(obj.scripts);
+
   if ('access' in obj) {
-    const access = validateLines(ACCESS_KEY, obj.access, config.root, violations);
+    const access = validateLines(ACCESS_KEY, obj.access, config.root, names, violations);
     if (access) config.access = access;
   }
 
   if ('layout' in obj) {
-    const layout = validateLines(LAYOUT_KEY, obj.layout, config.root, violations);
+    const layout = validateLines(LAYOUT_KEY, obj.layout, config.root, names, violations);
     if (layout) config.layout = layout;
   }
 
   return violations.length > 0 ? { violations } : { config, violations };
+}
+
+/**
+ * Validates the `scripts` field: an object from script name to the path of a Node script, relative to the project
+ * folder. Pushes the problems into `violations`. `loadConfig` checks that each file exists.
+ */
+function validateScripts(raw: unknown, violations: Violation[]): Record<string, string> | undefined {
+  const example = '{"repos": "tools/repos.js"}';
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    violations.push(ownedInvalid(`Field "scripts" must be an object from script name to script file, such as ${example}. Fix it or remove it.`));
+    return undefined;
+  }
+  const before = violations.length;
+  const scripts: Record<string, string> = {};
+  for (const [name, file] of Object.entries(raw as Record<string, unknown>)) {
+    if (!SCRIPT_NAME.test(name)) {
+      violations.push(ownedInvalid(`Field "scripts" has the script name "${name}". A script name starts with a letter or "_" and holds only letters, digits, "_" and "-", such as "repos".`));
+      continue;
+    }
+    if (typeof file !== 'string' || file.trim() === '') {
+      violations.push(ownedInvalid(`Field "scripts.${name}" must be the path of a Node script relative to the folder of ${CONFIG_FILE}, such as "tools/repos.js".`));
+      continue;
+    }
+    if (path.isAbsolute(file) || /^[a-zA-Z]:/.test(file) || toPosix(file).startsWith('/')) {
+      violations.push(ownedInvalid(`Field "scripts.${name}" is the absolute path "${file}". Use a path relative to the folder of ${CONFIG_FILE}, such as "tools/repos.js".`));
+      continue;
+    }
+    scripts[name] = path.posix.normalize(toPosix(file));
+  }
+  return violations.length > before ? undefined : scripts;
+}
+
+/**
+ * The script names that access and layout lines may use, each with no values, which is enough to check the syntax.
+ * Undefined when `scripts` is not an object, so the lines are checked without reporting unknown names a second time.
+ */
+function scriptNames(raw: unknown): ScriptValues | undefined {
+  if (raw === undefined) return {};
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  return Object.fromEntries(Object.keys(raw).map((name) => [name, []]));
 }
 
 /**
@@ -132,7 +183,7 @@ interface LinesKey {
   example: string;
   /** What `default` decides, for the message about a missing default. */
   decides: string;
-  parse: (text: string) => { line: GlobLine } | { error: string };
+  parse: (text: string, scripts?: ScriptValues) => { line: GlobLine } | { error: string };
   /** How a message names pattern `index` of a line, such as `The left side "root/api" of "root/api -> root/log"`. */
   names: (line: GlobLine, index: number) => string;
 }
@@ -157,7 +208,7 @@ const LAYOUT_KEY: LinesKey = {
  * Validates the `access` or `layout` field and puts every line in canonical form. Pushes the problems into
  * `violations`.
  */
-function validateLines(spec: LinesKey, raw: unknown, root: string, violations: Violation[]): LineLists | undefined {
+function validateLines(spec: LinesKey, raw: unknown, root: string, scripts: ScriptValues | undefined, violations: Violation[]): LineLists | undefined {
   const { key, example } = spec;
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     violations.push(ownedInvalid(`Field "${key}" must be an object such as {"default": "deny", "allow": ["${example}"]}. Fix it or remove it.`));
@@ -186,7 +237,7 @@ function validateLines(spec: LinesKey, raw: unknown, root: string, violations: V
         violations.push(ownedInvalid(`Field "${key}.${list}" must contain only strings, such as "${example}".`));
         continue;
       }
-      const parsed = spec.parse(item);
+      const parsed = spec.parse(item, scripts);
       if ('error' in parsed) {
         violations.push(ownedInvalid(`Field "${key}.${list}" has a line that is not valid. ${parsed.error}`));
         continue;
@@ -254,6 +305,8 @@ export function loadConfig(projectDir: string): ConfigResult {
   }
   const { config, violations } = validateConfig(raw);
   if (!config) return { kind: 'invalid', violations };
+  const missing = missingScripts(projectDir, config);
+  if (missing.length > 0) return { kind: 'invalid', violations: missing };
   const onDisk = rootCaseOnDisk(projectDir, config.root);
   if (onDisk !== null) {
     return {
@@ -266,6 +319,23 @@ export function loadConfig(projectDir: string): ConfigResult {
     };
   }
   return { kind: 'ok', config };
+}
+
+/** A config-invalid violation for each script file that does not exist or is not a file. */
+function missingScripts(projectDir: string, config: ResolvedConfig): Violation[] {
+  const violations: Violation[] = [];
+  for (const [name, file] of Object.entries(config.scripts ?? {})) {
+    let isFile = false;
+    try {
+      isFile = statSync(path.join(projectDir, file)).isFile();
+    } catch {
+      isFile = false;
+    }
+    if (!isFile) {
+      violations.push(ownedInvalid(`Field "scripts.${name}" names the file ${file}, which does not exist or is not a file. The path is relative to the folder of ${CONFIG_FILE}. Create the script or fix the path.`));
+    }
+  }
+  return violations;
 }
 
 /**
