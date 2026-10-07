@@ -3,18 +3,19 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { lstat, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { configHash } from './config.js';
 import { sortKeys, textHash } from './hash.js';
 import { parseJson } from './json.js';
+import { configChangeText, configDiff, lockConfig } from './lock-config.js';
 import type { Model } from './model.js';
 import { LOCK_FILE } from './paths.js';
 import type { Lock, LockChange, LockLink } from './types.js';
 
 /**
  * The format this CLI writes. Version 2 added `projects`, `links` and `dmz.<file>.external`. Version 3 changed links
- * to source links: each one records the origin's alias and published signatures, and `external` is gone.
+ * to source links: each one records the origin's alias and published signatures, and `external` is gone. Version 4
+ * stores the resolved config itself in `config` instead of its hash, so a review can show what changed in it.
  */
-export const LOCK_VERSION = 3;
+export const LOCK_VERSION = 4;
 
 /** True for a lock format this CLI reads: the current one and older ones, whose missing sections count as empty. */
 export function isSupportedLockVersion(version: number): boolean {
@@ -50,7 +51,7 @@ export function computeLockFromModel(
     lockVersion: LOCK_VERSION,
     cli: versions.cli,
     adapter,
-    config: configHash(model.config),
+    config: lockConfig(model.config),
     buckets: [...model.layout.buckets.keys()].sort(),
     dmz,
   };
@@ -124,6 +125,25 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string');
+}
+
+/**
+ * The config of a version 4 lock: an object. `access`, when present, must have the shape the review reads. Other
+ * keys may hold any JSON value, so a key that a later version adds still reads and shows up in a diff.
+ */
+function validateConfigObject(config: unknown): string | null {
+  if (config === undefined) return 'config is missing';
+  if (config === null || typeof config !== 'object' || Array.isArray(config)) return 'config is malformed';
+  const access = (config as Record<string, unknown>).access;
+  if (access === undefined) return null;
+  if (access === null || typeof access !== 'object' || Array.isArray(access)) return 'config.access is malformed';
+  const a = access as Record<string, unknown>;
+  if ((a.default !== 'allow' && a.default !== 'deny') || !isStringArray(a.allow) || !isStringArray(a.deny)) return 'config.access is malformed';
+  return null;
+}
+
 function validateLock(raw: unknown): string | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return 'it is not a JSON object';
   const lock = raw as Record<string, unknown>;
@@ -135,7 +155,8 @@ function validateLock(raw: unknown): string | null {
   }
   if (adapter.toolchain !== undefined && typeof adapter.toolchain !== 'string') return 'adapter.toolchain is malformed';
   if (!isSupportedLockVersion(lock.lockVersion)) return null; // a newer format; the version check reports it
-  if (typeof lock.config !== 'string') return 'config is missing';
+  const configProblem = lock.lockVersion >= 4 ? validateConfigObject(lock.config) : typeof lock.config === 'string' ? null : 'config is missing';
+  if (configProblem !== null) return configProblem;
   if (!Array.isArray(lock.buckets) || !lock.buckets.every((b) => typeof b === 'string')) return 'buckets is malformed';
   const dmz = lock.dmz;
   if (dmz === null || typeof dmz !== 'object' || Array.isArray(dmz)) return 'dmz is malformed';
@@ -273,8 +294,14 @@ export function diffLocks(previous: Lock, current: Lock): LockChange[] {
   for (const p of previous.projects ?? []) {
     if (!projectsAfter.has(p)) changes.push({ kind: 'project-removed', path: p, message: `Nested project ${p} was removed since the lock was approved. ${REFRESH}` });
   }
-  if (previous.config !== current.config) {
-    changes.push({ kind: 'config-changed', path: 'buckets.config.json', message: `buckets.config.json changed since the lock was approved. ${REFRESH}` });
+  const config = configDiff(previous.config, current.config);
+  if (config !== null) {
+    const what = config.recorded
+      ? config.changes.length > 0
+        ? `: ${config.changes.map(configChangeText).join('; ')}`
+        : ''
+      : `. The approved lock (version ${previous.lockVersion}) stored only a hash of the config, so the old values are unknown`;
+    changes.push({ kind: 'config-changed', path: 'buckets.config.json', message: `buckets.config.json changed since the lock was approved${what}. ${REFRESH}` });
   }
   const files = new Set([...Object.keys(previous.dmz), ...Object.keys(current.dmz)]);
   for (const file of [...files].sort()) {

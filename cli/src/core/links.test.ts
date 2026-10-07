@@ -232,7 +232,7 @@ describe('links in the check', () => {
     const lock = await approve(dir, ctx);
     expect(ctx.adapter.analyzeCalls[0]!.links).toEqual([{ path: LINK, alias: '@api' }]);
     expect(ctx.adapter.analyzeCalls[0]!.files.code.some((f) => f.includes('links'))).toBe(false);
-    expect(lock.lockVersion).toBe(3);
+    expect(lock.lockVersion).toBe(4);
     expect(lock.links).toEqual({
       [LINK]: {
         name: 'api',

@@ -8,7 +8,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   REFRESH_ALLOWED,
   REFRESH_DENIED,
@@ -37,10 +37,10 @@ describe('gemini before-tool', () => {
 
   it('denies write_file and replace on the lock under any name', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'write_file', { file_path: name, content: '{}' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'write_file', { file_path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
       const replace = tool(dir, 'BeforeTool', 'replace', { file_path: name, old_string: '"a"', new_string: '"b"', expected_replacements: 1 });
-      expect(await runAdapter(geminiAdapter, 'before-tool', replace, dir)).toEqual({ code: 0, out: DENY, err: '' });
+      expect(await runAdapter(geminiAdapter, 'before-tool', replace, dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
     }
   });
 

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { LOCK_DENY_REASON, lockNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
 import { KIRO_HOOK_FILE, KIRO_V1_HOOK, kiroAdapter } from './kiro.js';
 
 afterEach(cleanupProjects);
@@ -25,9 +25,9 @@ describe('kiro pre-tool-use', () => {
 
   it('denies a write to the lock under any name and any write tool, with exit code 2', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
+    for (const [name, as] of guardedNames(dir)) {
       for (const tool of ['fs_write', 'write', 'str_replace', 'fs_append']) {
-        expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command: 'str_replace', path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual(DENIED);
+        expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, tool, { command: 'str_replace', path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual(as(DENIED));
       }
     }
     expect(await runAdapter(kiroAdapter, 'pre-tool-use', payload(dir, 'delete_file', { explanation: 'cleanup', targetFile: 'buckets.lock.json' }), dir)).toEqual(DENIED);

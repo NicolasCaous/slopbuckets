@@ -7,6 +7,7 @@ import { runCheck } from '../core/check.js';
 import type { ResolvedConfig } from '../core/config.js';
 import { sha256 } from '../core/hash.js';
 import { diffLocks, isSupportedLockVersion, own, serializeLock } from '../core/lock.js';
+import { configDiff, type ConfigChange } from '../core/lock-config.js';
 import { LOCK_FILE } from '../core/paths.js';
 import { discoverProjects } from '../core/recursive.js';
 import type { OrphanChain } from '../core/rules/orphans.js';
@@ -55,7 +56,18 @@ export interface LockReview {
   /** True when there is no lock yet, so approving creates it. */
   fresh: boolean;
   versions: VersionRow[];
-  config: { changed: boolean; current: ResolvedConfig };
+  config: {
+    changed: boolean;
+    /** The config approving records. */
+    current: ResolvedConfig;
+    /**
+     * False when the approved lock (version 1 to 3) stored only a hash of the config, so the old values are unknown:
+     * `changes` is empty and a page shows `current` instead.
+     */
+    recorded: boolean;
+    /** What changed in the config, each access line on its own. Empty when nothing changed or `recorded` is false. */
+    changes: ConfigChange[];
+  };
   buckets: { added: string[]; removed: string[] };
   dmz: DmzFileRow[];
   /** Nested projects added or removed. */
@@ -301,11 +313,17 @@ export function buildReview(options: {
     counts.total = 1;
   }
   const hash = reviewHash(options.lockText, next);
+  const config = previous !== null && changes.some((c) => c.kind === 'config-changed') ? configDiff(previous.config, next.config) : null;
   return {
     project: { name: projectName(projectDir), folder: path.basename(path.resolve(projectDir)), dir: projectDir, path: options.path ?? '.' },
     fresh: previous === null,
     versions,
-    config: { changed: changes.some((c) => c.kind === 'config-changed'), current: options.config },
+    config: {
+      changed: config !== null,
+      current: typeof next.config === 'string' ? options.config : next.config,
+      recorded: config?.recorded ?? true,
+      changes: config?.changes ?? [],
+    },
     buckets,
     dmz,
     projects,

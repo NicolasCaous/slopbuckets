@@ -6,6 +6,7 @@ import { renderMapSvg, type MapEdge } from '../inspect/map-svg.js';
 import type { ProjectSnapshot } from '../inspect/snapshot.js';
 import { approvalDiff, approvalMapData, lockView, WORKING, type TimelinePoint, type TimelineTrack } from '../inspect/timeline.js';
 import { diffLocks } from '../core/lock.js';
+import { configChangeDetail, configChangeLabel, configChangeSign } from '../core/lock-config.js';
 import { plural } from '../output/text.js';
 import { html, raw, type SafeHtml } from './html.js';
 import { clean, code, copyButton, currentProject, defaultState, href, pruneMap, screen, shownBucket, type PageInput } from './inspect-page.js';
@@ -213,7 +214,10 @@ function dmzRow(row: DmzFileRow): SafeHtml[] {
 function reviewRows(review: LockReview): SafeHtml[] {
   const rows: SafeHtml[] = [];
   for (const v of review.versions) rows.push(signRow('~', v.label, html`<span translate="no">${v.before}</span> <span class="dim">to</span> <span translate="no">${v.after}</span>`));
-  if (review.config.changed) rows.push(signRow('~', 'config', code('buckets.config.json')));
+  if (review.config.changed) {
+    rows.push(signRow('~', 'config', code('buckets.config.json'), review.config.recorded ? undefined : 'old values not recorded'));
+    for (const change of review.config.changes) rows.push(signRow(configChangeSign(change), `config ${configChangeLabel(change)}`, code(configChangeDetail(change))));
+  }
   for (const b of review.buckets.added) rows.push(signRow('+', 'bucket', code(b)));
   for (const b of review.buckets.removed) rows.push(signRow('-', 'bucket', code(b)));
   for (const p of review.projects) rows.push(signRow(p.sign, 'nested project', code(p.path)));

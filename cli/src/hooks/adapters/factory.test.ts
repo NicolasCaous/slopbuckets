@@ -9,7 +9,7 @@ import {
   installSuite,
   line,
   LOCK_DENY_REASON,
-  lockNames,
+  guardedNames,
   newSessionId,
   patch,
   REFRESH_ALLOWED,
@@ -41,12 +41,12 @@ describe('factory pre-tool-use', () => {
 
   it('denies Create, Edit and ApplyPatch on the lock under any name', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Create', { file_path: name, content: '{}' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Edit', { file_path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Create', { file_path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
+      expect(await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'Edit', { file_path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
       const text = patch([`*** Update File: ${name}`, '@@', '-a', '+b']);
-      expect((await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'ApplyPatch', text), dir)).out).toBe(DENY);
-      expect((await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'ApplyPatch', { patch: text }), dir)).out).toBe(DENY);
+      expect((await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'ApplyPatch', text), dir)).out).toBe(as(DENY));
+      expect((await runAdapter(factoryAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'ApplyPatch', { patch: text }), dir)).out).toBe(as(DENY));
     }
   });
 

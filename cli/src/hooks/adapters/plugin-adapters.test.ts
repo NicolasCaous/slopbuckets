@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hookCommand } from '../../commands/hook.js';
 import { approve, fakeIo, testContext } from '../../testing/harness.js';
 import { cleanupProjects, fileExists, LOGGER_PROJECT, makeProject, readFile, writeFile } from '../../testing/fixture.js';
-import { LOCK_DENY_REASON } from '../core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON } from '../core.js';
 import { PLUGIN_MARKER } from '../plugin-file.js';
-import { LOWERCASE_READ_DENY_REASON, parsePluginInput } from '../plugin-protocol.js';
+import { LOWERCASE_READ_DENY_REASON, lowercaseReadTool, parsePluginInput } from '../plugin-protocol.js';
 import { findAdapter } from '../registry.js';
 import { AMP_PLUGIN_FILE, ampToolCall } from './amp.js';
 import { OPENCODE_PLUGIN_FILE, opencodeToolCall } from './opencode.js';
@@ -65,6 +65,14 @@ describe.each(CASES)('buckets hook --agent $agent ($name)', ({ agent, write, she
     });
     expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write('buckets.lock.json') }, dir)).answer.decision).toBe('deny');
     expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write(path.join(dir, 'root/_/main.ts')) }, dir)).answer).toEqual({ decision: 'allow' });
+  });
+
+  it('denies a write or a shell command on the root or a nested buckets.config.json with the config reason', async () => {
+    const dir = makeProject(LOGGER_PROJECT);
+    const deny = { decision: 'deny', reason: reason === LOCK_DENY_REASON ? CONFIG_DENY_REASON : lowercaseReadTool(CONFIG_DENY_REASON) };
+    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write(path.join(dir, 'buckets.config.json')) }, dir)).answer).toEqual(deny);
+    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write('root/log/_/engine/buckets.config.json') }, dir)).answer).toEqual(deny);
+    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('cat buckets.config.json') }, dir)).answer).toEqual(deny);
   });
 
   it('denies plain buckets refresh and allows buckets refresh --web', async () => {

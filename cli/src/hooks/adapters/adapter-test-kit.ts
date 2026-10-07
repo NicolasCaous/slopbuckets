@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 import { LOGGER_PROJECT, makeProject } from '../../testing/fixture.js';
 import { approve, fakeIo, testContext } from '../../testing/harness.js';
 import type { HookAdapter } from '../adapter.js';
-import { LOCK_DENY_REASON, postEdit, stop } from '../core.js';
+import { CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, stop } from '../core.js';
 import { parseJson } from '../../core/json.js';
 import { unwrapFailOpen } from './hook-kit.js';
 
@@ -61,6 +61,30 @@ export function lockNames(dir: string): string[] {
     'BUCKETS.LOCK.JSON.',
     './root/../buckets.lock.json',
   ];
+}
+
+/** Paths a config write may take: the root config under several names and the config of a nested project. */
+export function configNames(dir: string): string[] {
+  return ['buckets.config.json', path.join(dir, 'buckets.config.json'), 'buckets.config.json::$DATA', 'BUCKETS.CONFIG.JSON.', 'root/log/_/engine/buckets.config.json'];
+}
+
+/** The expected answer to a config write: the expected lock answer with the config reason in place of the lock reason. */
+export function asConfigDeny<T>(expected: T): T {
+  const escaped = (text: string) => JSON.stringify(text).slice(1, -1);
+  const swap = (value: unknown): unknown => {
+    if (typeof value === 'string') return value.split(LOCK_DENY_REASON).join(CONFIG_DENY_REASON).split(escaped(LOCK_DENY_REASON)).join(escaped(CONFIG_DENY_REASON));
+    if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, swap(v)]));
+    return value;
+  };
+  return swap(expected) as T;
+}
+
+/**
+ * Every guarded path a write may take, each with the rewrite of the expected lock answer: the lock names unchanged,
+ * then the config names with `asConfigDeny`.
+ */
+export function guardedNames(dir: string): [string, <T>(expected: T) => T][] {
+  return [...lockNames(dir).map((name): [string, <T>(expected: T) => T] => [name, (expected) => expected]), ...configNames(dir).map((name): [string, <T>(expected: T) => T] => [name, asConfigDeny])];
 }
 
 /** A patch text in the apply_patch format with CRLF or LF line ends. */

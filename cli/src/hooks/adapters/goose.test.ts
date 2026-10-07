@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { cleanProject, installSuite, line, LOCK_DENY_REASON, lockNames, newSessionId, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, stopReportFor, violationProject } from './adapter-test-kit.js';
+import { cleanProject, installSuite, line, LOCK_DENY_REASON, guardedNames, newSessionId, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, stopReportFor, violationProject } from './adapter-test-kit.js';
 import { GOOSE_HOOKS_FILE, GOOSE_MANIFEST, GOOSE_MATCHER, gooseAdapter } from './goose.js';
 
 afterEach(cleanupProjects);
@@ -27,10 +27,10 @@ describe('goose pre-tool-use', () => {
 
   it('blocks a write or edit of the lock under any name', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) {
-      expect(await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'write', { path: name, content: '{}' }), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, before: 'a', after: 'b' }), dir)).out).toBe(DENY);
-      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'str_replace', path: name }), dir)).out).toBe(DENY);
+    for (const [name, as] of guardedNames(dir)) {
+      expect(await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'write', { path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
+      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, before: 'a', after: 'b' }), dir)).out).toBe(as(DENY));
+      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'str_replace', path: name }), dir)).out).toBe(as(DENY));
     }
     expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'view', path: 'buckets.lock.json' }), dir)).out).toBe(ALLOW);
   });

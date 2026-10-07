@@ -5,6 +5,7 @@ import { cleanupProjects, LOGGER_PROJECT, makeProject, removeFile, writeFile } f
 import { approve, checkProject, pairs, testContext } from '../testing/harness.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { readLock, serializeLock, writeLockFile } from './lock.js';
+import { lockConfigHash } from './lock-config.js';
 import { aggregateExitCode, discoverProjects, joinReports, runRecursiveCheck } from './recursive.js';
 import { scanProject } from './scan.js';
 import type { CheckReport } from './types.js';
@@ -88,7 +89,7 @@ describe('nested projects in the check of the parent', () => {
   it('reads a lock of version 1 without the new sections and keeps comparing it', async () => {
     const dir = makeProject(LOGGER_PROJECT);
     const lock = await approve(dir);
-    writeFileSync(path.join(dir, 'buckets.lock.json'), serializeLock({ ...lock, lockVersion: 1 }));
+    writeFileSync(path.join(dir, 'buckets.lock.json'), serializeLock({ ...lock, lockVersion: 1, config: lockConfigHash(lock.config) }));
     const result = await checkProject(dir);
     expect(result.report.exitCode).toBe(0);
     expect(result.previousLock?.lockVersion).toBe(1);
@@ -174,7 +175,7 @@ describe('recursive check', () => {
     expect(lock.kind === 'ok' && lock.lock.projects).toEqual(['root/_/inner']);
     const top = readLock(dir);
     expect(top.kind === 'ok' && top.lock.projects).toEqual(['root/billing/_/engine']);
-    expect(top.kind === 'ok' && top.lock.lockVersion).toBe(3);
+    expect(top.kind === 'ok' && top.lock.lockVersion).toBe(4);
     await writeLockFile(dir, top.kind === 'ok' ? top.lock : (undefined as never));
     expect(pairs((await checkProject(dir)).report.violations)).toEqual([]);
   });

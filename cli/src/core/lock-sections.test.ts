@@ -16,8 +16,8 @@ function kinds(previous: Lock, current: Lock): string[] {
 }
 
 describe('lock sections for nested projects and links', () => {
-  it('accepts versions 1, 2 and 3', () => {
-    expect([0, 1, 2, 3, 4, 1.5].map(isSupportedLockVersion)).toEqual([false, true, true, true, false, false]);
+  it('accepts versions 1 to 4', () => {
+    expect([0, 1, 2, 3, 4, 1.5].map(isSupportedLockVersion)).toEqual([false, true, true, true, true, false]);
   });
 
   it('treats missing sections as empty', () => {

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { parseJson } from '../../core/json.js';
-import { installSuite, LOCK_DENY_REASON, lockNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
+import { installSuite, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject } from './adapter-test-kit.js';
 import { WINDSURF_FILE, WINDSURF_LEGACY_FILE, windsurfAdapter, windsurfTarget } from './windsurf.js';
 
 afterEach(cleanupProjects);
@@ -28,7 +28,7 @@ describe('windsurf hooks', () => {
 
   it('blocks a write to the lock under any name with exit code 2 and the reason on stderr', async () => {
     const dir = violationProject();
-    for (const name of lockNames(dir)) expect(await runAdapter(windsurfAdapter, 'pre-write-code', write(name), dir)).toEqual(DENIED);
+    for (const [name, as] of guardedNames(dir)) expect(await runAdapter(windsurfAdapter, 'pre-write-code', write(name), dir)).toEqual(as(DENIED));
   });
 
   it('blocks plain buckets refresh and lets buckets refresh --web through', async () => {

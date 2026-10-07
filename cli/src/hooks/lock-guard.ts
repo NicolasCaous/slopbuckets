@@ -1,11 +1,24 @@
-// The lock guard of the hooks: the text rules for shell commands and the identity rules for file targets. Nothing here
-// knows about a harness. Every function swallows its errors and answers "not the lock", so a hook never crashes here.
+// The lock guard of the hooks: the text rules for shell commands and the identity rules for file targets. It guards
+// buckets.lock.json and buckets.config.json of every project, nested ones included, because a human owns both.
+// Nothing here knows about a harness. Every function swallows its errors and answers "not guarded", so a hook never
+// crashes here.
 import { realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { readLock } from '../core/lock.js';
-import { LOCK_FILE } from '../core/paths.js';
+import { CONFIG_FILE, LOCK_FILE } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { projectsBelow } from './session.js';
+
+/** A file that only a human may change: the lock or the config of a project. */
+export type GuardedFile = 'lock' | 'config';
+
+const GUARDED: Record<GuardedFile, string> = { lock: LOCK_FILE, config: CONFIG_FILE };
+
+/** The guarded file a base name refers to, ignoring case, or null. */
+export function guardedName(base: string): GuardedFile | null {
+  const lower = base.toLowerCase();
+  return lower === LOCK_FILE ? 'lock' : lower === CONFIG_FILE ? 'config' : null;
+}
 
 /** Characters a shell may drop or treat as escapes: quotes, backticks, carets (cmd) and backslashes. */
 const SHELL_NOISE = /["'`^\\]/g;
@@ -68,8 +81,8 @@ export function runsForbiddenRefresh(command: string): boolean {
 }
 
 /**
- * 8.3 short names that Windows can give buckets.lock.json, such as `BUCKET~1.JSO` or the hashed `BU3F2A~1.JSO`,
- * also with glob characters in them (`BUCKET~?.JSO`).
+ * 8.3 short names that Windows can give buckets.lock.json or buckets.config.json, such as `BUCKET~1.JSO` or the hashed
+ * `BU3F2A~1.JSO`, also with glob characters in them (`BUCKET~?.JSO`). The pattern cannot tell the two files apart.
  */
 const SHORT_NAME = /\bbu[a-z0-9?*[\]]{0,6}~[0-9?*[\]]+\.js[o?*[]/i;
 
@@ -113,32 +126,42 @@ function globRegex(pattern: string): RegExp | null {
 }
 
 /**
- * True when a glob in the command can expand to buckets.lock.json and is specific to it. A pattern counts when its
- * last segment matches `buckets.lock.json` but not `package.json`, so `bucket*`, `buckets.lock.js?n`, `*.lock.json`
- * and `b[u]ckets.lock.json` count, while `*` and `*.json`, which match every project, do not.
+ * True when a glob in the command can expand to `name` and is specific to it. A pattern counts when its last segment
+ * matches `name` but not `package.json`, so `bucket*`, `buckets.lock.js?n`, `*.lock.json`, `*.config.json` and
+ * `b[u]ckets.lock.json` count, while `*` and `*.json`, which match every project, do not.
  */
-function globMatchesLock(text: string): boolean {
+function globMatches(text: string, name: string): boolean {
   for (const token of text.split(/[\s;&|<>()=]+/)) {
     if (!/[*?[{]/.test(token)) continue;
     const last = token.split('/').filter((s) => s !== '').pop() ?? '';
     const regex = globRegex(last);
-    if (regex !== null && regex.test(LOCK_FILE) && !regex.test('package.json')) return true;
+    if (regex !== null && regex.test(name) && !regex.test('package.json')) return true;
   }
   return false;
 }
 
 /**
- * True when a shell command names the lock: literally after the shell noise is removed, through an 8.3 short name,
- * or through a glob that expands to it. Globs are read twice, with backslashes as path separators (Windows paths)
- * and with backslashes removed (escapes), because either can be what the shell sees.
+ * True when a shell command names `name`: literally after the shell noise is removed, through an 8.3 short name, or
+ * through a glob that expands to it. Globs are read twice, with backslashes as path separators (Windows paths) and
+ * with backslashes removed (escapes), because either can be what the shell sees.
  */
-export function mentionsLock(command: string): boolean {
+function mentionsFile(command: string, name: string): boolean {
   const lower = command.toLowerCase();
   const joined = lower.replace(SHELL_NOISE, '');
-  if (lower.includes(LOCK_FILE) || joined.includes(LOCK_FILE)) return true;
+  if (lower.includes(name) || joined.includes(name)) return true;
   if (SHORT_NAME.test(lower) || SHORT_NAME.test(joined)) return true;
   const slashed = lower.replace(/["'`]/g, '').replace(/\\/g, '/');
-  return globMatchesLock(slashed) || globMatchesLock(joined);
+  return globMatches(slashed, name) || globMatches(joined, name);
+}
+
+/** True when a shell command names buckets.lock.json, as `mentionsFile` reads it. */
+export function mentionsLock(command: string): boolean {
+  return mentionsFile(command, LOCK_FILE);
+}
+
+/** True when a shell command names buckets.config.json, as `mentionsFile` reads it. */
+export function mentionsConfig(command: string): boolean {
+  return mentionsFile(command, CONFIG_FILE);
 }
 
 /**
@@ -166,8 +189,15 @@ export function sameFile(a: string, b: string): boolean {
   return process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-/** Every lock file the target could be: the nearest project's, the session project's and its nested projects'. */
-function candidateLocks(projectDir: string, targetDir: string): string[] {
+/** Every guarded file of the given project folders, each with what it is. */
+function guardedFiles(dirs: Iterable<string>): { file: string; kind: GuardedFile }[] {
+  const out: { file: string; kind: GuardedFile }[] = [];
+  for (const dir of dirs) for (const kind of ['lock', 'config'] as const) out.push({ file: path.join(dir, GUARDED[kind]), kind });
+  return out;
+}
+
+/** The folders whose guarded files the target could be: the nearest project's, the session project's and its nested projects'. */
+function candidateDirs(projectDir: string, targetDir: string): string[] {
   const dirs = new Set<string>([projectDir]);
   const nearest = findProjectDir(targetDir);
   if (nearest !== null) dirs.add(nearest);
@@ -188,19 +218,19 @@ function candidateLocks(projectDir: string, targetDir: string): string[] {
     }
     queue.splice(0, queue.length, ...next);
   }
-  return [...dirs].map((dir) => path.join(dir, LOCK_FILE));
+  return [...dirs];
 }
 
 /**
- * True when `file` is a lock file by identity, not by name: an 8.3 short name, a hard link, a symbolic link or a
- * path with a linked folder. When the target exists, it is compared with each candidate lock by real path and by
- * device and inode. When only its folder exists, the real folder plus the base name is compared by path.
- * Any error counts as "not the lock", so the hook never crashes here.
+ * The guarded file that `file` is by identity, not by name: an 8.3 short name, a hard link, a symbolic link or a path
+ * with a linked folder. When the target exists, it is compared with each candidate lock and config by real path and
+ * by device and inode. When only its folder exists, the real folder plus the base name is compared by path.
+ * Any error counts as "not guarded" (null), so the hook never crashes here.
  */
-export function isLockByIdentity(file: string, base: string, projectDir: string): boolean {
+export function guardedByIdentity(file: string, base: string, projectDir: string): GuardedFile | null {
   try {
     const target = path.join(path.dirname(file), base);
-    const locks = candidateLocks(projectDir, path.dirname(target));
+    const candidates = guardedFiles(candidateDirs(projectDir, path.dirname(target)));
     let targetStat: ReturnType<typeof statSync> | undefined;
     try {
       targetStat = statSync(target, { bigint: true });
@@ -209,42 +239,42 @@ export function isLockByIdentity(file: string, base: string, projectDir: string)
     }
     if (targetStat !== undefined) {
       const realTarget = realpathSync.native(target);
-      for (const lock of locks) {
-        let lockStat;
+      for (const candidate of candidates) {
+        let stat;
         try {
-          lockStat = statSync(lock, { bigint: true });
+          stat = statSync(candidate.file, { bigint: true });
         } catch {
           continue;
         }
-        if (lockStat.ino === targetStat.ino && lockStat.dev === targetStat.dev && lockStat.ino !== 0n) return true;
-        if (sameFile(realpathSync.native(lock), realTarget)) return true;
+        if (stat.ino === targetStat.ino && stat.dev === targetStat.dev && stat.ino !== 0n) return candidate.kind;
+        if (sameFile(realpathSync.native(candidate.file), realTarget)) return candidate.kind;
       }
-      return false;
+      return null;
     }
     let realDir: string;
     try {
       realDir = realpathSync.native(path.dirname(target));
     } catch {
-      return false;
+      return null;
     }
     const realTarget = path.join(realDir, base);
-    for (const lock of locks) {
-      let realLock: string;
+    for (const candidate of candidates) {
+      let realFile: string;
       try {
-        realLock = path.join(realpathSync.native(path.dirname(lock)), LOCK_FILE);
+        realFile = path.join(realpathSync.native(path.dirname(candidate.file)), GUARDED[candidate.kind]);
       } catch {
         continue;
       }
-      if (sameFile(realLock, realTarget)) return true;
+      if (sameFile(realFile, realTarget)) return candidate.kind;
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** Every lock of the given projects and of the projects nested in them, read from their locks two levels deep. */
-function lockCandidates(roots: string[]): string[] {
+/** Every project folder among the given ones and the projects nested in them, read from their locks two levels deep. */
+function projectCandidates(roots: string[]): string[] {
   const dirs = new Set<string>(roots);
   const queue = [...roots];
   for (let depth = 0; depth < 2 && queue.length > 0 && dirs.size < 256; depth++) {
@@ -261,20 +291,21 @@ function lockCandidates(roots: string[]): string[] {
     }
     queue.splice(0, queue.length, ...next);
   }
-  return [...dirs].map((dir) => path.join(dir, LOCK_FILE));
+  return [...dirs];
 }
 
 /**
- * The file rule of the lock guard for a session opened outside every project. A target is a lock when its name is
- * buckets.lock.json, at the typed path or at its real path, and a project holds it. A target with more than one hard
- * link is also compared, by device and inode, with the locks of the project nearest to it, of the projects this
- * session recorded and of the projects found below the session folder, nested ones included. A file outside every
- * project is allowed. Any error counts as "not the lock", so the hook never crashes here.
+ * The file rule of the guard for a session opened outside every project. A target is guarded when its name is
+ * buckets.lock.json or buckets.config.json, at the typed path or at its real path, and a project holds it. A target
+ * with more than one hard link is also compared, by device and inode, with the locks and configs of the project
+ * nearest to it, of the projects this session recorded and of the projects found below the session folder, nested
+ * ones included. A file outside every project is allowed. Any error counts as "not guarded" (null), so the hook never
+ * crashes here.
  */
-export function touchesLockAboveProjects(file: string, cwd: string, sessionDir: string, recorded: () => string[]): boolean {
+export function guardedAboveProjects(file: string, cwd: string, sessionDir: string, recorded: () => string[]): GuardedFile | null {
   try {
     const { dir, base } = normalizeTargetPath(file);
-    if (base === '') return false;
+    if (base === '') return null;
     const target = path.resolve(cwd, dir === '' ? '.' : dir, base);
     let targetStat: ReturnType<typeof statSync> | undefined;
     try {
@@ -288,20 +319,29 @@ export function touchesLockAboveProjects(file: string, cwd: string, sessionDir: 
     } catch {
       real = target;
     }
-    const named = (p: string) => path.basename(p).toLowerCase() === LOCK_FILE && findProjectDir(path.dirname(p)) !== null;
-    if (named(target) || named(real)) return true;
-    if (targetStat === undefined || targetStat.nlink <= 1n || targetStat.ino === 0n) return false;
+    const named = (p: string): GuardedFile | null => {
+      const kind = guardedName(path.basename(p));
+      return kind !== null && findProjectDir(path.dirname(p)) !== null ? kind : null;
+    };
+    const byName = named(target) ?? named(real);
+    if (byName !== null) return byName;
+    if (targetStat === undefined || targetStat.nlink <= 1n || targetStat.ino === 0n) return null;
     const roots = [findProjectDir(path.dirname(real)), ...recorded(), ...projectsBelow(sessionDir)].filter((d): d is string => d !== null);
-    for (const lock of lockCandidates(roots)) {
+    for (const candidate of guardedFiles(projectCandidates(roots))) {
       try {
-        const lockStat = statSync(lock, { bigint: true });
-        if (lockStat.ino === targetStat.ino && lockStat.dev === targetStat.dev) return true;
+        const stat = statSync(candidate.file, { bigint: true });
+        if (stat.ino === targetStat.ino && stat.dev === targetStat.dev) return candidate.kind;
       } catch {
-        // A project without a lock has nothing to protect.
+        // A project without a lock has nothing to protect there.
       }
     }
-    return false;
+    return null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** True when a file target in a session opened outside every project is a lock or a config, as `guardedAboveProjects` reads it. */
+export function touchesLockAboveProjects(file: string, cwd: string, sessionDir: string, recorded: () => string[]): boolean {
+  return guardedAboveProjects(file, cwd, sessionDir, recorded) !== null;
 }

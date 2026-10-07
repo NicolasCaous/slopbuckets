@@ -1,5 +1,6 @@
 // The review page of `buckets refresh --web`: the diff against the lock in tty boxes, and a decision bar with
 // Approve and Cancel. The server renders the whole diff, so the page reads fine before the script loads.
+import { configChangeSign, configRows, type ConfigChange } from '../core/lock-config.js';
 import { formatReport, plural } from '../output/text.js';
 import { html, type SafeHtml } from './html.js';
 import { renderPage } from './layout.js';
@@ -114,6 +115,30 @@ function linkSymbols(symbols: NonNullable<ItemRow['symbols']>): SafeHtml {
 ${symbols.map((s) => html`<li class="${SIGN_CLASS[s.sign]}"><span class="sign" aria-hidden="true">${s.sign}</span><code translate="no">${s.name}</code><span class="note">${LINK_SYMBOL_NOTE[s.sign]}${s.file !== '' ? html` in <code translate="no">${s.file}</code>` : ''}</span></li>\n`)}</ul>`;
 }
 
+/** One change of buckets.config.json as a diff row: an access line, the access default, or another value. */
+function configChangeRow(change: ConfigChange): SafeHtml {
+  const sign = configChangeSign(change);
+  const row = (label: string | SafeHtml, item: SafeHtml): SafeHtml =>
+    html`<li class="${SIGN_CLASS[sign]}"><span class="sign" aria-hidden="true">${sign}</span><span class="label">${label}</span><span class="item">${item}</span></li>`;
+  switch (change.kind) {
+    case 'access':
+      return row(change.sign === '+' ? 'access added' : 'access removed', html`${code(`"default": "${change.default}"`)}<span class="note">${change.sign === '+' ? 'imports that no line matches are' : 'imports that no line matched were'} ${change.default === 'allow' ? 'allowed' : 'denied'}</span>`);
+    case 'access-default':
+      return row('default changed', html`${code(change.before)}<span class="note">to</span>${code(change.after)}`);
+    case 'access-line':
+      return row(`${change.list} line ${change.sign === '+' ? 'added' : 'removed'}`, code(change.line));
+    case 'value':
+      return row(
+        html`<span translate="no">${change.key}</span>`,
+        change.before === null
+          ? html`<span class="note">set to</span>${code(change.after ?? '')}`
+          : change.after === null
+            ? html`<span class="note">removed, it was</span>${code(change.before)}`
+            : html`${code(change.before)}<span class="note">to</span>${code(change.after)}`,
+      );
+  }
+}
+
 interface ScreenOptions {
   /** Heading level of each screen: 2 on a single-project page, 3 inside a project section. */
   level?: 2 | 3;
@@ -149,21 +174,26 @@ ${review.versions.map((v) => html`<tr class="chg"><th scope="row">${v.label}</th
   }
 
   if (review.config.changed) {
-    const entries = Object.entries(review.config.current) as [string, string | number][];
-    screens.push(
-      screen(
-        next(),
-        'buckets.config.json',
-        'changed',
-        html`<h${level} id="${ids}config-title">Config</h${level}>
-<p class="intro">${code('buckets.config.json')} changed since the last approval. The lock keeps only a hash of the config, so the old values cannot be shown. These are the values approving would record:</p>
+    const { config } = review;
+    const body = config.recorded
+      ? html`<p class="intro">${code('buckets.config.json')} changed since the last approval. An allow line lets code in the buckets on its left use code that comes from the buckets on its right, and a deny line forbids it. Only a human should edit this file, so ask the agent if you did not make these changes.</p>
+${
+  config.changes.length > 0
+    ? html`<ul class="diff" aria-label="Config changes">
+${config.changes.map((change) => html`${configChangeRow(change)}\n`)}</ul>`
+    : html`<p class="note-line dim">The values are the same, written in another form.</p>`
+}`
+      : html`<p class="intro">${code('buckets.config.json')} changed since the last approval. The approved lock was written by an older slopbuckets version that stored only a hash of the config, so the old values were not recorded. These are the values approving records:</p>
 <div class="table-scroll"><table>
   <thead><tr><th scope="col">Field</th><th scope="col">Value</th></tr></thead>
   <tbody>
-${entries.map(([key, value]) => html`<tr><th scope="row" translate="no">${key}</th><td translate="no">${JSON.stringify(value)}</td></tr>\n`)}  </tbody>
-</table></div>`,
-        { labelledBy: `${ids}config-title` },
-      ),
+${configRows(config.current).map((row) => html`<tr><th scope="row" translate="no">${row.label}</th><td translate="no">${row.value}</td></tr>\n`)}  </tbody>
+</table></div>`;
+    screens.push(
+      screen(next(), 'buckets.config.json', config.recorded ? plural(config.changes.length, 'change') : 'changed', html`<h${level} id="${ids}config-title">Config</h${level}>
+${body}`, {
+        labelledBy: `${ids}config-title`,
+      }),
     );
   }
 

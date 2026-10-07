@@ -1,5 +1,6 @@
 // Text rendering of a check report and of the refresh diff. An AI agent reads the plain version (hook reasons,
 // piped output), so every section says what is wrong and how to fix it. On a terminal the same text gets color.
+import { configChangeDetail, configChangeLabel, configChangeSign, configDiff, configRows } from '../core/lock-config.js';
 import type { OrphanChain } from '../core/rules/orphans.js';
 import type { CheckReport, Lock, LockChange, Violation } from '../core/types.js';
 import { highlightCode, padEnd, PLAIN, wrap, type Style } from './style.js';
@@ -242,11 +243,14 @@ function describeChange(change: LockChange): [label: string, path: string] {
 /** Wide enough for the longest label ("nested project removed") plus one space before the path. */
 const LABEL_WIDTH = 24;
 
-/** Counts the lines of a refresh diff by sign, for the summary under the diff. */
+/**
+ * Counts the lines of a refresh diff by sign, for the summary under the diff. Only the rows at the start of a line
+ * count: the indented lines under `config changed` detail one change. Colors are removed first.
+ */
 export function diffSummary(diff: string): string {
   const counts = { '+': 0, '-': 0, '~': 0 };
   for (const line of diff.split('\n')) {
-    const sign = line.trimStart()[0];
+    const sign = line.replace(/\u001b\[[0-9;]*m/g, '')[0];
     if (sign === '+' || sign === '-' || sign === '~') counts[sign]++;
   }
   const parts: string[] = [];
@@ -305,6 +309,31 @@ export function formatLockDiff(previous: Lock | null, next: Lock, changes: LockC
     const [label, path] = describeChange(change);
     const rest = change.symbol !== undefined ? `${padEnd(style.path(path), pathWidth)}  ${style.bold(change.symbol)}` : style.path(path);
     lines.push(row(SIGNS[change.kind], label, rest));
+    if (change.kind === 'config-changed') lines.push(...configLines(previous, next, style));
   }
   return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+/**
+ * The lines under `config changed`: each access line added or removed, a changed default and every other changed key
+ * with its old and new value. When the approved lock stored only a hash, the config being approved instead.
+ */
+function configLines(previous: Lock, next: Lock, style: Style): string[] {
+  const diff = configDiff(previous.config, next.config);
+  if (diff === null) return [];
+  if (diff.recorded) {
+    const width = columnWidth(diff.changes.map(configChangeLabel));
+    return diff.changes.map((change) => {
+      const sign = configChangeSign(change);
+      return `    ${paintSign(style, sign, `${sign} ${configChangeLabel(change).padEnd(width)}`)}  ${configChangeDetail(change)}`;
+    });
+  }
+  const note = `The approved lock (version ${previous.lockVersion}) stored only a hash of buckets.config.json, so the old values are unknown.${typeof next.config === 'string' ? '' : ' Approving records these values:'}`;
+  const lines = wrap(note, style.width, '    ').map(style.dim);
+  if (typeof next.config !== 'string') {
+    const rows = configRows(next.config);
+    const width = columnWidth(rows.map((r) => r.label));
+    for (const r of rows) lines.push(`      ${r.label.padEnd(width)}  ${r.value}`);
+  }
+  return lines;
 }

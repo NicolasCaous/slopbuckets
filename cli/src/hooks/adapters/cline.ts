@@ -114,8 +114,8 @@ function clineScope(input: JsonRecord, io: Io): HookScope {
 /** The text Cline shows when the hook ends the task. It has to say why the whole task stopped. */
 export function cancelMessage(tool: string, reason: string): string {
   return (
-    `slopbuckets stopped this task: the ${tool === '' ? 'tool' : `\`${tool}\``} call would write buckets.lock.json or run \`buckets refresh\` without \`--web\`. ` +
-    'Cline hooks cannot refuse a single tool call, so refusing it ends the whole task. Start a new task and tell the agent to leave the lock alone.\n\n' +
+    `slopbuckets stopped this task: the ${tool === '' ? 'tool' : `\`${tool}\``} call would write buckets.lock.json or buckets.config.json, or run \`buckets refresh\` without \`--web\`. ` +
+    'Cline hooks cannot refuse a single tool call, so refusing it ends the whole task. Start a new task and tell the agent to leave the lock and the config alone.\n\n' +
     reason
   );
 }
