@@ -39,6 +39,13 @@
       "additionalProperties": false,
       "required": ["default"],
       "description": "Which buckets may use code that originates in which other buckets. Without it, nothing is checked.",
+      "examples": [
+        {
+          "default": "deny",
+          "allow": ["root -> root/**", "** -> root/log", "root/teams/** -> root/sql"],
+          "deny": ["root/teams/search -> root/sql"]
+        }
+      ],
       "properties": {
         "default": {
           "type": "string",
@@ -63,7 +70,7 @@
       "items": {
         "type": "string",
         "pattern": "^(?:(?!->).)+->(?:(?!->).)+$",
-        "description": "Two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives."
+        "description": "A line is two globs over bucket paths joined by \"->\", such as \"root/api/** -> root/log\". Each side starts with the root path or with \"**\". \"**\" matches zero or more buckets, \"*\" any characters inside a name, and \"{a,b}\" one of the alternatives."
       }
     }
   }

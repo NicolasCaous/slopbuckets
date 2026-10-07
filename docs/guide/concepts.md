@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph and the lock.
+description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules and the lock.
 ---
 
 # Concepts
@@ -153,13 +153,180 @@ Orphan contracts
     To fix, delete `logger` from each file above (delete a file once it is empty), or import it by name from root/billing/dmz/.parent/invoices.ts in the consumer's _/ code.
 ```
 
+## Access rules
+
+The DMZ decides how code reaches another bucket. Access rules decide which buckets may reach which. They live in the `access` key of `buckets.config.json`, and only a human writes them. Without the key, the check skips them.
+
+```json
+{
+  "access": {
+    "default": "deny",
+    "allow": ["** -> root/log"],
+    "deny": []
+  }
+}
+```
+
+- `default` is `"allow"` or `"deny"`, and it is required. It decides an edge that no line matches.
+- `allow` and `deny` are lists of lines. Both are optional.
+- A line `A -> B` means "code in bucket A uses code that originates in bucket B". A is the bucket that imports. B is the origin, the bucket whose `_/` declares the symbol. The check follows the DMZ chain to find it, as [the bucket graph](#the-bucket-graph) describes, so in the example above `invoices` using `logger` is the edge `root/billing/invoices -> root/log`, whatever DMZ files `logger` passes through.
+
+The lines apply to the edges of the bucket graph, which come only from DMZ symbols. A parent that imports from its child through `.self` is an edge too. Imports of packages, Node built-ins and linked projects are not edges, and a bucket that uses its own code never counts.
+
+### Patterns
+
+Each side of a line is a pattern over bucket paths. A bucket path is the folder path from the project, as the lock lists it: `root`, `root/log`, `root/teams/search`.
+
+- `**` as a whole segment matches zero or more bucket names. `root/teams/**` matches `root/teams` and every bucket below it, and `**` alone matches every bucket.
+- `*` matches any characters inside one name. `root/teams/*` matches each child of `root/teams` but not `root/teams` itself, and `root/team-*` matches `root/team-a`.
+- `{a,b}` matches one of the alternatives, as in `root/{api,web}`. Alternatives cannot nest.
+- Every other character is literal. `root/teams` matches only that bucket.
+
+Each side starts with the root path or with `**`. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
+
+The spaces around `->` are optional. The lock and the review write each line as `A -> B`, with one space on each side.
+
+### A worked example
+
+```text
+root/
+  _/                main.ts wires every module
+  log/              the shared logger
+  sql/              the database layer
+  teams/
+    billing/
+    payments/
+    search/
+```
+
+The human writes these rules:
+
+```json
+{
+  "access": {
+    "default": "deny",
+    "allow": [
+      "root -> root/**",
+      "** -> root/log",
+      "root/teams/** -> root/sql",
+      "root/teams/billing -> root/teams/payments"
+    ],
+    "deny": [
+      "root/teams/search -> root/sql"
+    ]
+  }
+}
+```
+
+Line by line:
+
+- `root -> root/**` lets the code in `root/_/` use every bucket, so `main.ts` can wire the modules together.
+- `** -> root/log` lets every bucket use the logger.
+- `root/teams/** -> root/sql` lets every team use the database layer.
+- `root/teams/billing -> root/teams/payments` lets billing call payments. No other team may, because no other line matches and `default` is `"deny"`.
+- The deny line carves search out of the teams line. Search reads from its own index and must not query the database. Both `root/teams/** -> root/sql` and the deny line match the edge from search to `sql`. The deny line names search exactly, so it is more specific and decides.
+
+| Edge | Result | Decided by |
+|---|---|---|
+| `root/teams/billing -> root/log` | allowed | `** -> root/log` |
+| `root/teams/payments -> root/sql` | allowed | `root/teams/** -> root/sql` |
+| `root/teams/search -> root/sql` | `access-denied` | the deny line `root/teams/search -> root/sql` |
+| `root/teams/search -> root/teams/payments` | `access-denied` | `default`, because no line matches |
+
+With `"default": "deny"`, every edge the project already has needs an allow line before the check passes again. `buckets inspect --json` lists, for each bucket, the buckets it imports from in `dependsOn`. To add rules to a large project one at a time, start with `"default": "allow"` and a few deny lines.
+
+### Which line decides
+
+Several lines can match one edge. The most specific one decides.
+
+The check ranks each segment of a pattern:
+
+| Segment | Example | Rank |
+|---|---|---|
+| a literal name | `teams` | 3 |
+| a name with `*` or `{}` in it | `team-*`, `{api,web}` | 2 |
+| exactly `*` | `*` | 1 |
+| `**` | `**` | 0 |
+
+To compare two patterns, the check reads both from the left and stops at the first position where the ranks differ. The higher rank is more specific. A pattern that has already ended beats `**` at that position, so `root/billing` is more specific than `root/billing/**`. Patterns with the same ranks all the way are equally specific.
+
+The comparison goes by position in the pattern, not by the bucket name a segment matched. So a pattern that starts with `**` is less specific than any pattern that starts with the root path: `root/**` beats `**/log`, because `root` ranks 3 and `**` ranks 0 at the first position.
+
+A line beats another line when it is at least as specific on both sides and more specific on at least one. For each edge, the check:
+
+1. collects every line of both lists that matches the edge
+2. drops every line that another matching line beats
+3. lets `default` decide when no line matched
+4. lets the list decide when the lines left all come from that list
+5. fails the edge with `access-ambiguous` when lines from both lists are left
+
+Three short cases follow.
+
+An exception under `"default": "allow"`. Teams do not use each other, except billing, which calls payments:
+
+```json
+"default": "allow",
+"allow": ["root/teams/billing -> root/teams/payments"],
+"deny": ["root/teams/* -> root/teams/*"]
+```
+
+For `root/teams/billing -> root/teams/payments`, the allow line ranks 3 at the third position on both sides, where the deny line has `*` with rank 1. The allow line beats the deny line, and billing may call payments. For `root/teams/search -> root/teams/payments`, only the deny line matches.
+
+A carve-out on one side. In the worked example, the deny line `root/teams/search -> root/sql` and the allow line `root/teams/** -> root/sql` have the same right side. On the left side, `search` ranks 3 where `**` ranks 0. The deny line is more specific on one side and as specific on the other, so it wins.
+
+An ambiguous edge. Search may use anything, and nobody may use the database directly:
+
+```json
+"allow": ["root/teams/search -> root/**"],
+"deny": ["root/** -> root/sql"]
+```
+
+For `root/teams/search -> root/sql`, the allow line is more specific on the left side and the deny line is more specific on the right side. Neither beats the other, so the check fails the edge with `access-ambiguous` and names both lines. A human settles it with a line that is at least as specific as both on both sides. A line that names both buckets always works: `root/teams/search -> root/sql` in `allow` lets search query the database, and the same line in `deny` forbids it.
+
+The same line in both lists is `config-invalid`, and so is a line listed twice in one list. Overlapping patterns in the two lists are fine, because that is how an exception works.
+
+### When an import is denied
+
+`buckets check` exits with code 1 and reports the rule on the import line. Here the search team imported `query` from the database layer:
+
+```text
+root/teams/search/_/rank.ts
+  line 2  access-denied
+    Access denied: root/teams/search -> root/sql. This file imports `query` (declared in root/sql) from root/teams/dmz/.parent/search.ts, so code in root/teams/search uses code from root/sql. The line "root/teams/search -> root/sql" in access.deny of buckets.config.json is the most specific line that matches this edge. The re-export chain is root/teams/dmz/.parent/search.ts -> root/dmz/sql/teams.ts -> root/sql/_/query.ts. buckets.config.json belongs to a human, so an AI agent never edits it. Remove this dependency on root/sql (the import of `query` and the code that uses it), or stop and ask the human to change "access" in buckets.config.json.
+```
+
+The check also looks at DMZ files before any code imports them. When a DMZ file re-exports a symbol that no bucket allowed to import that file may use, it reports the rule on the export line of the DMZ file. A `.parent` or `.external` file is skipped, because its consumers live outside the bucket.
+
+The agent cannot edit `buckets.config.json`, because the [hooks](./claude-code#the-lock-guard) deny every write to it, as they do for the lock. It has two ways out:
+
+- remove the dependency and solve the task with the buckets it may use
+- stop and ask the human, with the exact line it proposes and why, such as "add `root/teams/search -> root/sql` to `access.allow`, so search can read live prices"
+
+For `access-ambiguous`, the message names the allow line and the deny line, and the agent asks the human for a line more specific than both.
+
+`access-unknown-bucket` reports a side without `*` or `{` that names no bucket, which usually means a bucket folder was renamed, moved or deleted. A pattern with wildcards that matches nothing is not an error.
+
+Every rule id and its messages are on the [rules reference](../reference/rules#access-rules).
+
+### Changing the rules
+
+A human edits `buckets.config.json` and approves the change like any other. The lock keeps the whole config, so the check reports `config-changed` with exit code 2, and the review lists each line that changed:
+
+```text
+~ config changed          buckets.config.json
+    + access.allow  root/teams/search -> root/sql
+    - access.deny   root/teams/search -> root/sql
+```
+
+Locks written before version 4 kept only a hash of the config. When the config changed since such a lock, the review shows the whole current config instead and says the old values were not recorded. See [The approval flow](./approval#config-changes).
+
 ## The lock
 
 `buckets.lock.json` records the last state a human approved:
 
 - the CLI version, and the adapter name, version and toolchain (such as `typescript@5.9.3`) that wrote it
 - the bucket tree
-- a hash of the config with the defaults filled in, so a change in formatting alone does not count
+- the config with the defaults filled in and its keys sorted, `access` included, so a change in formatting alone does not count. Locks older than version 4 kept only a hash of it
 - for every DMZ file, `.external.ts` files included, a hash of its text and a hash of the type signature of each symbol it re-exports. Line endings and a leading byte order mark do not change the text hash
 - the nested projects
 - every link, with its origin, mode, the alias of the origin and the signature hash of each symbol the origin publishes
@@ -168,4 +335,4 @@ Each nested project has its own lock.
 
 The signature hash catches an AI that changes the signature of an exported function inside `_/` without touching any DMZ file. The DMZ text stays the same, but the signature changes and the check fails.
 
-The AI can edit any file, DMZ files and the config included. It cannot edit the lock. See [The approval flow](./approval) for how a change gets approved, and [Lock file](../reference/lockfile) for the exact shape of the file.
+The AI can edit any file, DMZ files included. It cannot edit the lock or `buckets.config.json`, because a human owns both. See [The approval flow](./approval) for how a change gets approved, and [Lock file](../reference/lockfile) for the exact shape of the file.

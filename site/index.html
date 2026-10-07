@@ -1067,7 +1067,7 @@
               <div class="cap">
                 <p class="scene-no" aria-hidden="true">scene 06/08</p>
                 <h3>The lock records what a human approved</h3>
-                <p><code translate="no">buckets.lock.json</code> stores the bucket tree, the config, every DMZ file and the type signature of every symbol a DMZ file exports. The AI cannot edit it.</p>
+                <p><code translate="no">buckets.lock.json</code> stores the bucket tree, the config, every DMZ file and the type signature of every symbol a DMZ file exports. The AI cannot edit it, or the config.</p>
               </div>
             </li>
             <li class="scene">
@@ -1320,6 +1320,8 @@
             <span class="ids" translate="no"><span class="rule-id">import-global</span></span></li>
           <li>The bucket graph has no cycles. Circular imports inside a single bucket are allowed.
             <span class="ids" translate="no"><span class="rule-id">graph-cycle</span></span></li>
+          <li>When the config has <code translate="no">access</code> lines, such as <code translate="no">root/teams/** -&gt; root/sql</code>, each import between buckets passes them. The most specific matching line decides, and an allow line and a deny line that each win on one side make the import ambiguous until a human adds a more specific line.
+            <span class="ids" translate="no"><span class="rule-id">access-denied</span><span class="rule-id">access-ambiguous</span><span class="rule-id">access-unknown-bucket</span></span></li>
           <li>The config is valid, and no nested project reuses the alias of a project around it. <code translate="no">tsconfig.json</code> covers the root folder, keeps <code translate="no">noUnusedLocals</code> on so an unused import cannot count as a use, and maps the alias.
             <span class="ids" translate="no"><span class="rule-id">config-invalid</span><span class="rule-id">project-config</span></span></li>
           <li>A <code translate="no">buckets.config.json</code> inside the root folder lives only in a subfolder of a bucket's <code translate="no">_/</code>, where it starts a nested project. The nested project needs its own <code translate="no">tsconfig.json</code>, and the <code translate="no">tsconfig.json</code> around it must exclude its folder.
@@ -1360,6 +1362,8 @@
          import-namespace-dmz  import-undeclared-package
          import-global
 <span class="t-c">graph  </span>  graph-cycle
+<span class="t-c">access </span>  access-denied  access-ambiguous
+         access-unknown-bucket
 <span class="t-c">links  </span>  link-missing  link-forbidden-import
          link-missing-dependency</pre>
           </div>
@@ -1519,7 +1523,7 @@
           <table class="stack">
             <thead><tr><th scope="col">Hook</th><th scope="col">What it does</th></tr></thead>
             <tbody>
-              <tr><td><span class="hook-led" aria-hidden="true"></span><code class="hook-name" translate="no">PreToolUse</code></td><td>Denies writes to any <code translate="no">buckets.lock.json</code>, shell commands that name the lock and any <code translate="no">buckets refresh</code> without exactly the <code translate="no">--web</code> flag, even in bypass permission mode. <code translate="no">buckets refresh --web</code> is the one form it allows, also in the background with <code translate="no">nohup</code> or a trailing <code translate="no">&amp;</code>, with its output redirected to a file or piped to <code translate="no">tee</code>. A redirection into the lock is denied.</td></tr>
+              <tr><td><span class="hook-led" aria-hidden="true"></span><code class="hook-name" translate="no">PreToolUse</code></td><td>Denies writes to any <code translate="no">buckets.lock.json</code> or <code translate="no">buckets.config.json</code>, shell commands that name either file and any <code translate="no">buckets refresh</code> without exactly the <code translate="no">--web</code> flag, even in bypass permission mode. <code translate="no">buckets refresh --web</code> is the one form it allows, also in the background with <code translate="no">nohup</code> or a trailing <code translate="no">&amp;</code>, with its output redirected to a file or piped to <code translate="no">tee</code>. A redirection into the lock is denied.</td></tr>
               <tr><td><span class="hook-led" aria-hidden="true"></span><code class="hook-name" translate="no">Stop</code></td><td>Runs <code translate="no">buckets check</code> on every project before the agent ends its turn</td></tr>
               <tr><td><span class="hook-led" aria-hidden="true"></span><code class="hook-name" translate="no">SubagentStop</code></td><td>Runs <code translate="no">buckets check</code> before a subagent hands back its work</td></tr>
               <tr><td><span class="hook-led" aria-hidden="true"></span><code class="hook-name" translate="no">PostToolUse</code></td><td>Checks each edited file and reports a forbidden import right away</td></tr>
@@ -3995,6 +3999,7 @@
         L_('  import-relative  import-dynamic  import-unresolved  import-forbidden'),
         L_('  import-namespace-dmz  import-undeclared-package  import-global'),
         L_('  graph-cycle'),
+        L_('  access-denied  access-ambiguous  access-unknown-bucket'),
         L_('  link-missing  link-forbidden-import  link-missing-dependency'),
         L_('lock differences (exit code 2)', 'hi'),
         L_('  lock-missing  config-changed', 'w'),
@@ -4005,10 +4010,11 @@
       ],
       hooks: () => [
         L_('buckets init installs a skill and, for Claude Code, 4 hooks:', 'hi'),
-        L_('  PreToolUse     denies writes to buckets.lock.json, shell commands that name the lock'),
-        L_('                 and any buckets refresh without exactly the --web flag, even in bypass'),
-        L_('                 permission mode. buckets refresh --web may run in the background,'),
-        L_('                 with its output redirected to a file or piped to tee'),
+        L_('  PreToolUse     denies writes to buckets.lock.json and buckets.config.json, shell'),
+        L_('                 commands that name either file and any buckets refresh without exactly'),
+        L_('                 the --web flag, even in bypass permission mode. buckets refresh'),
+        L_('                 --web may run in the background, with its output redirected to a'),
+        L_('                 file or piped to tee'),
         L_('  Stop           runs buckets check on every project before the agent ends its turn'),
         L_('  SubagentStop   runs buckets check before a subagent hands back its work'),
         L_('  PostToolUse    checks each edited file and reports a forbidden import'),

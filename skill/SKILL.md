@@ -7,7 +7,7 @@ description: Rules for working in a project that uses slopbuckets (has a buckets
 
 This project is split into buckets. Each bucket is a sealed folder. You can write any code inside a bucket. Code in one bucket reaches another bucket only through contract files in `dmz/` folders, and a human approves every contract change.
 
-Read `buckets.config.json` to find the root bucket folder (`root` by default) and the import alias. `buckets init` generates a unique alias such as `@root-k3x9pm2a`; older projects use `@root`. The examples below write `@root`.
+Read `buckets.config.json` to find the root bucket folder (`root` by default), the import alias and the `access` rules. Never edit it: it belongs to the human. `buckets init` generates a unique alias such as `@root-k3x9pm2a`; older projects use `@root`. The examples below write `@root`.
 
 ## Reading the structure before you edit
 
@@ -58,6 +58,25 @@ No renames with `as`, no `export *`, no default exports, no declarations, no log
 When a bucket needs something from another bucket, add the symbol to the right DMZ file, creating the file if needed. To reach a bucket that is not a sibling, add one re-export per level, so every hop is a file. Every DMZ symbol must be used by some code. Remove contracts that nothing uses anymore, and remove the whole chain, not only the last file.
 
 The bucket graph cannot have cycles. If bucket A uses something from B, B cannot use anything from A, directly or through other buckets.
+
+## Access rules
+
+`buckets.config.json` may have an `access` key that says which buckets may use which:
+
+```json
+"access": {
+  "default": "deny",
+  "allow": ["** -> root/log", "root/teams/** -> root/sql"],
+  "deny": ["root/teams/search -> root/sql"]
+}
+```
+
+A line `A -> B` means code in bucket A uses code declared in bucket B's `_/`, whatever DMZ files the symbol passes through. Bucket paths start with the root folder, such as `root/teams/search`. `**` matches any number of bucket names, `*` any characters inside one name. When several lines match, the most specific one decides, and `default` decides when none matches. Read the lines before you add a dependency between buckets, and pick a path they allow.
+
+- `access-denied`: the importing bucket may not use the origin bucket. Remove the dependency and solve the task with the buckets you may use. If the task needs that dependency, stop and ask the human, with the exact line you propose, the list it goes in and why, such as: "Add `root/teams/search -> root/sql` to `access.allow`, so search can read live prices." Do not work around the rule by copying the code or routing it through another bucket.
+- `access-ambiguous`: an allow line and a deny line both match, and neither is more specific than the other on both sides. Stop and ask the human to add a line that names both buckets, such as `root/teams/search -> root/sql`, in the list that should win. Quote the two lines from the message.
+- `access-unknown-bucket`: a line names a bucket that does not exist, usually because a bucket folder was renamed or moved. If you renamed or moved it, move it back. Otherwise ask the human to fix the line.
+- Never edit `buckets.config.json` to get past a rule, not even to fix a typo. A hook blocks it in agents with slopbuckets hooks.
 
 ## Nested projects
 
@@ -113,6 +132,7 @@ export type { AppRouter } from '@root-k3x9pm2a/server/_/router';
 ## The lock and approvals
 
 - Never write any `buckets.lock.json`, the nested ones included, under any name or path: no short names, links, wildcards or scripts that compute the name. A hook blocks it in agents with slopbuckets hooks. To read a lock, use your file reading tool (Read in Claude Code), not a shell command.
+- Never create, edit, move or delete any `buckets.config.json`, the nested ones included. A human owns it, and a hook blocks it in agents with slopbuckets hooks, also for shell commands that name it. Read it with your file reading tool. When a task needs a change in it, stop and ask the human with the exact lines you need and why.
 - Never run plain `buckets refresh`. Only a human runs it, in a terminal. A hook blocks it in agents with slopbuckets hooks.
 - Never run `buckets update` unless the human asks for it. A command may start with a line such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` on stderr. Do not update in the middle of a task: a new CLI version makes `buckets check` stop with exit code 3 until a human approves the version change. Finish the task, then mention the new version to the human.
 - Run `buckets check` before you finish a task. In agents with slopbuckets hooks, a hook at the end of the turn also runs it, and a git pre-commit hook may run it too.

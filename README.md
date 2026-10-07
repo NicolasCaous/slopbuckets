@@ -100,7 +100,7 @@ Each hop is one file. To find out what a bucket uses, open its DMZ files. The [c
 
 ### Lock
 
-`buckets.lock.json` records the last state a human approved: the bucket tree, the config, every DMZ file, the type signature of every symbol a DMZ file exports, the nested projects, and each link with the signatures of the symbols the linked project publishes. If the AI changes the signature of an exported function without touching any DMZ file, the signature hash changes and the check fails.
+`buckets.lock.json` records the last state a human approved: the bucket tree, the whole config, every DMZ file, the type signature of every symbol a DMZ file exports, the nested projects, and each link with the signatures of the symbols the linked project publishes. If the AI changes the signature of an exported function without touching any DMZ file, the signature hash changes and the check fails. Because the lock keeps the config itself and not only its hash, the review of a config change shows each `access` line added or removed and every other value that changed.
 
 Here the agent added a parameter to `createInvoice` and a new DMZ file. Every rule passes, so the check exits with 2 and waits for a human:
 
@@ -142,7 +142,7 @@ When the npm registry has a newer slopbuckets, every command except `hook`, `che
 
 ## Approving a change
 
-The AI can edit any file, DMZ files included. It cannot edit the lock. When the AI changes a contract, `buckets check` exits with 2 until a human approves the change. In an agent session the approval goes through `buckets refresh --web`:
+The AI can edit any file, DMZ files included. It cannot edit the lock or `buckets.config.json`, which a human owns. When the AI changes a contract, `buckets check` exits with 2 until a human approves the change. In an agent session the approval goes through `buckets refresh --web`:
 
 1. The agent runs `buckets refresh --web` in the background, and may redirect its output to a log file. The command refuses to start while a rule is broken. It prints the changes and, on its last line, a link to a page on `127.0.0.1`.
 2. The agent sends the link to the human with a summary of what changed and why, and waits for the command to finish.
@@ -202,6 +202,14 @@ Graph and project:
 - A `buckets.config.json` inside the root folder lives only in a subfolder of a bucket's `_/`, and its alias differs from the alias of every enclosing project.
 - Every link in `buckets.links.json` is on disk. Every package the linked files import resolves for type checking in this project and, for a junction or symlink, at runtime in the linked project.
 - The project matches the lock. Changed contracts, signatures, buckets, nested projects, links or config give exit code 2.
+
+Access, when the config has an `access` key:
+
+- Each import between buckets passes the `access` lines of `buckets.config.json`, such as `"root/teams/** -> root/sql"`. A line reads "code in this bucket uses code declared in that bucket", whatever DMZ files the symbol passes through.
+- The most specific matching line decides, and `default` decides when no line matches. When an allow line and a deny line each win on one side, the import is `access-ambiguous` until a human adds a more specific line.
+- A side of a line without wildcards names a bucket that exists, so renaming that bucket fails the check.
+
+The [access rules guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) has a worked example.
 
 Every rule id, with what it means and how to fix it, is in the [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html).
 
@@ -304,7 +312,7 @@ Every hook fails open. On a machine without the `buckets` command, the agent's c
 
 | Hook | What it does |
 |---|---|
-| `PreToolUse` | denies writes to any `buckets.lock.json`, shell commands that name the lock and any `buckets refresh` without exactly the `--web` flag, even in bypass permission mode. It allows `buckets refresh --web` in the background with its output redirected, piped to `tee` or under `nohup`, unless the redirect writes to the lock |
+| `PreToolUse` | denies writes to any `buckets.lock.json` or `buckets.config.json`, shell commands that name either file and any `buckets refresh` without exactly the `--web` flag, even in bypass permission mode. It allows `buckets refresh --web` in the background with its output redirected, piped to `tee` or under `nohup`, unless the redirect writes to the lock |
 | `Stop` | runs `buckets check` on every project before the agent ends its turn |
 | `SubagentStop` | runs `buckets check` before a subagent hands back its work |
 | `PostToolUse` | checks each edited file and reports a forbidden import right away |
@@ -365,6 +373,9 @@ npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
 | `root` | `"root"` | folder of the root bucket |
 | `alias` | `"@root"` | import prefix for internal imports. `buckets init` writes a unique one. A nested project and each linked project need an alias of their own |
 | `maxDepth` | `2` | maximum depth of the bucket tree |
+| `access` | not set | which buckets may use code from which other buckets, as `"A -> B"` lines in `allow` and `deny` with a `default`. See [access rules](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) |
+
+Only a human edits `buckets.config.json`. The agent hooks deny writes to it, and an agent that needs a change asks for it with the exact line.
 
 Links live in a separate file, `buckets.links.json`, which the `buckets link` commands write. See the [config reference](https://nicolascaous.github.io/slopbuckets/docs/reference/config.html).
 

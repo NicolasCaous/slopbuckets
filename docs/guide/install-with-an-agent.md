@@ -35,6 +35,6 @@ Install slopbuckets in this project. Read https://nicolascaous.github.io/slopbuc
 
 ## What the agent never does
 
-The agent never writes any `buckets.lock.json`, never runs plain `buckets refresh` and never types the confirmation code. llms.txt tells it so, and so does the skill that `buckets init` installs. In an agent with hooks, such as Claude Code, the hook that runs before each tool call denies a write to the lock and any `buckets refresh` other than exactly `buckets refresh --web`. [Supported agents](./agents/) shows which agents have that hook. The [threat model](./threat-model) says what these layers stop and what they do not.
+The agent never writes any `buckets.lock.json`, never edits `buckets.config.json` itself (only `init` writes it), never runs plain `buckets refresh` and never types the confirmation code. llms.txt tells it so, and so does the skill that `buckets init` installs. In an agent with hooks, such as Claude Code, the hook that runs before each tool call denies a write to the lock or the config and any `buckets refresh` other than exactly `buckets refresh --web`. [Supported agents](./agents/) shows which agents have that hook. The [threat model](./threat-model) says what these layers stop and what they do not.
 
 To do the same setup by hand, follow [Getting started](./getting-started).

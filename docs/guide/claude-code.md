@@ -9,7 +9,7 @@ description: The skill and the 4 hooks that buckets init installs for Claude Cod
 
 | Hook | What it does |
 |---|---|
-| `PreToolUse` | denies any write to a lock and any `buckets refresh` other than exactly `buckets refresh --web`, even in bypass permission mode |
+| `PreToolUse` | denies any write to a lock or a `buckets.config.json` and any `buckets refresh` other than exactly `buckets refresh --web`, even in bypass permission mode |
 | `Stop` | runs `buckets check`, nested projects included, before the agent ends its turn |
 | `SubagentStop` | runs the same check before a subagent hands back its work |
 | `PostToolUse` | checks each edited file in its nearest project and reports its problems right away |
@@ -20,10 +20,12 @@ The exact settings, the input fields each hook reads and the JSON each one write
 
 `PreToolUse` is the only hard barrier inside the session. It denies the call when:
 
-- the tool is `Edit`, `Write`, `MultiEdit` or `NotebookEdit` and the target is a lock: `buckets.lock.json` by name, also with a stream suffix or trailing dots, or any path that leads to the same file, such as an 8.3 short name, a hard link or a symbolic link. Nested locks count too.
-- the tool is `Bash` or `PowerShell` and the command names a lock, also through a short name or a glob such as `bucket*`, or runs `buckets refresh` with anything but exactly the `--web` flag. Output redirections, a pipe or a trailing `&` after the flag are allowed
+- the tool is `Edit`, `Write`, `MultiEdit` or `NotebookEdit` and the target is a lock or a config: `buckets.lock.json` or `buckets.config.json` by name, also with a stream suffix or trailing dots, or any path that leads to the same file, such as an 8.3 short name, a hard link or a symbolic link. Nested locks and configs count too.
+- the tool is `Bash` or `PowerShell` and the command names a lock or a config, also through a short name or a glob such as `bucket*` or `*.config.json`, or runs `buckets refresh` with anything but exactly the `--web` flag. Output redirections, a pipe or a trailing `&` after the flag are allowed
 
 So `buckets refresh --web` passes, and so do the forms that run it in the background and keep its output, such as `buckets refresh --web > refresh.log 2>&1 &`, `buckets refresh --web 2>&1 | tee refresh.log` and `nohup buckets refresh --web > refresh.log 2>&1 &`. `buckets refresh`, `npx slopbuckets refresh`, `buckets refresh --web --yes` and `buckets refresh --web; buckets refresh` are denied, and so is `buckets refresh --web > buckets.lock.json`, because it names the lock. The deny decision holds even in bypass permission mode. The reason it returns tells the agent to ask for approval with `buckets refresh --web`. Because the shell rule is a text match, `cat buckets.lock.json` is denied too, and the agent reads the lock with the Read tool.
+
+The config gets the same rules, because a human owns it: it names the root folder and the alias, and holds the [access rules](./concepts#access-rules). The reason for a denied config write tells the agent to stop and ask the human for the change, with the exact lines it needs and why. `cat buckets.config.json` is denied as well, so the agent reads the config with the Read tool.
 
 ## The mandatory check
 
@@ -56,7 +58,8 @@ A session opened inside a project records nothing and works as the sections abov
 `buckets init` copies the skill to `.claude/skills/slopbuckets/SKILL.md`. It covers the folder, import and DMZ rules, nested projects, publishing with `.external.ts`, linking another project with `buckets link` and its dependencies on both sides, and these points:
 
 - read the structure with `buckets inspect --json` before changing contracts, and export a picture with `buckets inspect --export mermaid` or `--export svg` when the human asks for one
-- never edit any `buckets.lock.json`
+- never edit any `buckets.lock.json` or `buckets.config.json`
+- when `access-denied` or `access-ambiguous` blocks a dependency the task needs, stop and ask the human, with the exact `access` line it proposes
 - never run plain `buckets refresh`
 - run `buckets check` before finishing a task
 - with exit code 1, fix the violations or explain why it cannot

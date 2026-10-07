@@ -235,6 +235,7 @@ This file follows the llms.txt format. The prompt "Install slopbuckets in this p
 **Rules you must never break**, during the install and after it:
 
 - Never create, edit, move or delete any \`buckets.lock.json\`, nested ones included, under any name or path: no short names, links, wildcards or scripts that compute the name. Only a human approves a state.
+- Never create, edit, move or delete any \`buckets.config.json\` yourself. \`buckets init\` writes it, and after that only a human changes it. When a task needs a change in it, such as an \`access\` line, stop and ask the human with the exact line.
 - Never run plain \`buckets refresh\`, or any form of it other than exactly \`buckets refresh --web\`. A human runs \`buckets refresh\` in their own terminal.
 - Never type the confirmation code, and never ask the human for it. The human reads it on the review page and types it into the window of the operating system.
 

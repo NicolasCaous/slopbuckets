@@ -915,8 +915,49 @@ Every difference between this file and the project is listed in [Lock difference
 {
   const schema = JSON.parse(read('site/schema/v1.json'));
   const props = Object.entries(schema.properties).filter(([k]) => k !== '$schema');
-  const example = { $schema: schema.$id, ...Object.fromEntries(props.map(([k, v]) => [k, v.default])) };
-  const constraint = (v) => [v.enum ? `one of ${v.enum.map((e) => `\`${JSON.stringify(e)}\``).join(', ')}` : '', v.minLength ? `at least ${v.minLength} character` : '', v.minimum !== undefined ? `at least ${v.minimum}` : ''].filter(Boolean).join(', ');
+  /** A property with its `$ref` resolved: the definition, with the property's own keywords on top. */
+  const resolved = (v) => (v.$ref ? { ...schema.$defs[v.$ref.replace('#/$defs/', '')], ...v } : v);
+  const typeOf = (v) => {
+    const r = resolved(v);
+    return r.type === 'array' && r.items?.type ? `${r.items.type}[]` : r.type;
+  };
+  const defaultOf = (v) => (v.default === undefined ? 'not set' : `<code>${esc(JSON.stringify(v.default))}</code>`);
+  const constraint = (v) => {
+    const r = resolved(v);
+    return [
+      r.enum ? `one of ${r.enum.map((e) => `\`${JSON.stringify(e)}\``).join(', ')}` : '',
+      r.minLength ? `at least ${r.minLength} character` : '',
+      r.minimum !== undefined ? `at least ${r.minimum}` : '',
+      r.properties ? `an object with ${Object.keys(r.properties).map((k) => `\`${k}\``).join(', ')}` : '',
+      r.uniqueItems ? 'no item twice' : '',
+    ].filter(Boolean).join(', ');
+  };
+  const example = { $schema: schema.$id, ...Object.fromEntries(props.filter(([, v]) => v.default !== undefined).map(([k, v]) => [k, v.default])) };
+  // Every object property gets a section of its own with its fields, so nested keys are documented too.
+  const nested = props.filter(([, v]) => resolved(v).type === 'object' && v.properties).map(([k, v]) => {
+    const required = new Set(v.required ?? []);
+    const fields = Object.entries(v.properties);
+    // Array fields whose items have a description of their own, such as the lines of access.allow and access.deny.
+    const lists = fields.filter(([, f]) => resolved(f).items?.description);
+    const sample = v.examples?.[0];
+    // A <p> keeps Markdown from reading the `**` of a pattern as bold.
+    const itemsText = lists.length
+      ? `<p>Each item of ${lists.map(([name]) => `<code>${esc(`${k}.${name}`)}</code>`).join(' and ')} is one line. ${uniq(lists.map(([, f]) => inline(resolved(f).items.description))).join(' ')}</p>`
+      : '';
+    return `
+## ${k}
+
+${inline(v.description)}
+
+${sample ? codeBlock('json', JSON.stringify({ [k]: sample }, null, 2)) : ''}
+
+${table(['Field', 'Type', 'Required', 'Allowed values', 'Meaning'], fields.map(([name, f]) => [`<code>${esc(`${k}.${name}`)}</code>`, `<code>${esc(typeOf(f))}</code>`, required.has(name) ? 'yes' : 'no', inline(constraint(f)), inline(f.description)]))}
+
+${itemsText}
+${k === 'access' ? `
+A malformed line, a line listed twice in one list, the same line in both lists and an unknown field inside <code>access</code> are <a href="./rules#config-invalid"><code>config-invalid</code></a>. How a line matches an import, which line decides when several match, and what the agent does when an import is denied are in [Access rules](../guide/concepts#access-rules). The violations are on the [rules reference](./rules#access-rules).
+` : ''}`;
+  }).join('');
   pages['config.md'] = front('Config reference', 'Every field of buckets.config.json, from the published JSON Schema.') +
 `# Config reference
 
@@ -926,16 +967,18 @@ ${GEN}
 
 ${codeBlock('json', JSON.stringify(example, null, 2))}
 
-${table(['Field', 'Type', 'Default', 'Allowed values', 'Meaning'], props.map(([k, v]) => [`<code>${esc(k)}</code>`, `<code>${esc(v.type)}</code>`, `<code>${esc(JSON.stringify(v.default))}</code>`, inline(constraint(v)), inline(v.description)]))}
+${table(['Field', 'Type', 'Default', 'Allowed values', 'Meaning'], props.map(([k, v]) => [`<code>${esc(k)}</code>`, `<code>${esc(typeOf(v))}</code>`, defaultOf(v), inline(constraint(v)), inline(v.description)]))}
 
 ${schema.additionalProperties === false ? 'Unknown fields are not allowed. The check' : 'The check'} reports them as <a href="./rules#config-invalid"><code>config-invalid</code></a>. The <code>$schema</code> field points at the JSON Schema, <a href="${esc(schema.$id)}"><code>${esc(schema.$id)}</code></a>, so editors can autocomplete and validate the file.
 
-The lock stores a hash of the config with the defaults filled in and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>.
+A human owns this file. The agent hooks deny every write to any <code>buckets.config.json</code>, nested ones included, as they do for the lock, and the reason they return tells the agent to ask the human for the change. See [Claude Code hooks](./hooks#pre-tool-use).
+
+The lock stores the config with the defaults filled in, its keys sorted and without <code>$schema</code>, so a change in formatting alone is not a lock difference, but a changed value is <a href="./lock#config-changed"><code>config-changed</code></a>. The review lists each change: every <code>access</code> line added or removed, a changed <code>access.default</code>, and every other key with its old and new value. Locks older than version 4 store only a hash of the config. See [Lock file](./lockfile).
 
 The default of <code>alias</code> applies only to a config that leaves the field out. <code>buckets init</code> always writes an alias of its own: <code>@</code>, the name of the root bucket folder, a dash and 8 random lowercase letters and digits, such as <code>@root-k3x9pm2a</code>. The 8 characters leave out <code>0</code>, <code>o</code>, <code>1</code>, <code>l</code> and <code>i</code>, which are easy to confuse. Projects that link each other import through each other's alias, so no two projects should share one. Older projects with <code>@root</code> keep working, but <code>buckets link add</code> refuses to link two projects with the same alias.
 
 A nested project has its own <code>buckets.config.json</code> in a subfolder of a bucket's <code>_/</code>. Its <code>alias</code> must differ from the alias of every project around it: the same alias as an enclosing project is <a href="./rules#config-invalid"><code>config-invalid</code></a>. See [Projects and links](../guide/projects-and-links).
-`;
+${nested}`;
 }
 
 /* ---------- links registry ---------- */
@@ -968,7 +1011,7 @@ A nested project has its own <code>buckets.config.json</code> in a subfolder of 
 
 ${GEN}
 
-<code>${LINKS_FILE}</code> sits next to <code>buckets.config.json</code> and lists the links a project wants. The <code>buckets link</code> commands write it, and an agent may edit it by hand, like the config. It is not an approval: a new, removed or changed entry is a lock difference until a human approves it. Commit it. For the whole workflow, read [Projects and links](../guide/projects-and-links).
+<code>${LINKS_FILE}</code> sits next to <code>buckets.config.json</code> and lists the links a project wants. The <code>buckets link</code> commands write it, and an agent may edit it by hand, unlike <code>buckets.config.json</code>, which only a human edits. It is not an approval: a new, removed or changed entry is a lock difference until a human approves it. Commit it. For the whole workflow, read [Projects and links](../guide/projects-and-links).
 
 ${codeBlock('json', JSON.stringify({ links: {
   'root/web/_/links/billing': { alias: '@root-p7hq2wxe', mode: 'link', origin: '../billing' },
@@ -1153,7 +1196,7 @@ The file rule denies a file tool when the target is a lock or a config. The rule
 
 The shell rule is a text match, after the hook removes quotes, backticks, carets and backslashes, which shells drop. It denies a command when:
 
-- it names the lock or a config: literally, through an 8.3 short name, or through a glob whose last part matches the file name but not <code>package.json</code>, such as <code>bucket*</code>, <code>*.lock.json</code>, <code>*.config.json</code> or <code>b[u]ckets.lock.json</code>. So even <code>cat ${LOCK_FILE}</code> is denied, and the agent reads both files with the Read tool.
+- it names the lock or a config: literally, through an 8.3 short name, or through a glob whose last part matches the file name but not <code>package.json</code>, such as <code>bucket*</code>, <code>&#42;.lock.json</code>, <code>&#42;.config.json</code> or <code>b[u]ckets.lock.json</code>. So even <code>cat ${LOCK_FILE}</code> is denied, and the agent reads both files with the Read tool.
 - it runs <code>buckets refresh</code> and what follows <code>refresh</code> is not exactly <code>--web</code>, optionally followed by output redirections, then the end of the command or a separator. A redirection goes to a file (<code>&gt; refresh.log</code>, <code>&gt;&gt; refresh.log</code>, <code>&amp;&gt; refresh.log</code>, PowerShell <code>*&gt; refresh.log</code>) or to another stream (<code>2&gt;&amp;1</code>). The separator can be a trailing <code>&amp;</code> or a pipe, as in <code>| tee refresh.log</code>, and <code>nohup</code> in front of the call is allowed too. So an agent can run the command in the background and keep its log. A redirection to the lock names the lock, so the first rule denies it. The program can be <code>buckets</code> or <code>slopbuckets</code>, with a version (<code>npx slopbuckets@0.1.0 refresh</code>), through a Windows shim (<code>buckets.cmd refresh</code>), as a script run by node or tsx (<code>node cli/dist/index.js refresh</code>), or behind a package runner with flags (<code>npm exec slopbuckets -- refresh</code>). Every call in the command must pass, so <code>buckets refresh --web; buckets refresh</code> is denied.
 
 When this hook crashes, it allows the call, because a crash here would break every tool call the agent makes. When a stop hook or the post-edit hook crashes, it blocks once with the error, so the agent cannot finish with unchecked work.

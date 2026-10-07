@@ -5,7 +5,7 @@ description: How a contract change made by the AI reaches buckets.lock.json, wit
 
 # The approval flow
 
-The AI can edit every file in the project, including DMZ files, the config, `buckets.links.json` and the bucket tree. It cannot write `buckets.lock.json`. The skill tells the AI this, and the `PreToolUse` hook enforces it. Every contract change therefore waits for a human:
+The AI can edit every file in the project, including DMZ files, `buckets.links.json` and the bucket tree. It cannot write `buckets.lock.json` or `buckets.config.json`, because a human owns both: the lock records what the human approved, and the config holds the root folder, the alias and the [access rules](./concepts#access-rules). The skill tells the AI this, and the `PreToolUse` hook enforces it. Every contract change therefore waits for a human:
 
 1. The AI changes a DMZ file, creates a bucket, adds a link or deletes an orphan chain.
 2. `buckets check` finds a difference between the project and the lock and exits with code 2.
@@ -63,7 +63,7 @@ The agent sends the link to the human with a short summary: which DMZ files chan
 
 ## The human approves on the page
 
-The page shows every change since the last approval: versions, config, buckets, nested projects, links, and each DMZ file with its symbols and signatures. A signature change appears even when the DMZ file did not change, because the type changed where it is declared. Each file can be expanded to show its text. A link shows its origin, mode and alias, and every symbol the linked project now publishes, stopped publishing or changed. A change inside a linked project that keeps its published signatures does not appear, because it needs no approval here.
+The page shows every change since the last approval: versions, config, buckets, nested projects, links, and each DMZ file with its symbols and signatures. A config change shows line by line, as [Config changes](#config-changes) describes. A signature change appears even when the DMZ file did not change, because the type changed where it is declared. Each file can be expanded to show its text. A link shows its origin, mode and alias, and every symbol the linked project now publishes, stopped publishing or changed. A change inside a linked project that keeps its published signatures does not appear, because it needs no approval here.
 
 At the top, the page shows a confirmation code of 6 characters. The code comes from a hash of the state the page shows, and its alphabet leaves out characters that are easy to confuse, such as `0` and `O` or `1` and `I`.
 
@@ -127,6 +127,21 @@ buckets refresh --web: cannot ask for approval on this machine. This is an SSH s
 ```
 
 The agent then asks the human to run `buckets refresh` in their own terminal.
+
+## Config changes
+
+Only a human edits `buckets.config.json`. When an agent needs a change in it, such as an `access` line that allows a dependency, it stops and asks, with the exact line it proposes. The hooks deny any write to the file, also through a shell command that names it.
+
+The lock stores the whole config, with the defaults filled in, so a change to it is a `config-changed` lock difference and waits for an approval like a contract change. The review lists what changed, one row per change: each `access` line added or removed with its list, a changed `access.default`, and every other key with its old and new value.
+
+```text
+~ config changed          buckets.config.json
+    + access.allow  root/teams/search -> root/sql
+    - access.deny   root/teams/search -> root/sql
+    ~ maxDepth      2 to 3
+```
+
+The page, `buckets refresh` in a terminal and the confirmation window show the same rows. A lock written before version 4 kept only a hash of the config. When the config changed since such a lock, the review shows the whole current config and says the old values were not recorded. Approving writes a version 4 lock, and later reviews show each change.
 
 ## Approving in a terminal
 

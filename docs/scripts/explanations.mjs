@@ -33,9 +33,9 @@ export const EXPLAIN_RULE = {
   'import-undeclared-package': 'An import of a package that is not in `package.json`.',
   'import-global': 'A file in `_/` shares code without an import: a file that is not a module, `declare global`, `export as namespace` or a `/// <reference>`.',
   'graph-cycle': 'The bucket graph has a cycle. The check reports it once for each file that adds an edge of the cycle.',
-  'access-denied': 'An import uses code that originates in a bucket the `access` lines of `buckets.config.json` deny to the importing bucket. Also a DMZ re-export whose symbol the `access` lines deny to every bucket that may import that DMZ file.',
-  'access-ambiguous': 'An allow line and a deny line both match an import, and neither is more specific than the other on both sides. Also a DMZ re-export that no bucket allowed to import the DMZ file may clearly use. A human adds a more specific line to decide.',
-  'access-unknown-bucket': 'A side of an `access` line names, without wildcards, a bucket that does not exist.',
+  'access-denied': 'Code in one bucket uses code that originates in another bucket, and the `access` lines of `buckets.config.json` forbid that edge: the most specific line that matches it is a deny line, or no line matches and `access.default` is `"deny"`. The check reports it on the import line, after following the DMZ chain to the bucket that declares the symbol. It also reports it on the export line of a DMZ file when no bucket that may import that file may use the symbol. The message names the deciding line. `buckets.config.json` belongs to a human, so the agent never edits it: it removes the dependency, or stops and asks the human for the `access` line that allows it, written out in full.',
+  'access-ambiguous': 'An allow line and a deny line both match an edge, and neither is at least as specific as the other on both sides, so the check cannot tell which one decides. Also a DMZ re-export that no bucket allowed to import the DMZ file may clearly use. The message names both lines. A human settles it by adding a line that is at least as specific as both on both sides, usually one that names both buckets, such as `root/teams/search -> root/sql`, in the list that should win. The agent stops and asks the human for that line, or removes the dependency.',
+  'access-unknown-bucket': 'A side of an `access` line names a bucket without `*` or `{`, and no bucket has that path, so the line matches nothing. It usually follows a bucket folder that was renamed, moved or deleted, or a typo. Bucket paths start with the `root` folder of the config, such as `root/billing`. The check reports it on `buckets.config.json`. If the agent moved the bucket, it moves it back. Otherwise a human fixes the line. A pattern with wildcards that matches nothing is not an error.',
   'project-misplaced': "A `buckets.config.json` sits inside the root bucket folder somewhere other than a subfolder of a bucket's `_/`. Nested projects may live only there.",
   'link-missing': 'A link registered in `buckets.links.json` is not on disk, its target is gone, or a file sits where the link folder should be. `buckets link sync` recreates it.',
   'link-forbidden-import': 'Code, or a DMZ re-export, reaches a file of a linked project other than its published `.external.ts` files.',
@@ -80,7 +80,7 @@ export const EXPLAIN_IMPORT_KIND = {
 };
 
 export const EXPLAIN_HOOK = {
-  PreToolUse: 'Denies any write to `buckets.lock.json`, under any name, any shell command that mentions the lock, and any `buckets refresh` other than exactly `buckets refresh --web`, which may run in the background with its output redirected.',
+  PreToolUse: 'Denies any write to `buckets.lock.json` or `buckets.config.json`, under any name, any shell command that mentions either file, and any `buckets refresh` other than exactly `buckets refresh --web`, which may run in the background with its output redirected.',
   PostToolUse: 'Checks the file the agent just edited, in its nearest project, and reports a broken rule right away.',
   Stop: 'Runs the full check, nested projects included, before the agent ends its turn.',
   SubagentStop: 'Runs the full check, nested projects included, before a subagent hands back its work.',
