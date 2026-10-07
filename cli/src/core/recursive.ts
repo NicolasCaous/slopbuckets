@@ -6,7 +6,7 @@ import { runCheck, type CheckOptions, type CheckResult } from './check.js';
 import { loadConfig } from './config.js';
 import { readLinksManifest } from './links.js';
 import { scanProject } from './scan.js';
-import { resolveScripts } from './scripts.js';
+import { resolveScripts, withScriptRuns } from './scripts.js';
 import type { CheckReport, Context, ExitCode } from './types.js';
 
 export interface ProjectRun {
@@ -51,6 +51,8 @@ export function joinReports(runs: { path: string; report: CheckReport }[]): Chec
 }
 
 export async function runRecursiveCheck(ctx: Context, projectDir: string, options: RecursiveOptions = {}): Promise<{ report: CheckReport; runs: ProjectRun[] }> {
+  // One check runs each script at most once. A caller that already started one, such as buildSnapshot, keeps its runs.
+  if (ctx.scriptRuns === undefined) ctx = withScriptRuns(ctx);
   const runs: ProjectRun[] = [];
   const { recursive = true, ...checkOptions } = options;
   const visit = async (dir: string, rel: string): Promise<void> => {

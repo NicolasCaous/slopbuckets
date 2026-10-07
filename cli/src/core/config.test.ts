@@ -66,6 +66,57 @@ describe('validateConfig', () => {
   });
 });
 
+describe('root', () => {
+  it.each(['my{app}', 'src/<app>', 'a*b', 'a`b', 'a,b', 'a|b', 'src/x}'])('rejects %j, which no layout or access line could name', (root) => {
+    const { config, violations } = validateConfig({ root });
+    expect(config).toBeUndefined();
+    expect(violations.map((v) => v.message)).toEqual([
+      expect.stringMatching(/^Field "root" is ".*", which holds ".". Every layout and access line starts with the root path, and a line reads the characters \{ \} < > \* ` , \| as glob syntax, so no line could name this folder\. Rename the folder without them and set "root" to the new name\.$/),
+    ]);
+  });
+
+  it('accepts other characters', () => {
+    expect(validateConfig({ root: 'src/my-app.v2 (old)+x' }).violations).toEqual([]);
+  });
+});
+
+describe('equivalent spellings', () => {
+  const layout = (lists: Record<string, unknown>, extra: Record<string, unknown> = {}) => validateConfig({ ...extra, layout: { default: 'deny', ...lists } });
+
+  it('stores the lines in canonical form', () => {
+    expect(layout({ allow: ['root/{b,a}', 'root/{`s`}/<d,c>'] }, { scripts: { s: 's.js' } }).config?.layout?.allow).toEqual(['root/`s`/<c,d>', 'root/{a,b}']);
+  });
+
+  it('finds a line in both lists however its group values are ordered', () => {
+    expect(layout({ allow: ['root/{a,b}'], deny: ['root/{b,a}'] }).violations.map((v) => v.message)).toEqual([
+      'Fields "layout.allow" and "layout.deny" both list "root/{a,b}". Remove it from one of them. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+  });
+
+  it('finds a bare script name and the same name in braces in both lists', () => {
+    expect(layout({ allow: ['root/`s`'], deny: ['root/{`s`}'] }, { scripts: { s: 's.js' } }).violations.map((v) => v.message)).toEqual([
+      'Fields "layout.allow" and "layout.deny" both list "root/`s`". Remove it from one of them. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+  });
+
+  it('finds a line listed twice in one list under two spellings, in access too', () => {
+    expect(layout({ allow: ['root/{x,y}/*', 'root/{y,x}/*'] }).violations.map((v) => v.message)).toEqual(['Field "layout.allow" lists "root/{x,y}/*" twice. Remove one of them. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.']);
+    const access = validateConfig({ access: { default: 'deny', allow: ['root/{a,b} -> root/log', 'root/{b,a}->root/log'] } });
+    expect(access.violations.map((v) => v.message)).toEqual(['Field "access.allow" lists "root/{a,b} -> root/log" twice. Remove one of them. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.']);
+  });
+
+  it.each([
+    ['root/{}', 'has the empty group "{}"'],
+    ['root/{A,,B}', 'has an empty value in "{A,,B}"'],
+    ['root/<A,A>', 'lists "A" twice in one group of "<A,A>"'],
+    ['root/x{{B,A,B}}', 'lists "B" twice in one group of "x{{B,A,B}}"'],
+  ])('rejects %j', (line, problem) => {
+    const { config, violations } = layout({ allow: [line] });
+    expect(config).toBeUndefined();
+    expect(violations.map((v) => v.message)).toEqual([expect.stringContaining(`"${line}" ${problem}`)]);
+  });
+});
+
 describe('access', () => {
   it('stores each line in canonical form, sorted, and fills in the missing list', () => {
     const { config } = validateConfig({ access: { default: 'deny', allow: ['root/api/**->root/log', '  ** ->   root/sql '] } });
@@ -170,6 +221,12 @@ describe('maxDepth', () => {
   it('falls back to the old default of 2 when the value was not valid', () => {
     expect(validateConfig({ maxDepth: 'two' }).violations[0]!.message).toContain('"allow": ["root/*/*"]}. It allows bucket folders down to depth 2, the old default');
   });
+
+  it('says to remove maxDepth when the config already has layout', () => {
+    expect(validateConfig({ maxDepth: 3, layout: { default: 'deny', allow: ['root/*'] } }).violations.map((v) => v.message)).toEqual([
+      'Field "maxDepth" was removed, and "layout" replaces it. This config already has "layout", so remove "maxDepth". buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+    ]);
+  });
 });
 
 describe('layout', () => {
@@ -222,7 +279,7 @@ describe('scripts', () => {
   it('says which script a line names that "scripts" does not list', () => {
     const { violations } = validateConfig({ scripts: { repos: 'tools/repos.js' }, layout: { default: 'deny', allow: ['root/`repo`'] } });
     expect(violations.map((v) => v.message)).toEqual([
-      'Field "layout.allow" has a line that is not valid. "root/`repo`" uses the script "`repo`" in "`repo`", but "scripts" has no script named "repo". Add it to "scripts" or fix the name. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
+      'Field "layout.allow" has a line that is not valid. "root/`repo`" uses the script "repo", which "scripts" does not list. Add it to "scripts" or fix the name. buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.',
     ]);
   });
 
@@ -233,6 +290,32 @@ describe('scripts', () => {
 
   it('leaves the key out of the resolved config when the file has none', () => {
     expect('scripts' in validateConfig({ root: 'root' }).config!).toBe(false);
+  });
+
+  it.each(['__proto__', 'constructor', 'prototype'])('rejects the script name %j', (name) => {
+    const raw = JSON.parse(`{"scripts": {"${name}": "tools/a.js"}, "layout": {"default": "deny", "allow": ["root/\`${name}\`"]}}`);
+    expect(validateConfig(raw).violations.map((v) => v.message)).toEqual([
+      `Field "scripts" has the script name "${name}", which JavaScript reserves on every object. Pick another name, such as "repos". buckets.config.json belongs to a human, so an AI agent does not fix this, but stops and shows this error to the human.`,
+    ]);
+  });
+
+  it('reports a script named __proto__ as config-invalid instead of crashing the check', async () => {
+    const config = '{"root": "root", "scripts": {"__proto__": "tools/a.js"}, "layout": {"default": "deny", "allow": ["root/`__proto__`"]}}';
+    const dir = makeProject({ 'buckets.config.json': config, 'tools/a.js': 'console.log("billing")\n', 'root/_/a.ts': '' });
+    const { report } = await checkProject(dir);
+    expect(report.exitCode).toBe(1);
+    expect(report.violations.map((v) => `${v.rule} ${v.message.slice(0, 50)}`)).toEqual(['config-invalid Field "scripts" has the script name "__proto__", w']);
+  });
+
+  it('reports the problems of every script entry at once', () => {
+    const config = JSON.stringify({ root: 'root', scripts: { 'bad name': 'a.js', abs: '/x/a.js', gone: 'tools/gone.js', here: 'tools/here.js', missing: 'tools/missing.js' } });
+    const result = loadConfig(makeProject({ 'buckets.config.json': config, 'tools/here.js': '' }, false));
+    expect(result.kind === 'invalid' && result.violations.map((v) => v.message.slice(0, 40))).toEqual([
+      'Field "scripts" has the script name "bad',
+      'Field "scripts.abs" is the absolute path',
+      'Field "scripts.gone" names the file tool',
+      'Field "scripts.missing" names the file t',
+    ]);
   });
 
   it('is config-invalid when a script file does not exist, and accepts one that does', () => {

@@ -33,6 +33,10 @@ export const DEFAULT_CONFIG: ResolvedConfig = { adapter: 'ts', root: 'root', ali
 const ADAPTERS = ['ts'];
 const KNOWN_KEYS = new Set(['$schema', 'adapter', 'root', 'alias', 'scripts', 'access', 'layout']);
 const LINES_KEYS = new Set(['default', 'allow', 'deny']);
+/** Script names that SCRIPT_NAME accepts but that name a property of every JavaScript object. */
+const RESERVED_SCRIPT_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+/** Characters that layout and access lines read as glob syntax, so the root path cannot hold them. */
+const ROOT_GLOB = /[{}<>*`,|]/;
 
 export type ConfigResult =
   | { kind: 'missing' }
@@ -43,8 +47,11 @@ function invalid(message: string): Violation {
   return { rule: 'config-invalid', file: CONFIG_FILE, message };
 }
 
-/** Validates the parsed config and fills in the defaults. Returns the violations when the value breaks the schema. */
-export function validateConfig(raw: unknown): { config?: ResolvedConfig; violations: Violation[] } {
+/**
+ * Validates the parsed config and fills in the defaults. Returns the violations when the value breaks the schema. With
+ * `projectDir`, it also checks that each script file exists, so every problem of `scripts` comes out at once.
+ */
+export function validateConfig(raw: unknown, projectDir?: string): { config?: ResolvedConfig; violations: Violation[] } {
   const violations: Violation[] = [];
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return { violations: [invalid(`${CONFIG_FILE} must contain a JSON object. Write an object such as {"root": "root"}.`)] };
@@ -81,6 +88,13 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
         violations.push(invalid(`Field "root" is the absolute path "${root}". Use a folder relative to the project, such as "root".`));
       } else if (segments.some((s) => s === '..' || s === '.' || s === '')) {
         violations.push(invalid(`Field "root" is "${root}", which leaves the project folder or names the project itself. Use a subfolder such as "root".`));
+      } else if (ROOT_GLOB.test(normalized)) {
+        const char = ROOT_GLOB.exec(normalized)![0];
+        violations.push(
+          invalid(
+            `Field "root" is "${root}", which holds "${char}". Every layout and access line starts with the root path, and a line reads the characters { } < > * \` , | as glob syntax, so no line could name this folder. Rename the folder without them and set "root" to the new name.`,
+          ),
+        );
       } else {
         config.root = normalized;
       }
@@ -95,10 +109,10 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
     }
   }
 
-  if ('maxDepth' in obj) violations.push(removedMaxDepth(obj.maxDepth, config.root));
+  if ('maxDepth' in obj) violations.push(removedMaxDepth(obj.maxDepth, config.root, 'layout' in obj));
 
   if ('scripts' in obj) {
-    const scripts = validateScripts(obj.scripts, violations);
+    const scripts = validateScripts(obj.scripts, projectDir, violations);
     if (scripts) config.scripts = scripts;
   }
   const names = scriptNames(obj.scripts);
@@ -118,19 +132,24 @@ export function validateConfig(raw: unknown): { config?: ResolvedConfig; violati
 
 /**
  * Validates the `scripts` field: an object from script name to the path of a Node script, relative to the project
- * folder. Pushes the problems into `violations`. `loadConfig` checks that each file exists.
+ * folder. With `projectDir`, each file must exist. Pushes the problems of every entry into `violations`.
  */
-function validateScripts(raw: unknown, violations: Violation[]): Record<string, string> | undefined {
+function validateScripts(raw: unknown, projectDir: string | undefined, violations: Violation[]): Record<string, string> | undefined {
   const example = '{"repos": "tools/repos.js"}';
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     violations.push(ownedInvalid(`Field "scripts" must be an object from script name to script file, such as ${example}. Fix it or remove it.`));
     return undefined;
   }
   const before = violations.length;
-  const scripts: Record<string, string> = {};
+  // No prototype, so a name such as "toString" stays an ordinary key.
+  const scripts: Record<string, string> = Object.create(null);
   for (const [name, file] of Object.entries(raw as Record<string, unknown>)) {
     if (!SCRIPT_NAME.test(name)) {
       violations.push(ownedInvalid(`Field "scripts" has the script name "${name}". A script name starts with a letter or "_" and holds only letters, digits, "_" and "-", such as "repos".`));
+      continue;
+    }
+    if (RESERVED_SCRIPT_NAMES.has(name)) {
+      violations.push(ownedInvalid(`Field "scripts" has the script name "${name}", which JavaScript reserves on every object. Pick another name, such as "repos".`));
       continue;
     }
     if (typeof file !== 'string' || file.trim() === '') {
@@ -141,7 +160,14 @@ function validateScripts(raw: unknown, violations: Violation[]): Record<string, 
       violations.push(ownedInvalid(`Field "scripts.${name}" is the absolute path "${file}". Use a path relative to the folder of ${CONFIG_FILE}, such as "tools/repos.js".`));
       continue;
     }
-    scripts[name] = path.posix.normalize(toPosix(file));
+    const normalized = path.posix.normalize(toPosix(file));
+    if (projectDir !== undefined && !isFile(path.join(projectDir, normalized))) {
+      violations.push(
+        ownedInvalid(`Field "scripts.${name}" names the file ${normalized}, which does not exist or is not a file. The path is relative to the folder of ${CONFIG_FILE}. Create the script or fix the path.`),
+      );
+      continue;
+    }
+    scripts[name] = normalized;
   }
   return violations.length > before ? undefined : scripts;
 }
@@ -153,14 +179,17 @@ function validateScripts(raw: unknown, violations: Violation[]): Record<string, 
 function scriptNames(raw: unknown): ScriptValues | undefined {
   if (raw === undefined) return {};
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  return Object.fromEntries(Object.keys(raw).map((name) => [name, []]));
+  const names: Record<string, string[]> = Object.create(null);
+  for (const name of Object.keys(raw)) names[name] = [];
+  return names;
 }
 
 /**
  * The config-invalid violation for `maxDepth`, which `layout` replaced. It gives the layout that allows the same bucket
  * folders: depth N is the line `<root>` followed by N times `/*`, and the ancestors of those buckets pass too.
  */
-function removedMaxDepth(raw: unknown, root: string): Violation {
+function removedMaxDepth(raw: unknown, root: string, hasLayout: boolean): Violation {
+  if (hasLayout) return ownedInvalid('Field "maxDepth" was removed, and "layout" replaces it. This config already has "layout", so remove "maxDepth".');
   const valid = typeof raw === 'number' && Number.isInteger(raw) && raw >= 1;
   const depth = valid ? raw : 2;
   const layout = `"layout": {"default": "deny", "allow": ["${root}${'/*'.repeat(depth)}"]}`;
@@ -303,10 +332,8 @@ export function loadConfig(projectDir: string): ConfigResult {
     const reason = error instanceof Error ? error.message : String(error);
     return { kind: 'invalid', violations: [invalid(`${CONFIG_FILE} is not valid JSON (${reason}). Fix the syntax.`)] };
   }
-  const { config, violations } = validateConfig(raw);
+  const { config, violations } = validateConfig(raw, projectDir);
   if (!config) return { kind: 'invalid', violations };
-  const missing = missingScripts(projectDir, config);
-  if (missing.length > 0) return { kind: 'invalid', violations: missing };
   const onDisk = rootCaseOnDisk(projectDir, config.root);
   if (onDisk !== null) {
     return {
@@ -321,21 +348,13 @@ export function loadConfig(projectDir: string): ConfigResult {
   return { kind: 'ok', config };
 }
 
-/** A config-invalid violation for each script file that does not exist or is not a file. */
-function missingScripts(projectDir: string, config: ResolvedConfig): Violation[] {
-  const violations: Violation[] = [];
-  for (const [name, file] of Object.entries(config.scripts ?? {})) {
-    let isFile = false;
-    try {
-      isFile = statSync(path.join(projectDir, file)).isFile();
-    } catch {
-      isFile = false;
-    }
-    if (!isFile) {
-      violations.push(ownedInvalid(`Field "scripts.${name}" names the file ${file}, which does not exist or is not a file. The path is relative to the folder of ${CONFIG_FILE}. Create the script or fix the path.`));
-    }
+/** True when `file` exists and is a file, not a folder. */
+function isFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
   }
-  return violations;
 }
 
 /**

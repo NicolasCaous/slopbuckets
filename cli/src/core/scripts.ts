@@ -43,15 +43,20 @@ export function runNodeScript(file: string, cwd: string): ScriptRun {
   return run;
 }
 
-/** The runs of each runner, by script file and folder, so each script runs at most once per process. */
-const runs = new WeakMap<ScriptRunner, Map<string, ScriptRun>>();
+/** The runs of one check, by script file and folder. See `withScriptRuns`. */
+export type ScriptRuns = Map<string, ScriptRun>;
 
-function runOnce(run: ScriptRunner, file: string, cwd: string): ScriptRun {
-  let done = runs.get(run);
-  if (done === undefined) {
-    done = new Map();
-    runs.set(run, done);
-  }
+/**
+ * A copy of `ctx` that remembers the runs of its scripts, so each script runs at most once while the copy is in use.
+ * Each check (`runRecursiveCheck`, `buildSnapshot`, a review) makes its own copy, so the next check runs the scripts
+ * again and sees what they print by then.
+ */
+export function withScriptRuns<C extends object>(ctx: C): C & { scriptRuns: ScriptRuns } {
+  return { ...ctx, scriptRuns: new Map() };
+}
+
+function runOnce(run: ScriptRunner, done: ScriptRuns | undefined, file: string, cwd: string): ScriptRun {
+  if (done === undefined) return run(file, cwd);
   const key = `${path.resolve(file)}\0${path.resolve(cwd)}`;
   let result = done.get(key);
   if (result === undefined) {
@@ -64,10 +69,15 @@ function runOnce(run: ScriptRunner, file: string, cwd: string): ScriptRun {
 /** Characters a value may not hold: path separators, glob syntax, characters Windows forbids, and control characters. */
 const FORBIDDEN = /[/\\*{}<>,|`":?\u0000-\u001f]/;
 
+/** The names Windows reserves for devices, alone or before an extension, in any case. */
+const RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
+
 /** Why `value` is not a valid bucket name, or null. */
 export function bucketNameProblem(value: string): string | null {
   if (FORBIDDEN.test(value)) return 'it holds a path separator, a glob character or a character that folder names cannot hold';
   if (value.trim() !== value) return 'it starts or ends with a space';
+  if (value.endsWith('.')) return 'Windows cannot create a folder whose name ends with "."';
+  if (RESERVED.test(value)) return `Windows reserves the name "${value.split('.')[0]}" for a device, so no folder can have it`;
   if (value.startsWith('.')) return 'bucket names cannot start with "."';
   if (value === '_' || value === 'dmz') return `"${value}" is a folder of every bucket, not a bucket name`;
   return null;
@@ -95,7 +105,8 @@ export function scriptValues(run: ScriptRun): { values: string[] } | { problem: 
     const value = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     if (value === '') continue;
     const problem = bucketNameProblem(value);
-    if (problem !== null) return { problem: `printed ${JSON.stringify(value)}, which is not a valid bucket name: ${problem}.${why}` };
+    // The value is the problem here, so stderr is worth showing only when the script wrote something there.
+    if (problem !== null) return { problem: `printed ${JSON.stringify(value)}, which is not a valid bucket name: ${problem}.${run.stderr.trim() === '' ? '' : why}` };
     values.add(value);
   }
   if (values.size === 0) return { problem: `printed no values.${why}` };
@@ -103,16 +114,18 @@ export function scriptValues(run: ScriptRun): { values: string[] } | { problem: 
 }
 
 /**
- * Runs every script of the config, each at most once per process for the runner of `ctx` (the real one by default),
- * and returns the values of each, by name. Each problem is a config-invalid violation.
+ * Runs every script of the config with the runner of `ctx` (the real one by default), at most once while
+ * `ctx.scriptRuns` stays the same (see `withScriptRuns`), and returns the values of each, by name. Each problem is a
+ * config-invalid violation. Every script runs, so one failing script does not hide the problems of the others.
  */
-export function resolveScripts(ctx: Pick<Context, 'runScript'>, projectDir: string, config: ResolvedConfig): { values: ScriptValues } | { violations: Violation[] } {
+export function resolveScripts(ctx: Pick<Context, 'runScript' | 'scriptRuns'>, projectDir: string, config: ResolvedConfig): { values: ScriptValues } | { violations: Violation[] } {
   const run = ctx.runScript ?? runNodeScript;
-  const values: Record<string, string[]> = {};
+  // No prototype, so the values stay ordinary keys whatever the script names are.
+  const values: Record<string, string[]> = Object.create(null);
   const violations: Violation[] = [];
   for (const name of Object.keys(config.scripts ?? {}).sort()) {
     const file = config.scripts![name]!;
-    const result = scriptValues(runOnce(run, path.resolve(projectDir, file), projectDir));
+    const result = scriptValues(runOnce(run, ctx.scriptRuns, path.resolve(projectDir, file), projectDir));
     if ('values' in result) {
       values[name] = result.values;
       continue;

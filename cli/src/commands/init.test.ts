@@ -158,6 +158,14 @@ describe('buckets init', () => {
     expect(fileExists(dir, 'buckets.config.json')).toBe(false);
   });
 
+  it('rejects a root folder whose name a layout line would read as a glob', async () => {
+    const { dir, skill } = setup();
+    const io = fakeIo({ cwd: dir, interactive: true, answers: ['my{app}', '', ''] });
+    expect(await initCommand(testContext(), io, [], { skillSource: skill })).toBe(1);
+    expect(io.err).toContain('Field "root" is "my{app}", which holds "{".');
+    expect(fileExists(dir, 'buckets.config.json')).toBe(false);
+  });
+
   it('refuses to ask without a terminal and points to --yes', async () => {
     const { dir, skill } = setup();
     const io = fakeIo({ cwd: dir });

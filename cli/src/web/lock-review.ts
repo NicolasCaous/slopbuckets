@@ -10,6 +10,7 @@ import { diffLocks, isSupportedLockVersion, own, serializeLock } from '../core/l
 import { configDiff, type ConfigChange } from '../core/lock-config.js';
 import { LOCK_FILE } from '../core/paths.js';
 import { discoverProjects } from '../core/recursive.js';
+import { withScriptRuns } from '../core/scripts.js';
 import type { OrphanChain } from '../core/rules/orphans.js';
 import type { CheckReport, Context, Lock, LockChange } from '../core/types.js';
 
@@ -347,6 +348,8 @@ export interface ProjectState {
 
 /** The state of the project and of every project nested in it, in tree order. */
 export async function evaluateTree(ctx: Context, projectDir: string): Promise<ProjectState[]> {
+  // Each evaluation runs the scripts once, and the next one runs them again.
+  ctx = withScriptRuns(ctx);
   const out: ProjectState[] = [];
   for (const project of discoverProjects(ctx, projectDir)) out.push({ ...project, state: await evaluateLockState(ctx, project.dir, project.path) });
   return out;

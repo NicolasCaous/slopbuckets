@@ -31,7 +31,7 @@ import { CONFIG_FILE, relativeToProject, splitBucketPath, toPosix } from '../cor
 import { findProjectDir } from '../core/project.js';
 import { discoverProjects } from '../core/recursive.js';
 import { scanProject } from '../core/scan.js';
-import { resolveScripts } from '../core/scripts.js';
+import { resolveScripts, withScriptRuns } from '../core/scripts.js';
 import { addLinkExclude, addLinkPath, bundlerInstructions, removeLinkExclude, removeLinkPath, TSCONFIG, type ExcludeEdit, type TsconfigEdit } from '../core/tsconfig-paths.js';
 import type { Context } from '../core/types.js';
 import type { Io } from './io.js';
@@ -318,6 +318,8 @@ async function syncLinks(ctx: Context, io: Io, args: string[]): Promise<number> 
   const ext = ctx.adapter.info().dmzExtension;
   let failed = 0;
   let created = 0;
+  // The discovery and the scan of each project run the same scripts, once.
+  ctx = withScriptRuns(ctx);
   for (const { path: rel, dir } of discoverProjects(ctx, start.dir, flags.recursive)) {
     const manifest = readLinksManifest(dir);
     if (manifest.kind === 'invalid') {

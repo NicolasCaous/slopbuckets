@@ -4,6 +4,7 @@
 import path from 'node:path';
 import type { CacheStore } from '../core/cache.js';
 import { runRecursiveCheck, joinProject } from '../core/recursive.js';
+import { withScriptRuns } from '../core/scripts.js';
 import { EXTERNAL, PARENT, SELF } from '../core/dmz-path.js';
 import { sha256 } from '../core/hash.js';
 import { copyDrift, originSource, resolveOrigin as resolveLinkOrigin } from '../core/links.js';
@@ -653,7 +654,8 @@ function resolveTarget(runs: Run[], originAbs: string): { project: string } | nu
 
 /** Builds the snapshot of a project and of every project nested in it. */
 export async function buildSnapshot(ctx: Context, projectDir: string, options: SnapshotOptions = {}): Promise<InspectSnapshot> {
-  const { report, runs } = await runRecursiveCheck(ctx, projectDir, {
+  // A long-lived server builds many snapshots with one context, and each one runs the scripts again.
+  const { report, runs } = await runRecursiveCheck(withScriptRuns(ctx), projectDir, {
     recursive: options.recursive ?? true,
     ...(options.cacheDir !== undefined ? { cacheDir: options.cacheDir } : {}),
     ...(options.cache !== undefined ? { cache: options.cache } : {}),
