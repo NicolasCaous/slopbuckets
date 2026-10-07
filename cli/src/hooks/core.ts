@@ -39,6 +39,7 @@ export const LOCK_DENY_REASON =
 export const CONFIG_DENY_REASON =
   'buckets.config.json belongs to the human: it sets the root bucket folder, the import alias and the `access` rules that decide which buckets may use which, in this project and in every nested project. ' +
   'Do not edit or write any buckets.config.json under any name (alternative streams, short names, links), and do not run shell commands that mention it, also through wildcards. To read it, use the Read tool. ' +
+  'A shell glob that can match buckets.config.json, such as `*config*` or `*.config.json`, counts as naming it, so to list or search files use your file reading or search tool instead of the shell. ' +
   'If a task needs a change in it, such as an `access` line that allows a dependency, stop and ask the human to make the change, with the exact lines you need and why.';
 
 export const UPDATE_DENY_REASON =

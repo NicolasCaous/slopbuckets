@@ -311,6 +311,9 @@ describe('preTool: buckets.config.json', () => {
     'Set-Content -Path .\\buckets.config.json -Value x',
     'cat *.config.json',
     'cat b"ucke"ts.config.json',
+    'find . -name "*config*"',
+    'ls *.config.*',
+    'rg --files -g "*config*"',
   ])('denies the shell command %j with the config reason', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(CONFIG_DENY);
     const dir = makeProject(NESTED);
@@ -392,6 +395,12 @@ describe('preTool: buckets.config.json', () => {
     'bash -c "buckets update --check"',
   ])('allows %j', (command) => {
     expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+  });
+
+  it('tells the agent that a glob that can match the config names it, and what to use instead', () => {
+    expect(CONFIG_DENY_REASON).toContain('A shell glob that can match buckets.config.json');
+    expect(CONFIG_DENY_REASON).toContain('use your file reading or search tool instead');
+    expect(preTool({ cwd: NOWHERE, action: shell('cat tsconfig.json') })).toEqual(ALLOW);
   });
 
   it('gives the lock reason when a command names both files', () => {
