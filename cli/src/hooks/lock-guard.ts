@@ -179,11 +179,19 @@ function isCli(word: { text: string; raw: string }): boolean {
 
 /**
  * Programs that run the program named after them: package runners (`npx`, `npm exec`, `pnpm exec`, `pnpm dlx`,
- * `yarn`, `bunx`), script runners (`node`, `tsx`) and wrappers such as `env`, `nohup`, `sudo` and `xargs`.
+ * `yarn`, `bunx`), script runners (`node`, `tsx`) and wrappers such as `env`, `nohup`, `sudo`, `timeout` and `xargs`.
  */
 const RUNNERS = new Set(
-  'npx pnpx bunx npm pnpm yarn bun exec dlx x run env nohup sudo doas time nice command builtin xargs call start node tsx ts-node deno'.split(' '),
+  'npx pnpx bunx npm pnpm yarn bun exec dlx x run env nohup sudo doas time nice command builtin xargs call start node tsx ts-node deno timeout stdbuf watch ionice unbuffer'.split(
+    ' ',
+  ),
 );
+
+/** Shell keywords that may open a command and leave the next word in program position: `{ buckets update; }`, `then buckets update`. */
+const KEYWORDS = new Set(['{', '!', 'if', 'then', 'do', 'else', 'elif', 'while', 'until']);
+
+/** The duration argument of `timeout`, such as `120`, `1.5` or `10m`. */
+const DURATION = /^[0-9]+(?:\.[0-9]+)?[smhd]?$/i;
 
 /** Shells that run the command text after `-c`, `-Command` or `/c`. */
 const SHELLS = new Set('bash sh zsh dash ksh fish pwsh powershell cmd'.split(' '));
@@ -216,6 +224,8 @@ interface CliCall {
 /**
  * Records the call when the program of the CLI, at `from`, is followed by the subcommand. Flags may stand between
  * them, each with one optional value: `npx slopbuckets --cwd /repo refresh`, `npm exec slopbuckets -- refresh`.
+ * Another CLI word may stand there too, because the first one can be the package of a runner:
+ * `npx -p slopbuckets buckets update`.
  */
 function findSubcommand(tokens: Token[], from: number, isSubcommand: (word: string) => boolean, calls: CliCall[]): void {
   let afterFlag = false;
@@ -227,7 +237,8 @@ function findSubcommand(tokens: Token[], from: number, isSubcommand: (word: stri
       calls.push({ word: tok.text, rest: tokens.slice(i + 1) });
       return;
     }
-    if (tok.text.startsWith('-')) afterFlag = true;
+    if (isCli(tok)) afterFlag = false;
+    else if (tok.text.startsWith('-')) afterFlag = true;
     else if (afterFlag) afterFlag = false;
     else return;
   }
@@ -235,18 +246,28 @@ function findSubcommand(tokens: Token[], from: number, isSubcommand: (word: stri
 
 /**
  * Reads the command whose first word is at `start` and looks for the CLI in program position: the first word, or
- * the word a runner runs, past the runner's flags and their values and past `NAME=value` assignments. The command
- * text that a shell runs with `-c` and the arguments of `eval` go to `nested`.
+ * the word a runner runs, past the runner's flags and their values and past `NAME=value` assignments. Shell keywords
+ * such as `{`, `!`, `then` and `do` before the first word are skipped. After a CLI word the scan goes on, because that
+ * word can be the package a runner installs: `pnpm --package slopbuckets dlx buckets update`. The command text that a
+ * shell runs with `-c` and the arguments of `eval` go to `nested`.
  */
 function scanCommand(tokens: Token[], start: number, isSubcommand: (word: string) => boolean, calls: CliCall[], nested: string[]): void {
   let afterFlag = false;
+  let atStart = true;
+  // After `timeout`, its duration still stands before the program it runs.
+  let duration = false;
+  // After `start` (cmd), flags are written `/b`, `/wait`.
+  let slashFlags = false;
   for (let i = start; i < tokens.length; i++) {
     const tok = tokens[i]!;
     if (tok.kind === 'op') return;
     if (tok.kind === 'redirect') continue;
+    if (atStart && KEYWORDS.has(tok.text.toLowerCase())) continue;
+    atStart = false;
     if (isCli(tok)) {
       findSubcommand(tokens, i + 1, isSubcommand, calls);
-      return;
+      afterFlag = false;
+      continue;
     }
     const name = programName(tok.text);
     if (SHELLS.has(name)) {
@@ -259,9 +280,13 @@ function scanCommand(tokens: Token[], start: number, isSubcommand: (word: string
       nested.push(wordsFrom(tokens, i + 1).join(' '));
       return;
     }
-    if (RUNNERS.has(name) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.text)) afterFlag = false;
-    else if (i > start && tok.text.startsWith('-')) afterFlag = true;
+    if (RUNNERS.has(name) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tok.text)) {
+      afterFlag = false;
+      if (name === 'timeout') duration = true;
+      if (name === 'start') slashFlags = true;
+    } else if (i > start && (tok.text.startsWith('-') || (slashFlags && /^\/[a-z?]/i.test(tok.text)))) afterFlag = true;
     else if (afterFlag) afterFlag = false;
+    else if (duration && DURATION.test(tok.text)) duration = false;
     else return;
   }
 }

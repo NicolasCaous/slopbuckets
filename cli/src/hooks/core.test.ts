@@ -430,6 +430,60 @@ describe('preTool: shell guard review', () => {
     expect(preTool({ cwd: NOWHERE, action: shell(`cat ${'*'.repeat(200)}lock.json`) })).toEqual(DENY);
     expect(preTool({ cwd: NOWHERE, action: shell(`ls ${'{a,b}'.repeat(2000)} ${'['.repeat(20000)}`) })).toEqual(ALLOW);
   });
+
+  it.each([
+    ['npx -p slopbuckets buckets update --yes', UPDATE_DENY],
+    ['npx --package slopbuckets buckets refresh', DENY],
+    ['npx -y -p slopbuckets@latest buckets update --yes', UPDATE_DENY],
+    ['npx --package=slopbuckets@1.2.0 -y buckets update --yes', UPDATE_DENY],
+    ['npm exec -p slopbuckets buckets update --yes', UPDATE_DENY],
+    ['pnpm --package slopbuckets dlx buckets update --yes', UPDATE_DENY],
+    ['pnpm --package=slopbuckets dlx buckets update --yes', UPDATE_DENY],
+    ['yarn dlx -p slopbuckets buckets update --yes', UPDATE_DENY],
+    ['npx -p slopbuckets -- buckets refresh', DENY],
+  ])('denies the CLI installed as the package of a runner, %j', (command, expected) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
+  });
+
+  it.each([
+    ['timeout 120 buckets update --yes', UPDATE_DENY],
+    ['timeout 120 npx slopbuckets update --yes', UPDATE_DENY],
+    ['timeout -s KILL 10m buckets refresh', DENY],
+    ['timeout -k 5 600 buckets refresh', DENY],
+    ['for d in a b; do buckets refresh; done', DENY],
+    ['for d in a b; do buckets update --yes; done', UPDATE_DENY],
+    ['while true; do buckets update; break; done', UPDATE_DENY],
+    ['if command -v buckets; then buckets update --yes; fi', UPDATE_DENY],
+    ['if true; then buckets refresh; fi', DENY],
+    ['if false; then :; else buckets update; fi', UPDATE_DENY],
+    ['{ buckets update --yes; } 2>&1 | tail -5', UPDATE_DENY],
+    ['{ buckets refresh; }', DENY],
+    ['! buckets update --yes', UPDATE_DENY],
+    ['! buckets refresh', DENY],
+    ['start /b buckets update --yes', UPDATE_DENY],
+    ['start /wait /d C:\\repo buckets refresh', DENY],
+    ['stdbuf -oL buckets update --yes', UPDATE_DENY],
+    ['watch buckets update --yes', UPDATE_DENY],
+    ['watch -n 5 buckets refresh', DENY],
+    ['ionice -c 3 buckets update', UPDATE_DENY],
+    ['unbuffer buckets update', UPDATE_DENY],
+  ])('denies the call behind a wrapper or a shell keyword, %j', (command, expected) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
+  });
+
+  it.each([
+    'timeout 120 npm test',
+    'if command -v buckets; then buckets check; fi',
+    '{ buckets refresh --web > refresh.log 2>&1; } &',
+    'for f in a b; do echo buckets update; done',
+    'watch -n 5 buckets check',
+    'start /b buckets refresh --web',
+    'npx -p slopbuckets buckets update --check',
+    'buckets link update shared',
+    'buckets help update',
+  ])('still allows %j', (command) => {
+    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+  });
 });
 
 describe('postEdit', () => {
