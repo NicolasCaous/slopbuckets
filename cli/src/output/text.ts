@@ -9,6 +9,11 @@ export interface ReportOptions {
   style?: Style;
   /** The project-relative file of a `buckets check --file` run. The summary then talks about that file only. */
   file?: string;
+  /**
+   * The approved lock and the current state of each project, by project path (`.` for the project where the check
+   * ran). A `config-changed` row then lists each config change under it, as `buckets refresh` does.
+   */
+  locks?: Map<string, { previous: Lock; next: Lock }>;
 }
 
 const NEXT_STEP: Record<0 | 1 | 2 | 3, string> = {
@@ -113,7 +118,7 @@ function formatOrphans(lines: string[], orphans: Violation[], chains: OrphanChai
   lines.push('');
 }
 
-function formatLockChanges(lines: string[], changes: LockChange[], style: Style): void {
+function formatLockChanges(lines: string[], changes: LockChange[], style: Style, locks: ReportOptions['locks']): void {
   lines.push(style.bold('Lock differences'), ...wrap(highlightCode(style, 'Only a human approves these, with `buckets refresh` or `buckets refresh --web`.'), style.width, '  ').map(style.dim));
   const kindWidth = columnWidth(changes.map((c) => c.kind));
   const pathWidth = columnWidth(changes.filter((c) => c.symbol !== undefined).map((c) => c.path));
@@ -125,6 +130,8 @@ function formatLockChanges(lines: string[], changes: LockChange[], style: Style)
     // A missing or unreadable lock has no path to compare, so its message is the explanation. A drifted copy needs
     // `buckets link update` before an approval makes sense.
     if (EXPLAINED.has(change.kind)) lines.push(...wrap(highlightCode(style, change.message), style.width, '    '));
+    const pair = change.kind === 'config-changed' ? locks?.get(change.project ?? '.') : undefined;
+    if (pair !== undefined) lines.push(...configLines(pair.previous, pair.next, style));
   }
   lines.push('');
 }
@@ -160,7 +167,7 @@ export function formatReport(report: CheckReport, chains: OrphanChain[] = [], op
       style,
     );
     if (orphans.length > 0) formatOrphans(lines, orphans, projectChains, style);
-    if (changes.length > 0) formatLockChanges(lines, changes, style);
+    if (changes.length > 0) formatLockChanges(lines, changes, style, options.locks);
   };
 
   const projects = report.projects ?? [];

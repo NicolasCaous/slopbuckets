@@ -5,7 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatLockDiff } from '../output/text.js';
 import { cleanupProjects, LOGGER_PROJECT, makeProject, writeFile } from '../testing/fixture.js';
-import { approve, checkProject, testContext } from '../testing/harness.js';
+import { main } from '../cli.js';
+import { approve, checkProject, fakeIo, testContext } from '../testing/harness.js';
 import { buildReview, evaluateLockState } from '../web/lock-review.js';
 import { dialogItems, dialogRequest } from '../web/refresh-app.js';
 import { configHash, DEFAULT_CONFIG, type ResolvedConfig } from './config.js';
@@ -37,6 +38,17 @@ describe('lock version 4', () => {
     expect(serializeLock(read.lock)).toBe(serializeLock(lock));
     expect(Object.keys(read.lock.config as object)).toEqual(['access', 'adapter', 'alias', 'maxDepth', 'root']);
     expect((await checkProject(dir)).report).toEqual({ exitCode: 0, violations: [], lockChanges: [] });
+  });
+
+  it('lists each config change under the config-changed row of the check text report', async () => {
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': JSON.stringify({ root: 'root', access: ACCESS }) });
+    await approve(dir);
+    writeFile(dir, 'buckets.config.json', JSON.stringify({ root: 'root', maxDepth: 3, access: { ...ACCESS, allow: ['** -> root/log'] } }));
+    const io = fakeIo({ cwd: dir });
+    expect(await main(testContext(), io, ['check'])).toBe(2);
+    const lines = io.out.split('\n');
+    const row = lines.findIndex((line) => line.includes('config-changed'));
+    expect(lines.slice(row + 1, row + 3)).toEqual(['    + access.allow  ** -> root/log', '    ~ maxDepth      2 to 3']);
   });
 
   it('finds no lock difference when two access lines swap places', async () => {

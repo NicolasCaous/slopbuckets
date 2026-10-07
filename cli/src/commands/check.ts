@@ -5,7 +5,7 @@ import { runCheck } from '../core/check.js';
 import { diskCase, relativeToProject, toPosix } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { joinReports, runRecursiveCheck } from '../core/recursive.js';
-import type { Context } from '../core/types.js';
+import type { Context, Lock } from '../core/types.js';
 import type { UpdateNotice } from '../core/update.js';
 import { formatReport } from '../output/text.js';
 import { stdoutStyle, type Io } from './io.js';
@@ -71,7 +71,9 @@ export async function checkCommand(ctx: Context, io: Io, args: string[], update:
     io.stdout(`${JSON.stringify(update !== null ? { ...report, update } : report, null, 2)}\n`);
   } else {
     const chains = runs.flatMap((run) => run.result.orphanChains.map((chain) => ({ ...chain, project: run.path })));
-    io.stdout(formatReport(report, chains, { style: stdoutStyle(io) }));
+    const locks = new Map<string, { previous: Lock; next: Lock }>();
+    for (const { path: at, result } of runs) if (result.previousLock && result.lock) locks.set(at, { previous: result.previousLock, next: result.lock });
+    io.stdout(formatReport(report, chains, { style: stdoutStyle(io), locks }));
   }
   return report.exitCode;
 }

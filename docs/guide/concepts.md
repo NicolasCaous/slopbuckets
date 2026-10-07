@@ -324,7 +324,7 @@ Every rule id and its messages are on the [rules reference](../reference/rules#a
 
 ### Changing the rules
 
-A human edits `buckets.config.json` and approves the change like any other. The lock keeps the whole config, so the check reports `config-changed` with exit code 2, and the review lists each line that changed:
+A human edits `buckets.config.json` and approves the change like any other. The lock keeps the whole config, so the check reports `config-changed` with exit code 2. The text report of `buckets check` and the review list each line that changed:
 
 ```text
 ~ config changed          buckets.config.json
