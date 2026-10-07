@@ -6,6 +6,7 @@ import { diskCase, relativeToProject, toPosix } from '../core/paths.js';
 import { findProjectDir } from '../core/project.js';
 import { joinReports, runRecursiveCheck } from '../core/recursive.js';
 import type { Context } from '../core/types.js';
+import type { UpdateNotice } from '../core/update.js';
 import { formatReport } from '../output/text.js';
 import { stdoutStyle, type Io } from './io.js';
 
@@ -17,7 +18,8 @@ export function projectLabel(base: string, dir: string): string {
   return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? '.' : toPosix(rel);
 }
 
-export async function checkCommand(ctx: Context, io: Io, args: string[]): Promise<number> {
+/** `update` is the notice that main already printed on stderr. `--json` repeats it in the `update` field. */
+export async function checkCommand(ctx: Context, io: Io, args: string[], update: UpdateNotice | null = null): Promise<number> {
   let json = false;
   let recursive = true;
   let file: string | undefined;
@@ -66,7 +68,7 @@ export async function checkCommand(ctx: Context, io: Io, args: string[]): Promis
 
   const { report, runs } = await runRecursiveCheck(ctx, projectDir, { recursive, cacheDir });
   if (json) {
-    io.stdout(`${JSON.stringify(report, null, 2)}\n`);
+    io.stdout(`${JSON.stringify(update !== null ? { ...report, update } : report, null, 2)}\n`);
   } else {
     const chains = runs.flatMap((run) => run.result.orphanChains.map((chain) => ({ ...chain, project: run.path })));
     io.stdout(formatReport(report, chains, { style: stdoutStyle(io) }));

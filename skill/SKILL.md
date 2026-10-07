@@ -114,6 +114,7 @@ export type { AppRouter } from '@root-k3x9pm2a/server/_/router';
 
 - Never write any `buckets.lock.json`, the nested ones included, under any name or path: no short names, links, wildcards or scripts that compute the name. A hook blocks it in agents with slopbuckets hooks. To read a lock, use your file reading tool (Read in Claude Code), not a shell command.
 - Never run plain `buckets refresh`. Only a human runs it, in a terminal. A hook blocks it in agents with slopbuckets hooks.
+- Never run `buckets update` unless the human asks for it. A command may start with a line such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` on stderr. Do not update in the middle of a task: a new CLI version makes `buckets check` stop with exit code 3 until a human approves the version change. Finish the task, then mention the new version to the human.
 - Run `buckets check` before you finish a task. In agents with slopbuckets hooks, a hook at the end of the turn also runs it, and a git pre-commit hook may run it too.
 - A hook may hand you a check report: after an edit, when a tool call is refused, or at the end of a turn as a message that starts with `[slopbuckets]`. Treat it like the output of `buckets check`. Fix what it reports, or explain why you cannot.
 - When the session is open in a folder above the projects, the end-of-turn hook checks each project you changed, and its report starts each section with the project folder. Run `buckets check` and `buckets refresh --web` in that folder.

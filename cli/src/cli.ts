@@ -6,12 +6,14 @@ import { inspectCommand } from './commands/inspect.js';
 import { linkCommand } from './commands/link.js';
 import { stderrStyle, stdoutStyle, type Io } from './commands/io.js';
 import { refreshCommand } from './commands/refresh.js';
+import { updateCommand } from './commands/update.js';
 import type { Context } from './core/types.js';
+import { checkForUpdate, type UpdateNotice } from './core/update.js';
 import { renderSplash } from './output/splash.js';
 import { code, highlightCode, padEnd, PLAIN, wrap, type Style } from './output/style.js';
 
 const HOMEPAGE = 'https://nicolascaous.github.io/slopbuckets/';
-const COMMANDS = ['init', 'check', 'refresh', 'inspect', 'link', 'hook', 'help'];
+const COMMANDS = ['init', 'check', 'refresh', 'inspect', 'link', 'hook', 'update', 'help'];
 
 /**
  * Help is laid out for 80 columns: the descriptions start at column 24 and wrap before column 79.
@@ -73,6 +75,8 @@ export function helpText(version: string, style: Style = PLAIN, options: { heade
         ['link sync', 'Recreate every link listed in buckets.links.json that is missing, for example after a clone.'],
         ['link update [name]', 'Copy the origin of links in copy mode again.'],
         ['link remove <name>', 'Delete a link, its entry in buckets.links.json and its tsconfig.json paths entry.'],
+        ['update [<version>]', 'Install the latest slopbuckets, or this version, the way the running CLI was installed: globally or as a project dependency with npm, pnpm, yarn or bun. Asks first in a terminal, and without one installs only with --yes. Humans only.'],
+        ['update --check', 'Print the installed and latest versions and the install command, without installing. --json prints them as JSON.'],
         ['hook <event>', `Run a Claude Code hook. Events: ${HOOK_EVENTS.join(', ')}.`],
         ['hook --agent <name> <event>', 'Run the hook of another agent, in its own input and output format.'],
       ],
@@ -127,8 +131,33 @@ export function suggestCommand(input: string): string | undefined {
   return best.d <= 2 && best.d < best.name.length ? best.name : undefined;
 }
 
+const KNOWN = new Set([...COMMANDS, '-h', '--help', '-v', '--version']);
+
+/**
+ * Whether a command prints the update notice. Not the agent hooks, whose output the coding agent reads, not
+ * `check --file`, which runs after every edit, not `update`, which shows the versions itself, and not a typo.
+ */
+function wantsUpdateNotice(command: string | undefined, rest: string[]): boolean {
+  if (command === undefined) return true;
+  if (!KNOWN.has(command) || command === 'hook' || command === 'update') return false;
+  return !(command === 'check' && rest.some((arg) => arg === '--file' || arg.startsWith('--file=')));
+}
+
+/** Prints the update notice on stderr, so that stdout stays clean for --json and exports. */
+async function updateNotice(ctx: Context, io: Io, command: string | undefined, rest: string[]): Promise<UpdateNotice | null> {
+  if (io.updates === undefined || !wantsUpdateNotice(command, rest)) return null;
+  const notice = await checkForUpdate(io.updates, io.env, ctx.cliVersion);
+  if (notice !== null) {
+    const style = stderrStyle(io);
+    io.stderr(`${highlightCode(style, notice.message)}\n`);
+  }
+  return notice;
+}
+
 export async function main(ctx: Context, io: Io, args: string[]): Promise<number> {
   const [command, ...rest] = args;
+  // First, so that the last line of a command (the link of `refresh --web`) stays last in a shared log file.
+  const notice = await updateNotice(ctx, io, command, rest);
 
   if (command === undefined || command === '-h' || command === '--help' || command === 'help') {
     const style = stdoutStyle(io);
@@ -146,7 +175,9 @@ export async function main(ctx: Context, io: Io, args: string[]): Promise<number
 
   switch (command) {
     case 'check':
-      return checkCommand(ctx, io, rest);
+      return checkCommand(ctx, io, rest, notice);
+    case 'update':
+      return updateCommand(ctx, io, rest);
     case 'refresh':
       return refreshCommand(ctx, io, rest);
     case 'init':

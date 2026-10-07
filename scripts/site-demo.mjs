@@ -124,7 +124,7 @@ try {
   execFileSync(process.execPath, [rel('cli', 'dist', 'index.js'), 'inspect', '--export', 'html', '--out', out], {
     cwd: path.join(work, 'big-shop'),
     stdio: 'inherit',
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, NO_COLOR: '1', SLOPBUCKETS_NO_UPDATE_CHECK: '1' },
   });
   console.log(`site/demo/index.html: ${(statSync(out).size / 1024).toFixed(0)} KB`);
 } finally {

@@ -468,12 +468,12 @@ function runCli(args) {
   // CLI_BIN, relative to the repository root, points at another build of the CLI.
   const bin = process.env.CLI_BIN ? path.resolve(repo, process.env.CLI_BIN) : rel('cli/dist/index.js');
   if (!existsSync(bin)) throw new Error(`The built CLI is missing at ${bin}. Run \`npm run build\` first, or set CLI_BIN.`);
-  return execFileSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' } });
+  return execFileSync(process.execPath, [bin, ...args], { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', SLOPBUCKETS_NO_UPDATE_CHECK: '1' } });
 }
 /** Runs the built CLI and returns stderr. For the error messages that list the agents and their events. */
 function cliStderr(args, cwd = repo) {
   const bin = process.env.CLI_BIN ? path.resolve(repo, process.env.CLI_BIN) : rel('cli/dist/index.js');
-  const result = spawnSync(process.execPath, [bin, ...args], { cwd, input: '', encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' } });
+  const result = spawnSync(process.execPath, [bin, ...args], { cwd, input: '', encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', SLOPBUCKETS_NO_UPDATE_CHECK: '1' } });
   return result.stderr ?? '';
 }
 /**
@@ -655,7 +655,7 @@ ${table(['Result', 'Exit code', 'Last line'], Object.entries(webResults).map(([k
 
 Before the page opens, it exits with 1 when a rule is broken or when the machine cannot show a confirmation window, and with 3 for an environment problem. See [The approval flow](../guide/approval).
 
-## Messages of refresh, refresh --web and inspect
+## Messages of refresh, refresh --web, inspect and update
 
 What these commands print besides the report and the diff, in the order of the source. Words in angle brackets stand for values the CLI fills in, and text in square brackets appears only in some cases.
 
@@ -670,6 +670,14 @@ ${msgBlock(printedMessages('cli/src/commands/refresh-web.ts'))}
 ### buckets inspect
 
 ${msgBlock(printedMessages('cli/src/commands/inspect.ts'))}
+
+### buckets update
+
+${msgBlock(printedMessages('cli/src/commands/update.ts'))}
+
+Every command except <code>buckets hook</code>, <code>buckets check --file</code> and <code>buckets update</code> first prints this line on stderr when the registry has a newer version. It reads the registry at most once a day, and never when <code>CI</code> or <code>SLOPBUCKETS_NO_UPDATE_CHECK=1</code> is set:
+
+${msgBlock(propValues('cli/src/core/update.ts', 'message'))}
 
 The messages of <code>buckets link</code> are on the [Links registry](./links#what-buckets-link-prints) page.
 

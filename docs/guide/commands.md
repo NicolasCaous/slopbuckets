@@ -14,6 +14,8 @@ description: buckets check and buckets inspect are for anyone, buckets refresh -
 | `buckets refresh` | a human, in an interactive terminal | shows the changes, asks for confirmation and writes the lock |
 | `buckets link add`, `sync`, `update`, `remove` | the AI or a human | link the source of another project into a bucket, and keep the links current. They never write the lock |
 | `buckets init` | a human | sets up a project, or a nested one |
+| `buckets update` | a human | installs a newer slopbuckets, or a given version, the way the CLI was installed |
+| `buckets update --check` | anyone | prints the installed and latest versions and the install command |
 
 The AI can edit any file, DMZ files included. It cannot write the lock. When the AI changes a contract, `buckets check` fails until a human approves the change.
 
@@ -69,3 +71,36 @@ The [lock differences](../reference/lock#lock-differences) page lists every kind
 ## buckets inspect
 
 `buckets inspect` reads the same state as the check and shows it on a page that updates while files change. It writes nothing and approves nothing. `buckets inspect --json` prints that state for an agent, and `buckets inspect --export svg|mermaid|html` prints the map, the bucket graph or the whole page as one HTML file. See [Inspect](./inspect).
+
+## buckets update
+
+`buckets update` reads the latest version of `slopbuckets` from the npm registry (the one in `npm_config_registry`, or `https://registry.npmjs.org`), prints it next to the installed version, and prints the command that installs it. The TypeScript adapter ships inside the CLI package, so this updates the adapter too.
+
+The command depends on how the running CLI was installed. A global install uses `npm install -g`, `pnpm add -g`, `yarn global add` or `bun add -g`. A project dependency uses the package manager of the lockfile next to its `package.json` (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`), runs in that folder, keeps the dependency in `dependencies` or `devDependencies`, and pins the exact version, because the lock names one exact version. A copy that npx made, or a checkout of the repository, has nothing to update.
+
+In a terminal it asks `Install slopbuckets <version>? [y/N]` and runs the command after `y`. `--yes` skips the question. Without a terminal and without `--yes`, it prints the command, installs nothing and exits with 1. `buckets update <version>` installs that version, such as the one a lock asks for. `buckets update --check` only prints, and `--json` prints this object without installing:
+
+```json
+{
+  "installed": "1.1.0",
+  "latest": "1.2.0",
+  "updateAvailable": true,
+  "install": { "scope": "global", "manager": "npm", "command": "npm install -g slopbuckets@1.2.0", "dir": null }
+}
+```
+
+`scope` is `global`, `local` or `unknown`. For `local`, `dir` is the folder where the command runs. For `unknown`, `manager` and `command` are null.
+
+Each lock records the CLI version that approved it, and `buckets check` stops with exit code 3 (`cli-version`) while the installed CLI differs. After an update, a human runs `buckets refresh` in each project, or an agent asks for it with `buckets refresh --web`. The diff shows the version change. To keep a project on the version its lock names, run `buckets update <version>` with that version instead.
+
+### The update notice
+
+When the registry has a newer version, every command except `buckets hook`, `buckets check --file` and `buckets update` first prints one line on stderr:
+
+```text
+slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.
+```
+
+It goes to stderr, so the JSON and exports on stdout stay valid, and it comes first, so the link of `buckets refresh --web` stays the last line of a shared log. `buckets check --json` also puts it in its `update` field. The notice never changes an exit code. An agent that sees it finishes its task and leaves the update to the human.
+
+The CLI asks the registry at most once every 24 hours, with a timeout of 1.5 seconds, and keeps the answer in `%LOCALAPPDATA%\slopbuckets` on Windows and in `$XDG_CACHE_HOME/slopbuckets` or `~/.cache/slopbuckets` elsewhere. A failure prints nothing. It never asks when the `CI` variable is set or with `SLOPBUCKETS_NO_UPDATE_CHECK=1`.
