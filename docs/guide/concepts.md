@@ -272,6 +272,8 @@ A line beats another line when it is at least as specific on both sides and more
 4. lets the list decide when the lines left all come from that list
 5. fails the edge with `access-ambiguous` when lines from both lists are left
 
+The order of the lines in a list does not matter. The lock stores each list sorted, so moving a line up or down needs no approval. When a message names one of several lines left, it names the first in sorted order.
+
 Three short cases follow.
 
 An exception under `"default": "allow"`. Teams do not use each other, except billing, which calls payments:

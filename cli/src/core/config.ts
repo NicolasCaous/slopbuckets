@@ -167,7 +167,8 @@ function validateAccess(raw: unknown, root: string, violations: Violation[]): Ac
     }
   }
   if (violations.length > before) return undefined;
-  return { default: obj.default as AccessConfig['default'], allow: lists.allow, deny: lists.deny };
+  // Sorted, so the order of the lines in the file changes neither the lock nor the config hash.
+  return { default: obj.default as AccessConfig['default'], allow: lists.allow.sort(), deny: lists.deny.sort() };
 }
 
 /** Reads buckets.config.json from the project folder. */

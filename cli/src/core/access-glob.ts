@@ -150,7 +150,7 @@ function dominates(a: AccessLine, b: AccessLine): boolean {
 /**
  * Decides whether code in the bucket `from` may use code that originates in the bucket `to`. Of the lines that match
  * the edge, a line that another matching line dominates drops out. When none is left, `default` decides. When the
- * lines left come from one list, that list decides and the first of them is named. When both lists still have a
+ * lines left come from one list, that list decides and the first of them in plain string order is named. When both lists still have a
  * line, the edge is ambiguous and fails.
  */
 export function evaluateAccess(access: AccessConfig, from: string, to: string): AccessDecision {
@@ -158,10 +158,16 @@ export function evaluateAccess(access: AccessConfig, from: string, to: string): 
   const matches = (line: AccessLine): boolean => matchesBucket(line.from, from) && matchesBucket(line.to, to);
   const matching = [...lines.allow.filter(matches).map((line) => ({ line, list: 'allow' as const })), ...lines.deny.filter(matches).map((line) => ({ line, list: 'deny' as const }))];
   const left = matching.filter((m) => !matching.some((other) => dominates(other.line, m.line)));
-  const allow = left.find((m) => m.list === 'allow');
-  const deny = left.find((m) => m.list === 'deny');
-  if (allow !== undefined && deny !== undefined) return { allowed: false, by: 'ambiguous', allowLine: allow.line.text, denyLine: deny.line.text };
-  if (allow !== undefined) return { allowed: true, by: 'allow', line: allow.line.text };
-  if (deny !== undefined) return { allowed: false, by: 'deny', line: deny.line.text };
+  // The first line in plain string order, so the line a message names does not depend on the order in the file.
+  const first = (list: 'allow' | 'deny'): string | undefined =>
+    left
+      .filter((m) => m.list === list)
+      .map((m) => m.line.text)
+      .sort()[0];
+  const allow = first('allow');
+  const deny = first('deny');
+  if (allow !== undefined && deny !== undefined) return { allowed: false, by: 'ambiguous', allowLine: allow, denyLine: deny };
+  if (allow !== undefined) return { allowed: true, by: 'allow', line: allow };
+  if (deny !== undefined) return { allowed: false, by: 'deny', line: deny };
   return { allowed: access.default === 'allow', by: 'default' };
 }

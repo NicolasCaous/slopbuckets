@@ -39,6 +39,14 @@ describe('lock version 4', () => {
     expect((await checkProject(dir)).report).toEqual({ exitCode: 0, violations: [], lockChanges: [] });
   });
 
+  it('finds no lock difference when two access lines swap places', async () => {
+    const access = (allow: string[]) => JSON.stringify({ root: 'root', access: { default: 'allow', allow, deny: ['root/billing/** -> root/zz*'] } });
+    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': access(['root/a -> root/log', 'root/b -> root/log']) });
+    await approve(dir);
+    writeFile(dir, 'buckets.config.json', access(['root/b -> root/log', 'root/a -> root/log']));
+    expect((await checkProject(dir)).report.lockChanges).toEqual([]);
+  });
+
   it('keeps a config without access out of the hash, so the hash of version 3 locks stays valid', () => {
     expect(lockConfigHash(lockConfig(DEFAULT_CONFIG))).toBe(configHash(DEFAULT_CONFIG));
     expect(Object.keys(lockConfig(DEFAULT_CONFIG))).not.toContain('access');

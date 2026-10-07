@@ -201,6 +201,17 @@ describe('evaluateAccess', () => {
     expect(evaluateAccess(open, 'root/web/admin', 'root/sql/pg')).toEqual({ allowed: false, by: 'deny', line: 'root/web/** -> root/sql/**' });
   });
 
+  it('names the first line in plain string order when several are left, whatever their order in the list', () => {
+    const forward: AccessConfig = { default: 'deny', allow: ['root/* -> root/**', 'root/** -> root/*'], deny: ['root/b* -> root/z', 'root/a* -> root/z'] };
+    const backward: AccessConfig = { default: 'deny', allow: [...forward.allow].reverse(), deny: [...forward.deny].reverse() };
+    for (const access of [forward, backward]) {
+      expect(evaluateAccess(access, 'root/a', 'root/b')).toEqual({ allowed: true, by: 'allow', line: 'root/* -> root/**' });
+    }
+    const deny: AccessConfig = { default: 'allow', allow: [], deny: ['root/*b -> root/z', 'root/a* -> root/z'] };
+    expect(evaluateAccess(deny, 'root/ab', 'root/z')).toEqual({ allowed: false, by: 'deny', line: 'root/*b -> root/z' });
+    expect(evaluateAccess({ ...deny, deny: [...deny.deny].reverse() }, 'root/ab', 'root/z')).toEqual({ allowed: false, by: 'deny', line: 'root/*b -> root/z' });
+  });
+
   it('names the most specific matching line, and the first one when several are left', () => {
     const lines: AccessConfig = { default: 'deny', allow: ['** -> **', 'root/a -> root/b', 'root/* -> root/b', 'root/a -> root/*'], deny: [] };
     expect(evaluateAccess(lines, 'root/a', 'root/b')).toEqual({ allowed: true, by: 'allow', line: 'root/a -> root/b' });

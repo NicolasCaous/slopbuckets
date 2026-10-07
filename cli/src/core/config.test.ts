@@ -43,9 +43,9 @@ describe('validateConfig', () => {
 });
 
 describe('access', () => {
-  it('stores each line in canonical form and fills in the missing list', () => {
+  it('stores each line in canonical form, sorted, and fills in the missing list', () => {
     const { config } = validateConfig({ access: { default: 'deny', allow: ['root/api/**->root/log', '  ** ->   root/sql '] } });
-    expect(config?.access).toEqual({ default: 'deny', allow: ['root/api/** -> root/log', '** -> root/sql'], deny: [] });
+    expect(config?.access).toEqual({ default: 'deny', allow: ['** -> root/sql', 'root/api/** -> root/log'], deny: [] });
     expect(validateConfig({ access: { default: 'allow', deny: ['root/a -> root/b'] } }).config?.access).toEqual({ default: 'allow', allow: [], deny: ['root/a -> root/b'] });
   });
 
@@ -112,6 +112,15 @@ describe('access', () => {
     expect(a).not.toBe(base);
     expect(a).toBe(b);
     expect(a).not.toBe(c);
+  });
+
+  it('sorts the access lines, so their order in the file changes neither the resolved config nor the hash', () => {
+    const lines = ['root/b -> root/c', 'root/a -> root/c', '** -> root/log'];
+    const a = validateConfig({ access: { default: 'deny', allow: lines, deny: ['root/z -> root/c', 'root/y -> root/c'] } }).config!;
+    const b = validateConfig({ access: { default: 'deny', allow: [...lines].reverse(), deny: ['root/y -> root/c', 'root/z -> root/c'] } }).config!;
+    expect(a.access).toEqual({ default: 'deny', allow: ['** -> root/log', 'root/a -> root/c', 'root/b -> root/c'], deny: ['root/y -> root/c', 'root/z -> root/c'] });
+    expect(b.access).toEqual(a.access);
+    expect(configHash(b)).toBe(configHash(a));
   });
 });
 
