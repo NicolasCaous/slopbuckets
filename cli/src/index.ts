@@ -1,11 +1,11 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process';
 import os from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { defaultContext } from './api.js';
 import { main } from './cli.js';
 import type { Io } from './commands/io.js';
-import { updateCacheDir, type UpdateDeps } from './core/update.js';
+import { findOnPath, updateCacheDir, windowsCommandLine, type RunResult, type UpdateDeps } from './core/update.js';
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return '';
@@ -14,12 +14,41 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-/** Runs an install command through the shell, which finds npm.cmd and the other .cmd shims on Windows. */
-function run(command: string, cwd: string): Promise<number> {
+/** How a program of `buckets update` starts: by name without a shell on POSIX, through cmd.exe on Windows for npm.cmd. */
+function spawnProgram(argv: string[], cwd: string, stdio: StdioOptions): ChildProcess | null {
+  if (process.platform !== 'win32') return spawn(argv[0] ?? '', argv.slice(1), { cwd, stdio });
+  // cmd.exe prints its own error and exits with 1 for a program it cannot find, so look first, like `where`.
+  const line = windowsCommandLine(argv);
+  if (line === null || findOnPath(argv[0] ?? '', process.env, 'win32') === null) return null;
+  return spawn(line, { cwd, shell: true, stdio });
+}
+
+/** Runs an install command with the terminal attached, and keeps the end of its stderr to recognize EACCES. */
+function run(argv: string[], cwd: string): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn(command, { cwd, shell: true, stdio: 'inherit' });
-    child.on('error', () => resolve(1));
-    child.on('close', (code) => resolve(code ?? 1));
+    let errorOutput = '';
+    const child = spawnProgram(argv, cwd, ['inherit', 'inherit', 'pipe']);
+    if (child === null) return resolve({ exitCode: 127, errorOutput });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      process.stderr.write(chunk);
+      errorOutput = (errorOutput + chunk.toString('utf8')).slice(-65536);
+    });
+    child.on('error', (error: NodeJS.ErrnoException) => resolve({ exitCode: error.code === 'ENOENT' ? 127 : 1, errorOutput }));
+    child.on('close', (code) => resolve({ exitCode: code ?? 1, errorOutput }));
+  });
+}
+
+/** Runs a query such as `npm prefix -g` and resolves with its trimmed stdout, or null when it fails. */
+function output(argv: string[], cwd: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let text = '';
+    const child = spawnProgram(argv, cwd, ['ignore', 'pipe', 'ignore']);
+    if (child === null) return resolve(null);
+    child.stdout?.on('data', (chunk: Buffer) => {
+      text += chunk.toString('utf8');
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => resolve(code === 0 && text.trim() !== '' ? text.trim() : null));
   });
 }
 
@@ -29,7 +58,9 @@ const updates: UpdateDeps = {
   cacheDir: updateCacheDir(process.env, process.platform, os.homedir()),
   // Like version.ts: src/index.ts and the bundled dist/index.js both sit one level below the package.json.
   packageDir: fileURLToPath(new URL('..', import.meta.url)),
+  platform: process.platform,
   run,
+  output,
 };
 
 const io: Io = {

@@ -131,7 +131,7 @@ Each command below runs as `buckets <command>`.
 | `link sync` | anyone, after a clone and in CI | recreates every link in `buckets.links.json` that is missing |
 | `link update [name]` | the AI | copies the origin of links in copy mode again |
 | `link remove <name>` | the AI | deletes a link, its entry in `buckets.links.json` and its entries in `tsconfig.json` |
-| `update [<version>]` | a human | installs the latest slopbuckets, or the given version, the way the running CLI was installed: globally or as a project dependency with npm, pnpm, yarn or bun. It asks first in a terminal, and without one it installs only with `--yes` |
+| `update [<version>]` | a human | installs the latest slopbuckets, or the given version, the way the running CLI was installed: globally with npm, pnpm, yarn, bun or Volta, or as a project dependency. A global npm install gets `--prefix` with the prefix of the running CLI. It asks first in a terminal, and without one it installs only with `--yes`. Afterwards it reads the version on disk and exits with 1 when the copy did not change |
 | `update --check` | anyone | prints the installed and latest versions and the install command, and installs nothing. `--json` prints them as JSON |
 | `hook <event>` | Claude Code | runs a hook: `pre-tool-use`, `post-tool-use`, `stop` or `subagent-stop` |
 | `hook --agent <name> <event>` | another agent | runs a hook of that agent, reading and writing its own JSON format |

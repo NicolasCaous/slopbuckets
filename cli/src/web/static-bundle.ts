@@ -91,7 +91,7 @@ export default { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual
 
 /** Names each stubbed module exports. Calling any of them throws. */
 const THROWING: Record<string, string[]> = {
-  fs: ['appendFileSync', 'copyFileSync', 'cpSync', 'linkSync', 'lstatSync', 'mkdirSync', 'mkdtempSync', 'readFile', 'readFileSync', 'readdirSync', 'realpathSync', 'renameSync', 'rmSync', 'rmdirSync', 'statSync', 'symlinkSync', 'unlinkSync', 'watch', 'writeFileSync'],
+  fs: ['accessSync', 'appendFileSync', 'constants', 'copyFileSync', 'cpSync', 'linkSync', 'lstatSync', 'mkdirSync', 'mkdtempSync', 'readFile', 'readFileSync', 'readdirSync', 'realpathSync', 'renameSync', 'rmSync', 'rmdirSync', 'statSync', 'symlinkSync', 'unlinkSync', 'watch', 'writeFileSync'],
   'fs/promises': ['lstat', 'readFile', 'rename', 'unlink', 'writeFile'],
   child_process: ['execFile', 'execFileSync', 'spawn', 'spawnSync'],
   http: ['createServer', 'request'],

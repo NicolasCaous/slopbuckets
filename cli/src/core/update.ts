@@ -6,7 +6,7 @@
 // most once a day, keeps the answer in the cache folder of the operating system and prints a notice on stderr when a
 // newer version exists. `buckets update` always asks the registry. Everything that touches the network, the clock, the
 // cache folder or another process comes in through `UpdateDeps`, so the tests never touch any of them.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { toPosix } from './paths.js';
 
@@ -32,8 +32,22 @@ export interface UpdateDeps {
   cacheDir: string | null;
   /** The folder with the package.json of the running CLI. */
   packageDir: string;
-  /** Runs a shell command in `cwd` with the terminal attached, and resolves with its exit code. */
-  run(command: string, cwd: string): Promise<number>;
+  /** The platform whose paths and shell rules apply. Tests pass another one. */
+  platform: NodeJS.Platform;
+  /**
+   * Runs a program with its arguments in `cwd`, with the terminal attached. On POSIX it runs without a shell. On
+   * Windows it runs the line of `windowsCommandLine` through cmd.exe, which finds npm.cmd and the other shims.
+   * Resolves with exit code 127 when the program is not on PATH.
+   */
+  run(argv: string[], cwd: string): Promise<RunResult>;
+  /** Runs a program like `run`, without the terminal, and resolves with its stdout, trimmed, or null when it fails. */
+  output(argv: string[], cwd: string): Promise<string | null>;
+}
+
+export interface RunResult {
+  exitCode: number;
+  /** The end of what the program wrote on stderr, which still reaches the terminal. */
+  errorOutput: string;
 }
 
 /** The update notice, also the `update` field of `buckets check --json`. Present only when a newer version exists. */
@@ -213,7 +227,7 @@ export async function checkForUpdate(
 
 /* ---------- how the CLI is installed ---------- */
 
-export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
+export type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'volta';
 
 export interface Install {
   /** `global`, a project dependency (`local`), or `unknown` (npx, a checkout of the repository, a folder slopbuckets does not recognize). */
@@ -223,8 +237,20 @@ export interface Install {
   dir: string | null;
   /** For `local`, true unless the project lists slopbuckets in `dependencies`. */
   dev: boolean;
+  /**
+   * For a global npm install, the npm prefix that holds the running CLI. The install command passes it with
+   * `--prefix`, so npm writes to this copy and not to the prefix of the first npm on PATH, which can belong to another
+   * Node.js version (nvm, fnm, asdf, mise) or another install (sudo, Homebrew).
+   */
+  prefix: string | null;
   /** For `unknown`, why. */
   reason?: string;
+}
+
+/** The facts of the machine that detectInstall reads besides the path. Tests pass another platform. */
+export interface InstallSystem {
+  platform?: NodeJS.Platform;
+  env?: Record<string, string | undefined>;
 }
 
 const LOCKFILES: [string, PackageManager][] = [
@@ -261,26 +287,94 @@ function projectManager(dir: string, posixPackageDir: string): PackageManager {
   return 'npm';
 }
 
+/** Reads an environment variable, ignoring the case of its name on Windows, as Windows does. */
+function envValue(env: Record<string, string | undefined>, key: string, platform: NodeJS.Platform): string | undefined {
+  if (platform !== 'win32') return env[key];
+  return Object.entries(env).find(([name]) => name.toUpperCase() === key)?.[1];
+}
+
+/** The folders Volta may use: VOLTA_HOME, then `~/.volta` on POSIX and `%LOCALAPPDATA%\Volta` on Windows. */
+function voltaHomes(platform: NodeJS.Platform, env: Record<string, string | undefined>): string[] {
+  const homes: string[] = [];
+  const configured = envValue(env, 'VOLTA_HOME', platform);
+  if (configured) homes.push(configured);
+  if (platform === 'win32') {
+    const local = envValue(env, 'LOCALAPPDATA', platform);
+    if (local) homes.push(path.win32.join(local, 'Volta'));
+  } else if (env.HOME) homes.push(path.posix.join(env.HOME, '.volta'));
+  return homes;
+}
+
+/** A path with forward slashes and no trailing slash, lower case on Windows, for comparing folders as text. */
+function comparable(p: string, platform: NodeJS.Platform): string {
+  const posix = toPosix(p).replace(/\/+$/, '');
+  return platform === 'win32' ? posix.toLowerCase() : posix;
+}
+
+/** True when two paths name the same folder, ignoring case on Windows and a trailing separator. */
+export function samePath(a: string, b: string, platform: NodeJS.Platform): boolean {
+  return comparable(a, platform) === comparable(b, platform);
+}
+
+/**
+ * True when `packageDir` is a package that Volta installed, under `<VOLTA_HOME>/tools/image/packages/`. Volta runs
+ * such a package through its shim, so `npm install -g` never reaches it and only `volta install` updates it.
+ */
+export function isVoltaPackage(packageDir: string, platform: NodeJS.Platform, env: Record<string, string | undefined>): boolean {
+  const dir = `${comparable(packageDir, platform)}/`;
+  if (voltaHomes(platform, env).some((home) => dir.startsWith(`${comparable(home, platform)}/tools/image/packages/`))) return true;
+  return /(^|\/)\.?volta\/tools\/image\/packages\//i.test(dir);
+}
+
+/** True when Volta seems to manage Node.js here: VOLTA_HOME is set, or a folder of Volta is on PATH or holds the CLI. */
+export function voltaInUse(packageDir: string, env: Record<string, string | undefined>): boolean {
+  if (envValue(env, 'VOLTA_HOME', 'win32')) return true;
+  return /(^|[\\/])\.?volta([\\/]|$)/i.test(`${envValue(env, 'PATH', 'win32') ?? ''}\n${packageDir}`);
+}
+
+/**
+ * The npm prefix of a global npm install in `packageDir`: `<prefix>/lib/node_modules/slopbuckets` on POSIX and
+ * `<prefix>\node_modules\slopbuckets` on Windows. Null when the path has another shape.
+ */
+export function npmGlobalPrefix(packageDir: string, platform: NodeJS.Platform): string | null {
+  const match = /^(.*)[\\/]node_modules[\\/]slopbuckets$/.exec(packageDir.replace(/[\\/]+$/, ''));
+  if (!match) return null;
+  const owner = match[1] ?? '';
+  if (/(^|[\\/])node_modules([\\/]|$)/.test(owner)) return null;
+  if (platform === 'win32') {
+    if (owner === '') return null;
+    return /^[A-Za-z]:$/.test(owner) ? `${owner}\\` : owner;
+  }
+  const lib = /^(.*)[\\/]lib$/.exec(owner);
+  if (!lib) return null;
+  return lib[1] === '' ? '/' : (lib[1] ?? null);
+}
+
 /**
  * How the CLI in `packageDir` was installed, from its path. A package under a `node_modules` folder whose parent
  * has a package.json is a project dependency; the lockfile next to that package.json names the package manager.
  * Under `node_modules` of a folder without a package.json (`/usr/local/lib`, `%APPDATA%\npm`) it is a global npm
- * install. pnpm, yarn and bun keep their global packages in folders of their own, recognized by name.
+ * install, and the path gives its prefix. Volta, pnpm, yarn and bun keep their global packages in folders of their
+ * own, recognized by name.
  */
-export function detectInstall(packageDir: string, cwd: string): Install {
+export function detectInstall(packageDir: string, cwd: string, system: InstallSystem = {}): Install {
+  const platform = system.platform ?? process.platform;
+  const env = system.env ?? {};
   const full = toPosix(path.resolve(packageDir));
   const lower = full.toLowerCase();
+  const none = { dir: null, dev: false, prefix: null };
   if (lower.includes('/_npx/') || lower.includes('/pnpm/dlx/') || /\/bunx-[^/]*\//.test(lower)) {
-    return { scope: 'unknown', manager: null, dir: null, dev: false, reason: `it runs from a temporary copy (${packageDir}), such as the one npx makes, so there is nothing to update. Ask npx for the version you want, such as \`npx slopbuckets@<version>\`` };
+    return { scope: 'unknown', manager: null, ...none, reason: `it runs from a temporary copy (${packageDir}), such as the one npx makes, so there is nothing to update. Ask npx for the version you want, such as \`npx slopbuckets@<version>\`` };
   }
-  if (lower.includes('/pnpm/global/')) return { scope: 'global', manager: 'pnpm', dir: null, dev: false };
-  if (/\/yarn\/(data\/)?global\//.test(lower) || lower.includes('/.yarn-global/')) return { scope: 'global', manager: 'yarn', dir: null, dev: false };
-  if (lower.includes('/.bun/install/global/')) return { scope: 'global', manager: 'bun', dir: null, dev: false };
+  if (isVoltaPackage(packageDir, platform, env)) return { scope: 'global', manager: 'volta', ...none };
+  if (lower.includes('/pnpm/global/')) return { scope: 'global', manager: 'pnpm', ...none };
+  if (/\/yarn\/(data\/)?global\//.test(lower) || lower.includes('/.yarn-global/')) return { scope: 'global', manager: 'yarn', ...none };
+  if (lower.includes('/.bun/install/global/')) return { scope: 'global', manager: 'bun', ...none };
 
   const at = full.indexOf('/node_modules/');
-  if (at < 0) return { scope: 'unknown', manager: null, dir: null, dev: false, reason: `it runs from ${packageDir}, which is not inside a node_modules folder, such as a checkout of the repository` };
+  if (at < 0) return { scope: 'unknown', manager: null, ...none, reason: `it runs from ${packageDir}, which is not inside a node_modules folder, such as a checkout of the repository` };
   const owner = path.resolve(at === 0 ? '/' : full.slice(0, at));
-  if (!existsSync(path.join(owner, 'package.json'))) return { scope: 'global', manager: 'npm', dir: null, dev: false };
+  if (!existsSync(path.join(owner, 'package.json'))) return { scope: 'global', manager: 'npm', dir: null, dev: false, prefix: npmGlobalPrefix(packageDir, platform) };
 
   // In a workspace the package sits in the node_modules of the root, but a member may be the one that lists it.
   let dir = owner;
@@ -297,37 +391,190 @@ export function detectInstall(packageDir: string, cwd: string): Install {
   }
   const pkg = readPackageJson(dir);
   const dev = !listsCli(pkg, 'dependencies') || listsCli(pkg, 'devDependencies');
-  return { scope: 'local', manager: projectManager(owner, full), dir, dev };
+  return { scope: 'local', manager: projectManager(owner, full), dir, dev, prefix: null };
 }
 
-/** The command that installs `version` the way the running CLI was installed, or null when that is unknown. */
-export function installCommand(install: Install, version: string): string | null {
+/**
+ * The program and arguments that install `version` the way the running CLI was installed, or null when that is
+ * unknown. They run without a shell on POSIX, and `windowsCommandLine` quotes them for cmd.exe on Windows.
+ */
+export function installArgs(install: Install, version: string): string[] | null {
   if (!isVersion(version)) throw new Error(`not a version: ${version}`);
   const spec = `${PACKAGE_NAME}@${version}`;
   if (install.scope === 'global') {
     switch (install.manager) {
+      case 'volta':
+        return ['volta', 'install', spec];
       case 'pnpm':
-        return `pnpm add -g ${spec}`;
+        return ['pnpm', 'add', '-g', spec];
       case 'yarn':
-        return `yarn global add ${spec}`;
+        return ['yarn', 'global', 'add', spec];
       case 'bun':
-        return `bun add -g ${spec}`;
+        return ['bun', 'add', '-g', spec];
       default:
-        return `npm install -g ${spec}`;
+        return install.prefix !== null ? ['npm', 'install', '-g', '--prefix', install.prefix, spec] : ['npm', 'install', '-g', spec];
     }
   }
   if (install.scope === 'local') {
     // Exact, because the lock of the project names one exact CLI version.
     switch (install.manager) {
       case 'pnpm':
-        return `pnpm add ${install.dev ? '--save-dev ' : ''}--save-exact ${spec}`;
+        return ['pnpm', 'add', ...(install.dev ? ['--save-dev'] : []), '--save-exact', spec];
       case 'yarn':
-        return `yarn add ${install.dev ? '--dev ' : ''}--exact ${spec}`;
+        return ['yarn', 'add', ...(install.dev ? ['--dev'] : []), '--exact', spec];
       case 'bun':
-        return `bun add ${install.dev ? '--dev ' : ''}--exact ${spec}`;
+        return ['bun', 'add', ...(install.dev ? ['--dev'] : []), '--exact', spec];
       default:
-        return `npm install ${install.dev ? '--save-dev ' : ''}--save-exact ${spec}`;
+        return ['npm', 'install', ...(install.dev ? ['--save-dev'] : []), '--save-exact', spec];
     }
   }
   return null;
+}
+
+/** The install command as a human types it in the shell of `platform`, or null when the install is unknown. */
+export function installCommand(install: Install, version: string, platform: NodeJS.Platform = process.platform): string | null {
+  const args = installArgs(install, version);
+  return args === null ? null : formatCommand(args, platform);
+}
+
+/**
+ * One argument, quoted for the shell of `platform` when it holds anything but letters, digits and `_/.:@+=,-`.
+ * POSIX gets single quotes, which keep every character. Windows gets double quotes, which work in cmd.exe and
+ * PowerShell for a path, since a Windows path cannot contain a double quote.
+ */
+export function quoteArg(arg: string, platform: NodeJS.Platform): string {
+  if (platform === 'win32') return /^[\w\\/.:@+=,-]+$/.test(arg) ? arg : `"${arg}"`;
+  return /^[\w/.:@+=,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+export function formatCommand(argv: string[], platform: NodeJS.Platform): string {
+  return argv.map((arg) => quoteArg(arg, platform)).join(' ');
+}
+
+/**
+ * The line that cmd.exe runs for `argv`, or null when an argument holds a character that cmd.exe acts on even
+ * inside double quotes: `%` and `!` expand variables, and `"` ends the quotes. Control characters are refused too.
+ */
+export function windowsCommandLine(argv: string[]): string | null {
+  // eslint-disable-next-line no-control-regex
+  if (argv.some((arg) => arg === '' || /["%!\u0000-\u001f]/.test(arg))) return null;
+  return formatCommand(argv, 'win32');
+}
+
+/* ---------- after an install ---------- */
+
+/**
+ * The folder whose package.json says which version an install left: the package link in the node_modules of the
+ * project or of pnpm's global folder, since pnpm keeps each version in a store folder of its own, and otherwise the
+ * folder of the running CLI.
+ */
+export function installedPackageDir(install: Install, packageDir: string): string {
+  const resolved = path.resolve(packageDir);
+  const full = toPosix(resolved);
+  const candidates: string[] = [];
+  if (install.scope === 'local' && install.dir !== null) candidates.push(path.join(install.dir, 'node_modules', PACKAGE_NAME));
+  const store = full.indexOf('/node_modules/.pnpm/');
+  if (store >= 0) candidates.push(path.join(resolved.slice(0, store), 'node_modules', PACKAGE_NAME));
+  else if (install.scope === 'local') {
+    const at = full.indexOf('/node_modules/');
+    if (at >= 0) candidates.push(path.join(resolved.slice(0, at), 'node_modules', PACKAGE_NAME));
+  }
+  return candidates.find((dir) => existsSync(path.join(dir, 'package.json'))) ?? resolved;
+}
+
+/** The version in the package.json of `dir`, read from disk now, or null when there is none. */
+export function packageVersion(dir: string): string | null {
+  const version = readPackageJson(dir)?.version;
+  return typeof version === 'string' ? version : null;
+}
+
+/** True when the current user can write to `dir`. */
+export function writable(dir: string): boolean {
+  try {
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The command that prints where a manager installs global packages, and what it prints for the folder of this CLI. */
+export function globalLocationQuery(install: Install, installedDir: string): { argv: string[]; expected: string } | null {
+  if (install.scope !== 'global') return null;
+  const modules = path.dirname(installedDir);
+  switch (install.manager) {
+    case 'npm':
+      return install.prefix !== null ? { argv: ['npm', 'prefix', '-g'], expected: install.prefix } : null;
+    case 'pnpm':
+      return { argv: ['pnpm', 'root', '-g'], expected: modules };
+    case 'yarn':
+      return { argv: ['yarn', 'global', 'dir'], expected: path.dirname(modules) };
+    default:
+      return null;
+  }
+}
+
+function realpathOr(file: string): string {
+  try {
+    return realpathSync(file);
+  } catch {
+    return file;
+  }
+}
+
+/** The file that `which` (POSIX) or `where` (Windows) finds for `name`, from PATH and PATHEXT, without a shell. */
+export function findOnPath(name: string, env: Record<string, string | undefined>, platform: NodeJS.Platform): string | null {
+  const value = envValue(env, 'PATH', platform);
+  if (!value) return null;
+  const exts = platform === 'win32' ? (envValue(env, 'PATHEXT', platform) ?? '.COM;.EXE;.BAT;.CMD').split(';').filter((ext) => ext !== '') : [''];
+  for (const entry of value.split(platform === 'win32' ? ';' : ':')) {
+    const dir = platform === 'win32' ? entry.replace(/^"(.*)"$/, '$1') : entry;
+    if (dir === '') continue;
+    for (const ext of exts) {
+      const file = path.join(dir, name + ext.toLowerCase());
+      try {
+        if (!statSync(file).isFile()) continue;
+        if (platform !== 'win32') accessSync(file, constants.X_OK);
+        return file;
+      } catch {
+        // Not here, or not executable.
+      }
+    }
+  }
+  return null;
+}
+
+/** What a `buckets` on PATH runs: a Volta shim, a copy of slopbuckets (its package folder), or something else. */
+export type BinTarget = { kind: 'volta' } | { kind: 'package'; dir: string } | { kind: 'unknown' };
+
+/**
+ * Follows a `buckets` on PATH to what it runs. A symlink leads to the dist/index.js of a package. A .cmd shim of npm
+ * or pnpm names that file relative to its own folder (`%dp0%\node_modules\slopbuckets\dist\index.js`). A Volta shim
+ * runs the package that Volta installed. Another shim, such as one of asdf or mise, is `unknown`.
+ */
+export function binTarget(file: string, platform: NodeJS.Platform): BinTarget {
+  let target = realpathOr(file);
+  if (/^volta-shim(\.exe)?$/i.test(path.basename(target))) return { kind: 'volta' };
+  if (platform === 'win32' && /\.cmd$/i.test(file)) {
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch {
+      return { kind: 'unknown' };
+    }
+    if (/\bvolta(\.exe)?"?\s+run\b/i.test(text)) return { kind: 'volta' };
+    const script = /%~?dp0%?[\\/]([^"\r\n%]+?\.[cm]?js)"/i.exec(text)?.[1];
+    if (script === undefined) return { kind: 'unknown' };
+    target = realpathOr(path.join(path.dirname(file), ...script.split(/[\\/]/)));
+  }
+  for (let dir = path.dirname(target); ; dir = path.dirname(dir)) {
+    const pkg = readPackageJson(dir);
+    if (pkg !== null) return pkg.name === PACKAGE_NAME ? { kind: 'package', dir } : { kind: 'unknown' };
+    if (path.dirname(dir) === dir) return { kind: 'unknown' };
+  }
+}
+
+/** True when the package folders `a` and `b` are the same folder on disk. */
+export function samePackage(a: string, b: string, platform: NodeJS.Platform): boolean {
+  return samePath(realpathOr(a), realpathOr(b), platform);
 }

@@ -76,20 +76,40 @@ The [lock differences](../reference/lock#lock-differences) page lists every kind
 
 `buckets update` reads the latest version of `slopbuckets` from the npm registry (the one in `npm_config_registry`, or `https://registry.npmjs.org`), prints it next to the installed version, and prints the command that installs it. The TypeScript adapter ships inside the CLI package, so this updates the adapter too.
 
-The command depends on how the running CLI was installed. A global install uses `npm install -g`, `pnpm add -g`, `yarn global add` or `bun add -g`. A project dependency uses the package manager of the lockfile next to its `package.json` (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`), runs in that folder, keeps the dependency in `dependencies` or `devDependencies`, and pins the exact version, because the lock names one exact version. A copy that npx made, or a checkout of the repository, has nothing to update.
+The command depends on how the running CLI was installed. A global install uses `npm install -g --prefix <prefix>`, `pnpm add -g`, `yarn global add`, `bun add -g` or `volta install`. For npm, the prefix comes from the folder of the running CLI: `<prefix>/lib/node_modules/slopbuckets` on Linux and macOS, `<prefix>\node_modules\slopbuckets` on Windows. Without it, the first `npm` on PATH would install into its own prefix, which can belong to another Node.js version of nvm, fnm, asdf or mise, or to a copy installed with sudo. A path with spaces stays one argument, and the printed command quotes it for the shell. A project dependency uses the package manager of the lockfile next to its `package.json` (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`), runs in that folder, keeps the dependency in `dependencies` or `devDependencies`, and pins the exact version, because the lock names one exact version. A copy that npx made, or a checkout of the repository, has nothing to update.
 
-In a terminal it asks `Install slopbuckets <version>? [y/N]` and runs the command after `y`. `--yes` skips the question. Without a terminal and without `--yes`, it prints the command, installs nothing and exits with 1. `buckets update <version>` installs that version, such as the one a lock asks for. `buckets update --check` only prints, and `--json` prints this object without installing:
+Volta runs a global package from its own folder, `<VOLTA_HOME>/tools/image/packages/` (`~/.volta` on Linux and macOS, `%LOCALAPPDATA%\Volta` on Windows), through the `buckets` shim in its `bin` folder. `npm install -g` never reaches that copy, so a CLI in that folder updates with `volta install slopbuckets@<version>`. When `volta` is not on PATH, `buckets update` says so and prints the command.
+
+In a terminal it asks `Install slopbuckets <version>? [y/N]` and runs the command after `y`. It runs the package manager without a shell on Linux and macOS. On Windows it goes through cmd.exe, which finds `npm.cmd`, and refuses a path with `%`, `!` or `"`, because cmd.exe changes those even inside quotes. You then run the printed command yourself. `--yes` skips the question. Without a terminal and without `--yes`, it prints the command, installs nothing and exits with 1. `buckets update <version>` installs that version, such as the one a lock asks for. `buckets update --check` only prints, and `--json` prints this object without installing:
 
 ```json
 {
   "installed": "1.1.0",
   "latest": "1.2.0",
   "updateAvailable": true,
-  "install": { "scope": "global", "manager": "npm", "command": "npm install -g slopbuckets@1.2.0", "dir": null }
+  "install": {
+    "scope": "global",
+    "manager": "npm",
+    "command": "npm install -g --prefix /usr/local slopbuckets@1.2.0",
+    "dir": null,
+    "prefix": "/usr/local"
+  }
 }
 ```
 
-`scope` is `global`, `local` or `unknown`. For `local`, `dir` is the folder where the command runs. For `unknown`, `manager` and `command` are null. When the registry cannot be reached, `--json` prints an object with only an `error` field, which holds the message, and exits with 1.
+`scope` is `global`, `local` or `unknown`. `manager` is `npm`, `pnpm`, `yarn`, `bun` or `volta`. For `local`, `dir` is the folder where the command runs. For a global npm install, `prefix` is the npm prefix of the running CLI, and null otherwise. For `unknown`, `manager` and `command` are null. When the registry cannot be reached, `--json` prints an object with only an `error` field, which holds the message, and exits with 1.
+
+### After the install
+
+A package manager can exit with 0 and still leave the running copy alone, for example when it installs into another prefix. So `buckets update` reads the `version` in the package.json of the copy it updated: the folder of the running CLI, or the package in the `node_modules` of the project. pnpm keeps each version in a store folder of its own, so for pnpm it reads the package link in `node_modules`. When the version is not the one it installed, `buckets update` does not print `Installed` and exits with 1. It prints the folder and the version it found there. For a global install it also prints what `npm prefix -g`, `pnpm root -g` or `yarn global dir` answers when that is another folder. Then it says what you can do:
+
+- When Volta manages Node.js (`VOLTA_HOME` is set or a `volta` folder is on PATH), run `volta install slopbuckets@<version>`.
+- When another `buckets` comes first on PATH, keep one copy and remove the others.
+- When you cannot write to the folder, run the command with `sudo`, or on Windows from an administrator shell.
+
+When the package manager fails with `EACCES` or `EPERM`, the folder needs elevated rights. `buckets update` prints the same command with `sudo` in front, or on Windows asks for an administrator shell, and exits with 1.
+
+After a global install that worked, `buckets update` looks for `buckets` on PATH the way `which` and `where` do, without a shell. When that file runs another copy of slopbuckets, or a Volta shim while this copy is not Volta's, it prints a warning on stderr, because typing `buckets` would still run the old version.
 
 Each lock records the CLI version that approved it, and `buckets check` stops with exit code 3 (`cli-version`) while the installed CLI differs. After an update, a human runs `buckets refresh` in each project, or an agent asks for it with `buckets refresh --web`. The diff shows the version change. To keep a project on the version its lock names, run `buckets update <version>` with that version instead.
 

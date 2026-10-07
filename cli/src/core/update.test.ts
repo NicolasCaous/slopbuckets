@@ -1,15 +1,25 @@
+import { chmodSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fakeUpdates } from '../testing/fake-updates.js';
 import { cleanupProjects, fileExists, makeProject, readFile, writeFile } from '../testing/fixture.js';
 import {
+  binTarget,
   checkForUpdate,
   compareVersions,
   detectInstall,
   fetchVersion,
+  findOnPath,
+  formatCommand,
+  installArgs,
   installCommand,
+  installedPackageDir,
   isVersion,
+  isVoltaPackage,
+  npmGlobalPrefix,
   registryUrl,
+  voltaInUse,
+  windowsCommandLine,
   UPDATE_CACHE_MS,
   updateCacheDir,
   updateCheckEnabled,
@@ -163,9 +173,31 @@ describe('checkForUpdate', () => {
 });
 
 describe('detectInstall', () => {
-  it('finds a global npm install under a folder without package.json', () => {
-    const { packageDir } = tree('lib/node_modules/slopbuckets');
-    expect(detectInstall(packageDir, '/')).toEqual({ scope: 'global', manager: 'npm', dir: null, dev: false });
+  it('finds a global npm install under a folder without package.json, and its prefix', () => {
+    const posix = tree('lib/node_modules/slopbuckets');
+    expect(detectInstall(posix.packageDir, '/', { platform: 'linux' })).toEqual({ scope: 'global', manager: 'npm', dir: null, dev: false, prefix: posix.dir });
+    const windows = tree('npm/node_modules/slopbuckets');
+    expect(detectInstall(windows.packageDir, '/', { platform: 'win32' })).toEqual({ scope: 'global', manager: 'npm', dir: null, dev: false, prefix: path.join(windows.dir, 'npm') });
+  });
+
+  it('finds a global install of Volta by VOLTA_HOME, the default folders or the folder names', () => {
+    const volta = (packageDir: string, platform: NodeJS.Platform, env: Record<string, string> = {}) => detectInstall(packageDir, '/', { platform, env });
+    const expected = { scope: 'global', manager: 'volta', dir: null, dev: false, prefix: null };
+    expect(volta('/home/ana/.volta/tools/image/packages/slopbuckets/lib/node_modules/slopbuckets', 'linux', { HOME: '/home/ana' })).toEqual(expected);
+    expect(volta('/home/ana/.volta/tools/image/packages/slopbuckets/lib/node_modules/slopbuckets', 'linux')).toEqual(expected);
+    expect(volta('/opt/tools/v/tools/image/packages/slopbuckets/lib/node_modules/slopbuckets', 'linux', { VOLTA_HOME: '/opt/tools/v' })).toEqual(expected);
+    expect(volta('C:\\Users\\ana\\AppData\\Local\\Volta\\tools\\image\\packages\\slopbuckets\\node_modules\\slopbuckets', 'win32', { LOCALAPPDATA: 'c:\\users\\ana\\appdata\\local' })).toEqual(expected);
+    expect(isVoltaPackage('D:\\v\\tools\\image\\packages\\slopbuckets\\node_modules\\slopbuckets', 'win32', { VOLTA_HOME: 'd:\\V' })).toBe(true);
+    expect(isVoltaPackage('/opt/tools/v/tools/image/packages/slopbuckets/lib/node_modules/slopbuckets', 'linux', { VOLTA_HOME: '/opt/tools/V' })).toBe(false);
+    // The node image of Volta holds the npm that Volta runs, and its global folder is a plain npm prefix.
+    expect(volta('/home/ana/.volta/tools/image/node/24.20.0/lib/node_modules/slopbuckets', 'linux', { HOME: '/home/ana' })).toMatchObject({ manager: 'npm', prefix: '/home/ana/.volta/tools/image/node/24.20.0' });
+  });
+
+  it('knows when Volta manages Node.js', () => {
+    expect(voltaInUse('/usr/lib/node_modules/slopbuckets', { VOLTA_HOME: '/home/ana/.volta' })).toBe(true);
+    expect(voltaInUse('/usr/lib/node_modules/slopbuckets', { PATH: '/home/ana/.volta/bin:/usr/bin' })).toBe(true);
+    expect(voltaInUse('/usr/lib/node_modules/slopbuckets', { Path: 'C:\\Users\\ana\\AppData\\Local\\Volta\\bin;C:\\Windows' })).toBe(true);
+    expect(voltaInUse('/usr/lib/node_modules/slopbuckets', { PATH: '/usr/local/bin:/usr/bin' })).toBe(false);
   });
 
   it('finds the global folders of pnpm, yarn and bun by name', () => {
@@ -179,13 +211,13 @@ describe('detectInstall', () => {
   it('finds a project dependency and its package manager from the lockfile', () => {
     for (const [lockfile, manager] of [['package-lock.json', 'npm'], ['pnpm-lock.yaml', 'pnpm'], ['yarn.lock', 'yarn'], ['bun.lock', 'bun'], ['bun.lockb', 'bun']] as const) {
       const { dir, packageDir } = tree('node_modules/slopbuckets', { 'package.json': '{ "devDependencies": { "slopbuckets": "1.0.0" } }', [lockfile]: '' });
-      expect(detectInstall(packageDir, dir)).toEqual({ scope: 'local', manager, dir, dev: true });
+      expect(detectInstall(packageDir, dir)).toEqual({ scope: 'local', manager, dir, dev: true, prefix: null });
     }
   });
 
   it('knows pnpm from its store folder, and a runtime dependency', () => {
     const { dir, packageDir } = tree('node_modules/.pnpm/slopbuckets@1.0.0/node_modules/slopbuckets', { 'package.json': '{ "dependencies": { "slopbuckets": "1.0.0" } }' });
-    expect(detectInstall(packageDir, dir)).toEqual({ scope: 'local', manager: 'pnpm', dir, dev: false });
+    expect(detectInstall(packageDir, dir)).toEqual({ scope: 'local', manager: 'pnpm', dir, dev: false, prefix: null });
   });
 
   it('falls back to the packageManager field, then npm', () => {
@@ -203,7 +235,7 @@ describe('detectInstall', () => {
       'packages/app/src/index.ts': '',
     });
     const member = path.join(dir, 'packages', 'app');
-    expect(detectInstall(packageDir, path.join(member, 'src'))).toEqual({ scope: 'local', manager: 'npm', dir: member, dev: false });
+    expect(detectInstall(packageDir, path.join(member, 'src'))).toEqual({ scope: 'local', manager: 'npm', dir: member, dev: false, prefix: null });
     expect(detectInstall(packageDir, path.dirname(dir))).toMatchObject({ dir });
   });
 
@@ -214,23 +246,107 @@ describe('detectInstall', () => {
   });
 });
 
+describe('npmGlobalPrefix', () => {
+  it.each([
+    ['/usr/local/lib/node_modules/slopbuckets', 'linux', '/usr/local'],
+    ['/usr/lib/node_modules/slopbuckets/', 'linux', '/usr'],
+    ['/opt/homebrew/lib/node_modules/slopbuckets', 'darwin', '/opt/homebrew'],
+    ['/home/ana/.nvm/versions/node/v24.0.0/lib/node_modules/slopbuckets', 'linux', '/home/ana/.nvm/versions/node/v24.0.0'],
+    ['/home/ana/.local/share/mise/installs/node/24.0.0/lib/node_modules/slopbuckets', 'linux', '/home/ana/.local/share/mise/installs/node/24.0.0'],
+    ['/home/ana/.asdf/installs/nodejs/24.0.0/lib/node_modules/slopbuckets', 'linux', '/home/ana/.asdf/installs/nodejs/24.0.0'],
+    ['/home/ana/.local/share/fnm/node-versions/v24.0.0/installation/lib/node_modules/slopbuckets', 'linux', '/home/ana/.local/share/fnm/node-versions/v24.0.0/installation'],
+    ['/home/ana/my tools/lib/node_modules/slopbuckets', 'linux', '/home/ana/my tools'],
+    ['/lib/node_modules/slopbuckets', 'linux', '/'],
+    ['C:\\Users\\ana\\AppData\\Roaming\\npm\\node_modules\\slopbuckets', 'win32', 'C:\\Users\\ana\\AppData\\Roaming\\npm'],
+    ['C:\\Program Files\\nodejs\\node_modules\\slopbuckets\\', 'win32', 'C:\\Program Files\\nodejs'],
+    ['C:\\node_modules\\slopbuckets', 'win32', 'C:\\'],
+    ['/usr/local/share/node_modules/slopbuckets', 'linux', null],
+    ['/usr/lib/node_modules/other/node_modules/slopbuckets', 'linux', null],
+    ['/usr/lib/node_modules/slopbuckets/dist', 'linux', null],
+  ] as const)('%s on %s', (packageDir, platform, prefix) => {
+    expect(npmGlobalPrefix(packageDir, platform)).toBe(prefix);
+  });
+
+  it('gives the prefix of nvm, mise and asdf installs to the install command', () => {
+    for (const prefix of ['/home/ana/.nvm/versions/node/v24.0.0', '/home/ana/.local/share/mise/installs/node/24.0.0', '/home/ana/.asdf/installs/nodejs/24.0.0']) {
+      const install = detectInstall(`${prefix}/lib/node_modules/slopbuckets`, '/', { platform: 'linux', env: { HOME: '/home/ana' } });
+      expect(install).toEqual({ scope: 'global', manager: 'npm', dir: null, dev: false, prefix });
+      expect(installCommand(install, '1.2.0', 'linux')).toBe(`npm install -g --prefix ${prefix} slopbuckets@1.2.0`);
+    }
+  });
+});
+
 describe('installCommand', () => {
   it('builds the command of each manager', () => {
-    const global = (manager: 'npm' | 'pnpm' | 'yarn' | 'bun') => installCommand({ scope: 'global', manager, dir: null, dev: false }, '1.2.0');
+    const global = (manager: 'npm' | 'pnpm' | 'yarn' | 'bun' | 'volta', prefix: string | null = null) => installCommand({ scope: 'global', manager, dir: null, dev: false, prefix }, '1.2.0', 'linux');
     expect(global('npm')).toBe('npm install -g slopbuckets@1.2.0');
+    expect(global('npm', '/usr/local')).toBe('npm install -g --prefix /usr/local slopbuckets@1.2.0');
     expect(global('pnpm')).toBe('pnpm add -g slopbuckets@1.2.0');
     expect(global('yarn')).toBe('yarn global add slopbuckets@1.2.0');
     expect(global('bun')).toBe('bun add -g slopbuckets@1.2.0');
-    const local = (manager: 'npm' | 'pnpm' | 'yarn' | 'bun', dev: boolean) => installCommand({ scope: 'local', manager, dir: '/p', dev }, '1.2.0');
+    expect(global('volta')).toBe('volta install slopbuckets@1.2.0');
+    const local = (manager: 'npm' | 'pnpm' | 'yarn' | 'bun', dev: boolean) => installCommand({ scope: 'local', manager, dir: '/p', dev, prefix: null }, '1.2.0', 'linux');
     expect(local('npm', true)).toBe('npm install --save-dev --save-exact slopbuckets@1.2.0');
     expect(local('npm', false)).toBe('npm install --save-exact slopbuckets@1.2.0');
     expect(local('pnpm', true)).toBe('pnpm add --save-dev --save-exact slopbuckets@1.2.0');
     expect(local('yarn', true)).toBe('yarn add --dev --exact slopbuckets@1.2.0');
     expect(local('bun', false)).toBe('bun add --exact slopbuckets@1.2.0');
-    expect(installCommand({ scope: 'unknown', manager: null, dir: null, dev: false }, '1.2.0')).toBeNull();
+    expect(installCommand({ scope: 'unknown', manager: null, dir: null, dev: false, prefix: null }, '1.2.0')).toBeNull();
   });
 
-  it('refuses anything but a version, because the command goes through a shell', () => {
-    expect(() => installCommand({ scope: 'global', manager: 'npm', dir: null, dev: false }, '1.2.0 && evil')).toThrow('not a version');
+  it('refuses anything but a version, because cmd.exe runs the command on Windows', () => {
+    expect(() => installCommand({ scope: 'global', manager: 'npm', dir: null, dev: false, prefix: null }, '1.2.0 && evil')).toThrow('not a version');
+  });
+
+  it('keeps a prefix with spaces or shell characters in one argument, and quotes it for each shell', () => {
+    const prefix = "/home/ana/it's $(evil) & co";
+    const install = { scope: 'global', manager: 'npm', dir: null, dev: false, prefix } as const;
+    expect(installArgs(install, '1.2.0')).toEqual(['npm', 'install', '-g', '--prefix', prefix, 'slopbuckets@1.2.0']);
+    expect(installCommand(install, '1.2.0', 'linux')).toBe(`npm install -g --prefix '/home/ana/it'\\''s $(evil) & co' slopbuckets@1.2.0`);
+    const windows = { ...install, prefix: 'C:\\Program Files (x86)\\node & co' };
+    expect(installCommand(windows, '1.2.0', 'win32')).toBe('npm install -g --prefix "C:\\Program Files (x86)\\node & co" slopbuckets@1.2.0');
+    expect(windowsCommandLine(installArgs(windows, '1.2.0') ?? [])).toBe('npm install -g --prefix "C:\\Program Files (x86)\\node & co" slopbuckets@1.2.0');
+  });
+
+  it('refuses to hand cmd.exe a path with a character it expands inside quotes', () => {
+    for (const prefix of ['C:\\%PATH%\\npm', 'C:\\a!b!\\npm', 'C:\\a"&evil&"\\npm', 'C:\\a\nb']) {
+      expect(windowsCommandLine(['npm', 'install', '-g', '--prefix', prefix, 'slopbuckets@1.2.0'])).toBeNull();
+    }
+    expect(formatCommand(['npm', 'prefix', '-g'], 'win32')).toBe('npm prefix -g');
+  });
+});
+
+describe('after an install', () => {
+  it('reads the version from the package link of pnpm, not from its store folder', () => {
+    const { dir } = tree('node_modules/.pnpm/slopbuckets@1.0.0/node_modules/slopbuckets', {
+      'package.json': '{ "devDependencies": { "slopbuckets": "1.0.0" } }',
+      'node_modules/slopbuckets/package.json': '{ "name": "slopbuckets", "version": "1.2.0" }',
+    });
+    const packageDir = path.join(dir, 'node_modules', '.pnpm', 'slopbuckets@1.0.0', 'node_modules', 'slopbuckets');
+    expect(installedPackageDir(detectInstall(packageDir, dir), packageDir)).toBe(path.join(dir, 'node_modules', 'slopbuckets'));
+    const global = tree('lib/node_modules/slopbuckets');
+    expect(installedPackageDir(detectInstall(global.packageDir, '/', { platform: 'linux' }), global.packageDir)).toBe(global.packageDir);
+  });
+
+  it('finds a program on PATH like which and where, without a shell', () => {
+    const exe = process.platform === 'win32' ? 'buckets.CMD' : 'buckets';
+    const dir = makeProject({ 'first/readme.txt': '', [`second/${exe}`]: '', [`third/${exe}`]: '' }, false);
+    if (process.platform !== 'win32') for (const folder of ['second', 'third']) chmodSync(path.join(dir, folder, exe), 0o755);
+    const pathValue = ['first', 'second', 'third'].map((folder) => path.join(dir, folder)).join(path.delimiter);
+    const env = process.platform === 'win32' ? { Path: pathValue, PATHEXT: '.EXE;.CMD' } : { PATH: pathValue };
+    expect(findOnPath('buckets', env, process.platform)).toBe(path.join(dir, 'second', exe.toLowerCase()));
+    expect(findOnPath('buckets', {}, process.platform)).toBeNull();
+  });
+
+  it('follows an npm .cmd shim of Windows to its package, and knows a Volta shim', () => {
+    const { dir } = tree('npm/node_modules/slopbuckets', {
+      'npm/buckets.cmd': '@ECHO off\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\slopbuckets\\dist\\index.js" %*\r\n',
+      'npm/node_modules/slopbuckets/dist/index.js': '',
+      'volta/buckets.cmd': '@echo off\r\n"%~dp0\\..\\volta.exe" run buckets %*\r\n',
+      'other/buckets.cmd': '@echo off\r\nasdf exec buckets %*\r\n',
+    });
+    expect(binTarget(path.join(dir, 'npm', 'buckets.cmd'), 'win32')).toEqual({ kind: 'package', dir: path.join(dir, 'npm', 'node_modules', 'slopbuckets') });
+    expect(binTarget(path.join(dir, 'volta', 'buckets.cmd'), 'win32')).toEqual({ kind: 'volta' });
+    expect(binTarget(path.join(dir, 'other', 'buckets.cmd'), 'win32')).toEqual({ kind: 'unknown' });
   });
 });

@@ -75,7 +75,7 @@ export function helpText(version: string, style: Style = PLAIN, options: { heade
         ['link sync', 'Recreate every link listed in buckets.links.json that is missing, for example after a clone.'],
         ['link update [name]', 'Copy the origin of links in copy mode again.'],
         ['link remove <name>', 'Delete a link, its entry in buckets.links.json and its tsconfig.json paths entry.'],
-        ['update [<version>]', 'Install the latest slopbuckets, or this version, the way the running CLI was installed: globally or as a project dependency with npm, pnpm, yarn or bun. Asks first in a terminal, and without one installs only with --yes. Humans only.'],
+        ['update [<version>]', 'Install the latest slopbuckets, or this version, the way the running CLI was installed: globally with npm, pnpm, yarn, bun or Volta, or as a project dependency. Asks first in a terminal, and without one installs only with --yes. Checks the version on disk afterwards. Humans only.'],
         ['update --check', 'Print the installed and latest versions and the install command, without installing. --json prints them as JSON.'],
         ['hook <event>', `Run a Claude Code hook. Events: ${HOOK_EVENTS.join(', ')}.`],
         ['hook --agent <name> <event>', 'Run the hook of another agent, in its own input and output format.'],
