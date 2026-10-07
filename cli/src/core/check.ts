@@ -28,6 +28,7 @@ import { checkOrphans, type OrphanChain } from './rules/orphans.js';
 import { checkDmzTargets } from './rules/targets.js';
 import { aliasReuseViolations } from './project.js';
 import { scanProject } from './scan.js';
+import { compareVersions } from './update.js';
 import {
   EnvironmentError,
   type CheckReport,
@@ -103,13 +104,16 @@ function versionProblem(lock: Lock, cliVersion: string, info: InfoResponse): Env
   if (!isSupportedLockVersion(lock.lockVersion)) {
     return new EnvironmentError(
       'cli-version',
-      `${LOCK_FILE} has lockVersion ${String(lock.lockVersion)}, a format that slopbuckets ${cliVersion} cannot read. It was written by slopbuckets ${lock.cli}. Install a slopbuckets version that reads this lock (npm install -g slopbuckets@${lock.cli}), or a human runs \`buckets refresh\` to write it again. ${stop}`,
+      `${LOCK_FILE} has lockVersion ${String(lock.lockVersion)}, a format that slopbuckets ${cliVersion} cannot read. It was written by slopbuckets ${lock.cli}. A human installs that version with \`buckets update ${lock.cli}\`, or runs \`buckets refresh\` to write the lock again. ${stop}`,
     );
   }
   if (lock.cli !== cliVersion) {
+    const newer = compareVersions(lock.cli, cliVersion) > 0;
     return new EnvironmentError(
       'cli-version',
-      `${LOCK_FILE} was written by slopbuckets ${lock.cli}, but the installed CLI is ${cliVersion}. Install the matching version (npm install -g slopbuckets@${lock.cli}), or, to move the project to ${cliVersion}, a human runs \`buckets refresh\`. ${stop}`,
+      newer
+        ? `${LOCK_FILE} was written by slopbuckets ${lock.cli}, a newer version than the installed ${cliVersion}. A human installs it with \`buckets update ${lock.cli}\`. ${stop}`
+        : `${LOCK_FILE} was written by slopbuckets ${lock.cli}, but the installed CLI is ${cliVersion}. To keep the project on ${lock.cli}, a human installs it with \`buckets update ${lock.cli}\`. To move the project to ${cliVersion}, a human runs \`buckets refresh\`. ${stop}`,
     );
   }
   if (lock.adapter.name !== info.name || lock.adapter.version !== info.version) {

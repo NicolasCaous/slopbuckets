@@ -86,6 +86,11 @@ export interface CheckReport {
    * its own exit code. The recursive check always sets it.
    */
   projects?: { path: string; exitCode: ExitCode }[];
+  /**
+   * Only from `buckets check --json`, and only when the npm registry has a newer slopbuckets than the installed one:
+   * both versions and the notice the CLI also prints on stderr. It never changes the exit code.
+   */
+  update?: { installed: string; latest: string; message: string };
 }
 
 /**

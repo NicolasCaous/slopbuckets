@@ -359,7 +359,7 @@ async function openBrowser(chromePath) {
 function startServer(dir, args) {
   const child = spawn(process.execPath, [rel('cli', 'dist', 'index.js'), ...args], {
     cwd: dir,
-    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', CLAUDE_PROJECT_DIR: dir },
+    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', SLOPBUCKETS_NO_UPDATE_CHECK: '1', CLAUDE_PROJECT_DIR: dir },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
