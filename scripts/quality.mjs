@@ -1,7 +1,7 @@
 // Code conventions that CI checks. Exit code 1 lists every place that breaks one:
 //   - a function over 150 lines or with a cyclomatic complexity over 30 (adapters/ts/src/scan.ts is exempt: its
 //     lexer is one loop on purpose)
-//   - a unit test file that ran over 10 s, read from the vitest JSON report given with --unit-report
+//   - a unit test file that ran over 30 s, read from the vitest JSON report given with --unit-report
 //   - a unit test that waits on real time: a sleep through setTimeout, or a wall-time measurement
 //   - a second definition of a shared helper
 //   - a command that returns a numeric literal as its exit code, or parses its arguments without parseCommand
@@ -18,7 +18,9 @@ const ts = createRequire(path.join(repo, 'cli', 'package.json'))('typescript');
 
 const MAX_LINES = 150;
 const MAX_COMPLEXITY = 30;
-const MAX_TEST_FILE_MS = 10_000;
+// The slowest file takes 8.5 s on a developer machine and 16.4 s on a CI runner. A tighter limit fails on the speed of
+// the machine instead of on the size of the file.
+const MAX_TEST_FILE_MS = 30_000;
 const COMPLEXITY_EXEMPT = new Set(['adapters/ts/src/scan.ts']);
 /** Helpers that have one definition. A second `function x` or `const x =` anywhere in the sources is a problem. */
 const SHARED_HELPERS = ['toPosix', 'isRecord', 'isObject', 'stripBom', 'parseJson', 'samePath', 'message', 'unexpectedError', 'findProjectDir', 'retry', 'removeFolder', 'makeTempDir'];

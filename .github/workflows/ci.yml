@@ -31,7 +31,7 @@ jobs:
       - name: Unit tests
         run: npm test -- --reporter=default --reporter=json --outputFile.json="${{ runner.temp }}/unit-tests.json"
       - name: Code conventions
-        # Fails on a function over 150 lines or complexity 30, a unit test file over 10 s, a test that waits on real
+        # Fails on a function over 150 lines or complexity 30, a unit test file over 30 s, a test that waits on real
         # time, a second definition of a shared helper, and the other conventions listed in scripts/quality.mjs.
         run: node scripts/quality.mjs --unit-report "${{ runner.temp }}/unit-tests.json"
       - name: Generator and benchmark tests
