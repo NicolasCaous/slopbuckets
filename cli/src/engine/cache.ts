@@ -1,8 +1,8 @@
 // The cache of the rule engine in <project>/.buckets/cache/:
 //
 // - graph.bin (v8.serialize, string lists packed as in PackedCache): the sorted file list with mtime, size and index
-//   blob, the import graph, the owners of each file under the config they were computed with, the adapter's
-//   resolution state and the nested configs found.
+//   blob, the import graph, the owners of each file under the config they were computed with, the violations of the
+//   graph rules over that graph, the adapter's resolution state and the nested configs found.
 // - state.json: the violation keys of the last full result and the mtime and size of the files they name and of the
 //   tsconfig and package.json.
 // - edits.json: the files checkEdit simulated since then. recheck answers from these two files without loading the
@@ -20,9 +20,9 @@ import { ensureBucketsDir, isRecord } from '../files/index.js';
 import type { Config } from './config.js';
 import { indexOf, TextList, type Graph } from './graph.js';
 import type { Owners } from './owners.js';
-import { violationFiles } from './rules.js';
+import { violationFiles, type GraphRules } from './rules.js';
 
-const CACHE_VERSION = 8;
+const CACHE_VERSION = 9;
 
 /** What every file of the cache starts with. A file with another stamp is treated as missing. */
 interface Stamp {
@@ -44,6 +44,21 @@ export interface CacheFile extends Stamp {
   configs: string[];
   /** Folders inside the project that hold a tsconfig.json, '' for the project folder. */
   tsconfigs: string[];
+  /**
+   * The graph rules of `graph` under `owners`, and the project label they ran with. graph.bin holds `result` as
+   * v8.serialize gives it, and readRules reads it only when an edit can reuse it.
+   */
+  rules: { project: string; result: GraphRules | Uint8Array } | null;
+}
+
+/** The graph rules of a cache as new objects, or undefined when they do not read back. */
+export function readRules(rules: NonNullable<CacheFile['rules']>): GraphRules | undefined {
+  try {
+    const r = (rules.result instanceof Uint8Array ? v8.deserialize(rules.result) : structuredClone(rules.result)) as Partial<GraphRules>;
+    return Array.isArray(r.head) && Array.isArray(r.cycles) && Array.isArray(r.tail) ? (r as GraphRules) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -75,6 +90,7 @@ function unpackText(p: PackedText): TextList {
 const pack = (c: CacheFile): PackedCache => ({
   ...c,
   graph: { ...c.graph, files: packList(c.graph.files), blob: c.graph.blob.pack(), strings: c.graph.strings.pack(), types: c.graph.types.pack() },
+  rules: c.rules && { ...c.rules, result: c.rules.result instanceof Uint8Array ? c.rules.result : v8.serialize(c.rules.result) },
 });
 const unpack = (c: PackedCache): CacheFile => ({
   ...c,
@@ -148,6 +164,7 @@ function isCache(c: CacheFile): boolean {
   if (!isRecord(g) || !isFileColumns(g) || !isEdgeColumns(g as Graph)) return false;
   for (const [f, info] of (g as Graph).exports) if (typeof f !== 'string' || !isRecord(info) || !Array.isArray(info.names) || typeof info.codeLine !== 'number') return false;
   if (c.owners !== null && !isOwners(c.owners, (g as Graph).files.length)) return false;
+  if (c.rules !== null && !(isRecord(c.rules) && typeof c.rules.project === 'string' && c.rules.result instanceof Uint8Array)) return false;
   return isStrings(c.projects) && isStrings(c.configs) && isStrings(c.tsconfigs) && Array.isArray(c.inputs) && isRecord(c.adapter) && Array.isArray(c.adapter.inputs) && isRecord(c.adapter.resolved);
 }
 

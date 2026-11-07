@@ -557,6 +557,31 @@ function replaceFiles(old: Graph, changes: Changes): Graph {
   return g;
 }
 
+/**
+ * True when files `indexes` of `a` and `b`, two graphs over the same file list, have the same edges, exports and type
+ * names, compared by text: the rules then see no difference between the two graphs.
+ */
+export function sameFiles(a: Graph, b: Graph, indexes: readonly number[]): boolean {
+  const text = (g: Graph, id: number) => (id < 0 ? null : g.strings.at(id));
+  for (const i of indexes) {
+    if (i < 0 || a.files[i] !== b.files[i] || a.types.at(i) !== b.types.at(i)) return false;
+    if (JSON.stringify(a.exports.get(a.files[i]!)) !== JSON.stringify(b.exports.get(b.files[i]!))) return false;
+    const end = a.edgeStart[i + 1]!;
+    let ea = a.edgeStart[i]!;
+    let eb = b.edgeStart[i]!;
+    if (end - ea !== b.edgeStart[i + 1]! - eb) return false;
+    for (; ea < end; ea++, eb++) {
+      if (a.target[ea] !== b.target[eb] || a.line[ea] !== b.line[eb] || a.flags[ea] !== b.flags[eb]) return false;
+      if (text(a, a.spec[ea]!) !== text(b, b.spec[eb]!) || text(a, a.info[ea]!) !== text(b, b.info[eb]!)) return false;
+      let ka = a.nameStart[ea]!;
+      let kb = b.nameStart[eb]!;
+      if (a.nameStart[ea + 1]! - ka !== b.nameStart[eb + 1]! - kb) return false;
+      for (; ka < a.nameStart[ea + 1]!; ka++, kb++) if (a.nameType[ka] !== b.nameType[kb] || text(a, a.names[ka]!) !== text(b, b.names[kb]!)) return false;
+    }
+  }
+  return true;
+}
+
 /** The file list with `add` inserted and `remove` taken out, sorted. */
 export function editList(files: readonly string[], add: Iterable<string>, remove: Iterable<string>): string[] {
   // The common edit changes files already in the list: no set of every file (5 ms at 50k files).

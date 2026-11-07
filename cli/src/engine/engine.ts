@@ -3,9 +3,11 @@
 //
 // checkAll lists the files (git, or a walk outside a repository), stats only the files git cannot vouch for, analyzes
 // the files that changed (from the object store when more than 1,000 changed), and runs every rule over the whole
-// graph. The rules take about 10 ms at 50k files and 500 buckets, so checkEdit and recheck rerun all of them over the
-// cached graph with the edited or changed files replaced, which keeps them equal to checkAll by construction. All
-// three find what changed in their own way and then go through one pipeline, update().
+// graph. The rules take about 13 ms at 50k files and 500 buckets, so checkEdit and recheck rerun all of them over the
+// cached graph with the edited or changed files replaced, which keeps them equal to checkAll by construction. When
+// those files keep their imports, exports and type names, the graph rules the cache holds give the same answer and
+// only the checks that read the disk run (GraphRules in rules.ts). All three find what changed in their own way and
+// then go through one pipeline, update().
 // snapshot with known changes (the inspect server) skips the listing: it reads the named paths, keeps the cache entries
 // of every other file, and asks git only whether a new file is ignored.
 // ponytail: known changes trust the caller to name every change; inspect follows them with a full snapshot within
@@ -44,12 +46,12 @@ import {
   type Violation,
 } from '../contract/index.js';
 import { diskCase, forwardSlashes, samePath } from '../files/index.js';
-import { CacheStore, cacheDir, readText, sameInputs, sameList, sameStat, statOf, type CacheFile, type EditsFile } from './cache.js';
+import { CacheStore, cacheDir, readRules, readText, sameInputs, sameList, sameStat, statOf, type CacheFile, type EditsFile } from './cache.js';
 import { configHash, parseConfig, withRenames, type Config, type ConfigResult } from './config.js';
 import { listedAmong, listFiles, readFromGit, slice, SOURCE, unlisted, type Listing } from './files.js';
-import { applyChanges, editList, indexOf, lowerBound, type Graph } from './graph.js';
+import { applyChanges, editList, indexOf, lowerBound, sameFiles, type Graph } from './graph.js';
 import { computeOwners, IGNORED, type Owners } from './owners.js';
-import { computeAdvice, runRules, violationFiles, type RuleDetail } from './rules.js';
+import { computeAdvice, runRules, violationFiles, type GraphRules, type RuleDetail } from './rules.js';
 import { buildSnapshot, emptyProject } from './snapshot.js';
 
 export type Engine = RuleEngine;
@@ -223,9 +225,26 @@ async function update(
     : await applyChanges(old, { files: u.files, mtime: u.mtime, size: u.size, ...(u.blob ? { blob: u.blob } : {}), analyses, resolveAll, publicFiles: new Set(publicFiles) }, resolver(ref.dir, options));
   // The rules and the advice fill in what depends only on the config; the cache should then keep it.
   const filled = owners.cycles === undefined || owners.reasons === undefined;
-  const violations = runRules({ project: ref.label, graph: g, config, owners, configs: u.configs, hasConfig: u.hasConfig }, detail);
+  // The graph rules of the cache hold for g when g differs from the cached graph only in the analyzed files, and
+  // those have the same edges, exports and type names: the common edit, which changes no import or export. The
+  // same owners object means the same config and file list.
+  let known: GraphRules | undefined;
+  if (detail === undefined && cache?.rules && old !== null && cache.rules.project === ref.label && cache.owners === owners && !resolveAll && g.files === old.files) {
+    if (sameFiles(old, g, [...analyses.keys()].map((f) => indexOf(g.files, f)))) known = readRules(cache.rules);
+  }
+  const { violations, graph: rules } = runRules({ project: ref.label, graph: g, config, owners, configs: u.configs, hasConfig: u.hasConfig }, detail, known);
   const advice = computeAdvice(ref.label, config, owners, u.files);
-  const next: CacheFile = { ...s.store.stamp(ref.dir), graph: g, projects: projectsOf(config), owners, adapter: state, inputs: state.inputs, configs: u.configs, tsconfigs: u.tsconfigs };
+  const next: CacheFile = {
+    ...s.store.stamp(ref.dir),
+    graph: g,
+    projects: projectsOf(config),
+    owners,
+    adapter: state,
+    inputs: state.inputs,
+    configs: u.configs,
+    tsconfigs: u.tsconfigs,
+    rules: { project: ref.label, result: rules },
+  };
   return { violations, advice, next, graph: g, owners, filled };
 }
 

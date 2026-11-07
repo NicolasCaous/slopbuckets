@@ -137,6 +137,42 @@ describe('edge cases of checkEdit, recheck and the cache', () => {
     expect(privateImport(await engine().checkAll(dir))).toEqual(first);
   });
 
+  it('reuses the cached graph rules only for an edit that leaves the graph as it was', async () => {
+    const files = { ...BASE_FILES, 'packages/sdk/tsconfig.json': TSCONFIG, 'packages/sdk/buckets.config.json': JSON.stringify({ version: '2.0', buckets: {} }) };
+    const dir = project(files, baseConfig((c) => (c.projects = ['packages/sdk'])));
+    await engine().checkAll(dir);
+    /**
+     * checkEdit of one file, and checkAll with the cache, equal a checkAll without a cache once the file is written,
+     * every field compared. The last one runs every rule, and leaves the cache the next step starts from.
+     */
+    const same = async (file: string, content: string) => {
+      const simulated = await engine().checkEdit(dir, { path: file, content });
+      writeFile(dir, file, content);
+      const cached = await engine().checkAll(dir);
+      rmSync(path.join(dir, '.buckets'), { recursive: true, force: true });
+      const full = await engine().checkAll(dir);
+      expect(simulated.violations).toEqual(full.violations);
+      expect(cached.violations).toEqual(full.violations);
+      return rules(full);
+    };
+    const main = (body: string) => `import { charge } from '../payments';\n${body}`;
+    // A body change keeps the graph: the cached rules come back, and the checks of nested configs still read the disk.
+    rmSync(path.join(dir, 'packages/sdk/buckets.config.json'));
+    expect(await same('src/billing/main.ts', main('console.log(charge(2));\n'))).toEqual(['glob-empty']);
+    // Each of these changes the graph, so every rule runs again.
+    expect(await same('src/billing/main.ts', PRIVATE)).toEqual(['glob-empty', 'import-private']);
+    expect(await same('src/billing/main.ts', `\n${PRIVATE}`)).toEqual(['glob-empty', 'import-private']);
+    expect(await same('src/billing/main.ts', PRIVATE.replace('charge }', 'charge, refund }'))).toEqual(['glob-empty', 'import-private']);
+    expect(await same('src/billing/main.ts', PRIVATE.replace('charge }', 'charge, credit }'))).toEqual(['glob-empty', 'import-private']);
+    const twice = `${PRIVATE.replace('charge }', 'charge, credit }')}import { charge as again } from '../payments/charge';\n`;
+    expect(await same('src/billing/main.ts', twice)).toEqual(['glob-empty', 'import-private']);
+    expect(await same('src/payments/index.ts', "export { charge } from './charge';\nexport const extra = 1;\n")).toEqual(['export-unused', 'glob-empty', 'import-private', 'public-not-interface']);
+    // credit becomes a type: only the type names of charge.ts change, and the private import now says so.
+    const before = JSON.stringify((await engine().checkAll(dir)).violations);
+    expect(await same('src/payments/charge.ts', 'export const charge = (n: number) => n;\nexport type credit = number;\n')).toEqual(['export-unused', 'glob-empty', 'import-private', 'public-not-interface']);
+    expect(JSON.stringify((await engine().checkAll(dir)).violations)).not.toEqual(before);
+  });
+
   it('writes nothing through a .buckets folder that is a link', async () => {
     const dir = project(BASE_FILES);
     const outside = makeProject({ 'cache/edits.json': '{}' }, false);
