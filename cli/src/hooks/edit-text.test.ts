@@ -2,6 +2,7 @@
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { makeTempDir, OUTSIDE_BASE, removeFolder } from '@slopbuckets/adapter-ts/test-support';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject } from '../testing/fixture.js';
 import { fakeIo, testContext } from '../testing/harness.js';
@@ -12,6 +13,16 @@ import { looksLikePatch, MAX_READ_BYTES, parsePatch, patchEdits, projectPath, re
 afterEach(cleanupProjects);
 
 const abs = (dir: string, file: string) => path.resolve(dir, file);
+
+/**
+ * A project at a short path, for a test that listens on a Unix socket inside it. A socket path has at most 108 bytes
+ * on Linux and 104 on macOS, and a project in the run folder of the repository is longer on CI. The caller removes it.
+ */
+function socketProject(): string {
+  const dir = makeTempDir(OUTSIDE_BASE, 'sock-');
+  writeFileSync(abs(dir, 'buckets.config.json'), '{"buckets":{}}\n');
+  return dir;
+}
 
 describe('projectPath and readProjectText', () => {
   it('keeps paths inside the project and refuses the rest before touching the disk', () => {
@@ -38,7 +49,7 @@ describe('projectPath and readProjectText', () => {
   });
 
   it('never opens a named pipe that an edit names (the payload of the review proof)', async () => {
-    const dir = makeProject({ 'buckets.config.json': '{"buckets":{}}\n' }, false);
+    const dir = socketProject();
     const pipe = process.platform === 'win32' ? `\\\\.\\pipe\\slopbuckets-test-${process.pid}` : abs(dir, 'pipe.sock');
     let opened = 0;
     const server = net.createServer((socket) => {
@@ -51,6 +62,7 @@ describe('projectPath and readProjectText', () => {
       expect(opened).toBe(0);
     } finally {
       server.close();
+      removeFolder(dir);
     }
   });
 });
@@ -148,7 +160,7 @@ describe('apply_patch', () => {
 
 describe('the pipe proof of the security review', () => {
   it('a Claude Code Edit of a named pipe or a UNC path answers at once without opening it', async () => {
-    const dir = makeProject({ 'buckets.config.json': '{"buckets":{}}\n' }, false);
+    const dir = socketProject();
     const pipe = process.platform === 'win32' ? `\\\\.\\pipe\\slopbuckets-hook-test-${process.pid}` : abs(dir, 'hook.sock');
     let opened = 0;
     const server = net.createServer((socket) => {
@@ -166,6 +178,7 @@ describe('the pipe proof of the security review', () => {
       expect(opened).toBe(0);
     } finally {
       server.close();
+      removeFolder(dir);
     }
   });
 });
