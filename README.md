@@ -299,7 +299,7 @@ The hooks run before every tool call, so the check never loads the TypeScript ty
 | stop hook, warm cache, 20 files changed | 10,000 files | under 300 ms | 187 / 204 ms |
 | `buckets check`, cold | 10,000 files | under 2 s | 1,023 / 1,075 ms |
 
-The times include starting Node. They are the baseline in `bench/baseline.json` that `npm run bench` compares against, measured on Windows 11 with an Intel Core i9-13900KF. See [performance](https://nicolascaous.github.io/slopbuckets/docs/guide/performance.html) for the machine and every scenario.
+The times include starting Node, measured on Windows 11 with an Intel Core i9-13900KF. See [performance](https://nicolascaous.github.io/slopbuckets/docs/guide/performance.html) for the machine and every scenario.
 
 ## Repository layout
 

@@ -3,7 +3,7 @@
 // Every sample is a fresh `node cli/dist/index.js ...` process, the way a hook runs, so the times include Node startup.
 //
 //   node scripts/bench.mjs [--runs N] [--only id,id] [--work DIR] [--json FILE] [--update]
-//                          [--no-confirm]
+//                          [--no-confirm] [--report-only]
 //
 // --runs       samples per scenario, 15 by default
 // --only       scenario ids or id prefixes, such as pre-edit or hook-burst-50-10k
@@ -12,8 +12,10 @@
 // --json       where to write the results, <work>/results.json by default
 // --update     write the medians and p95 of this platform into bench/baseline.json (npm run bench:update)
 // --no-confirm a failed budget or baseline fails at once, without the second measurement
+// --report-only a failed budget or baseline is reported but does not fail the run, and gets no second measurement
 //
-// Exit code 1 when a scenario errors or fails its budget or baseline twice in a row (once with --no-confirm).
+// Exit code 1 when a scenario errors or fails its budget or baseline twice in a row (once with --no-confirm, never
+// with --report-only).
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import http from 'node:http';
@@ -39,7 +41,8 @@ const only = opt('--only', null)?.split(',');
 const work = path.resolve(opt('--work', path.join(os.tmpdir(), 'slopbuckets-bench')));
 const jsonOut = path.resolve(opt('--json', path.join(work, 'results.json')));
 const update = args.includes('--update');
-const confirm = !args.includes('--no-confirm');
+const reportOnly = args.includes('--report-only');
+const confirm = !args.includes('--no-confirm') && !reportOnly;
 const cli = path.join(repo, 'cli', 'dist', 'index.js');
 
 // ------------------------------------------------------------------ projects
@@ -354,25 +357,53 @@ function scenarios(d) {
   return list;
 }
 
+// How long the server may take to start, and a sample may wait for its snapshot event. A sample takes about 100 ms,
+// and the server follows every change it saw with a full snapshot within 5 seconds, so 30 s without an event means
+// none will come.
+const LIVE_START_MS = 60_000;
+const LIVE_EVENT_MS = 30_000;
+
 /**
  * Starts `buckets inspect` in the project and follows its /events stream. next() resolves with performance.now() at
- * the end of the next snapshot event. The server stops with this process.
+ * the end of the next snapshot event, and rejects when none arrives within LIVE_EVENT_MS or the server or the stream
+ * ends. The server stops with this process.
  */
 async function liveInspect(p) {
   const proc = spawn(process.execPath, [cli, 'inspect'], { cwd: p.root, env: env(p), stdio: ['ignore', 'pipe', 'pipe'] });
   process.once('exit', () => proc.kill());
-  const url = await new Promise((resolve, reject) => {
-    let out = '';
-    proc.stdout.on('data', (d) => {
-      out += d;
-      const m = /http:\/\/127\.0\.0\.1:\d+\//.exec(out);
-      if (m) resolve(new URL(m[0]));
-    });
-    proc.on('exit', (code) => reject(new Error(`buckets inspect exited with ${code}`)));
-  });
+  // Read stderr even though nothing should come: on Windows a child's writes to a full pipe block its whole process.
+  let stderr = '';
+  proc.stderr.setEncoding('utf8').on('data', (d) => (stderr = (stderr + d).slice(-2000)));
   const waiters = [];
+  let ended = null;
+  let events = 0;
+  const fail = (message) => {
+    ended ??= message;
+    for (const w of waiters.splice(0)) w.reject(new Error(`${message}${stderr.trim() ? `. Its stderr: ${stderr.trim()}` : ''}`));
+  };
+  proc.on('exit', (code, signal) => fail(`buckets inspect exited with ${code ?? signal}`));
+  const startTimer = setTimeout(() => fail(`buckets inspect did not start within ${LIVE_START_MS / 1000} s`), LIVE_START_MS);
+  // The waiters list carries the start-up too, so an exit or the timer rejects it like a sample.
+  const url = await new Promise((resolve, reject) => {
+    waiters.push({ reject });
+    let out = '';
+    proc.stdout.setEncoding('utf8').on('data', (d) => {
+      out += d;
+      // Without a watcher the server never sends an event, and every sample would wait for nothing.
+      if (out.includes('cannot watch')) fail(`buckets inspect cannot watch the folder: ${out.trim()}`);
+      const m = /http:\/\/127\.0\.0\.1:\d+\//.exec(out);
+      if (m) {
+        waiters.length = 0;
+        resolve(new URL(m[0]));
+      }
+    });
+  });
   await new Promise((resolve, reject) => {
+    waiters.push({ reject });
     const req = http.get(new URL('/events', url), (res) => {
+      waiters.length = 0;
+      clearTimeout(startTimer);
+      res.on('close', () => fail('the /events stream of buckets inspect closed'));
       res.setEncoding('utf8');
       // An event ends with a blank line, and the JSON of a snapshot holds no newline: keep the chunks of the current
       // event and look for "\n\n" only in each new chunk, so 6 MB arrive without copying.
@@ -391,16 +422,30 @@ async function liveInspect(p) {
           }
           const at = performance.now();
           block.push(chunk.slice(from, after));
-          if (block.join('').startsWith('event: snapshot')) waiters.shift()?.(at);
+          if (block.join('').startsWith('event: snapshot')) {
+            events++;
+            waiters.shift()?.resolve(at);
+          }
           block = [];
           from = after;
         }
       });
       resolve();
     });
-    req.on('error', reject);
+    req.on('error', (error) => fail(`the /events stream of buckets inspect failed: ${error.message}`));
   });
-  return { next: () => new Promise((resolve) => waiters.push(resolve)) };
+  return {
+    next: () =>
+      new Promise((resolve, reject) => {
+        if (ended) return reject(new Error(ended));
+        const timer = setTimeout(() => fail(`no snapshot event within ${LIVE_EVENT_MS / 1000} s of the file change, after ${events} events, while buckets inspect ${proc.exitCode === null ? 'still runs' : 'has exited'}`), LIVE_EVENT_MS);
+        const done = (f) => (x) => {
+          clearTimeout(timer);
+          f(x);
+        };
+        waiters.push({ resolve: done(resolve), reject: done(reject) });
+      }),
+  };
 }
 
 // ------------------------------------------------------------------ main
@@ -426,7 +471,7 @@ try {
     writeFileSync(baselinePath, `${JSON.stringify(updateBaseline(baseline, results, process.platform), null, 2)}\n`);
     console.log(`baseline for ${process.platform} written to bench/baseline.json`);
   }
-  process.exit(results.some((r) => r.status === 'fail' || r.status === 'error') ? 1 : 0);
+  process.exit(results.some((r) => r.status === 'error' || (r.status === 'fail' && !reportOnly)) ? 1 : 0);
 } catch (error) {
   console.error(`bench: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(3);

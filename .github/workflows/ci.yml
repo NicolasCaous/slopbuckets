@@ -10,6 +10,8 @@ permissions:
 
 jobs:
   build:
+    # The Windows build takes about 4 minutes.
+    timeout-minutes: 20
     strategy:
       # A failure on one OS must not cancel the run on the other.
       fail-fast: false
@@ -63,11 +65,20 @@ jobs:
           done
 
   bench:
+    name: bench (${{ matrix.os }})
     needs: build
+    # The Windows bench takes about 11 minutes with the second measurements, so a hang ends here instead of at 6 hours.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            budgets: enforce
+          # Node starts slowly on the Windows runner and its times vary by 30% between runs, so a budget there fails
+          # without a change in the code. This job reports the numbers and fails only on an error or a hang.
+          - os: windows-latest
+            budgets: report
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -78,8 +89,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Benchmark
-        # Fails when a budget of docs/guide/performance.md or a median 20% over bench/baseline.json repeats in a second measurement.
-        run: node scripts/bench.mjs --work "${{ runner.temp }}/bench" --json "${{ runner.temp }}/bench-results.json"
+        # Fails when a budget of docs/guide/performance.md or a median 20% over bench/baseline.json repeats in a second
+        # measurement. With budgets: report, --report-only prints those failures without failing the job.
+        run: node scripts/bench.mjs --work "${{ runner.temp }}/bench" --json "${{ runner.temp }}/bench-results.json" ${{ matrix.budgets == 'report' && '--report-only' || '' }}
       - name: Upload the results
         if: always()
         uses: actions/upload-artifact@v5
