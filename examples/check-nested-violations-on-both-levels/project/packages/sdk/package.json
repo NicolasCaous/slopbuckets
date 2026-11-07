@@ -1,0 +1,5 @@
+{
+  "name": "sdk",
+  "private": true,
+  "type": "module"
+}

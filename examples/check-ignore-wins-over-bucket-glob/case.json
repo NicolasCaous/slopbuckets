@@ -1,0 +1,7 @@
+{
+  "description": "a file that ignore matches leaves the architecture, even when a bucket glob also matches it",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

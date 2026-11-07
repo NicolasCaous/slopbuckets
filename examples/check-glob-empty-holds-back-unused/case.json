@@ -1,0 +1,28 @@
+{
+  "description": "a bucket whose files globs match nothing, as after a folder move, gets glob-empty but no dependency-unused or package-unused, and while its code is unowned no bucket gets export-unused",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "glob-empty",
+        "file": "buckets.config.json"
+      },
+      {
+        "rule": "file-unowned"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "glob-empty",
+          "field": "files",
+          "bucket": "app",
+          "glob": "src/main/**"
+        },
+        {
+          "rule": "file-unowned"
+        }
+      ]
+    }
+  }
+}

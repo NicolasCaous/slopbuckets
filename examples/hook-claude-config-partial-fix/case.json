@@ -1,0 +1,65 @@
+{
+  "description": "Claude Code: with two config problems on disk, an Edit of buckets.config.json that fixes one is not denied, and the other stays pending",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-partial-fix",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-partial-fix.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"payments\": \"\"",
+          "new_string": "\"payments\": \"Charges go through the gateway\"",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_01"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "messageIncludes": "buckets.log.purpose: purpose is empty",
+        "pending": [
+          "config-invalid"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "files": {
+        "buckets.config.json": "{\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\n  \"version\": \"2.0\",\n  \"buckets\": {\n    \"app\": {\n      \"purpose\": \"Starts the program and wires each part\",\n      \"files\": [\n        \"src/app/**\"\n      ],\n      \"public\": null,\n      \"dependsOn\": {\n        \"billing\": \"Bills the orders of each customer\",\n        \"log\": \"Logs the startup of the app\"\n      },\n      \"packages\": {}\n    },\n    \"billing\": {\n      \"purpose\": \"Issues and charges invoices\",\n      \"files\": [\n        \"src/billing/**\"\n      ],\n      \"public\": \"src/billing/index.ts\",\n      \"dependsOn\": {\n        \"payments\": \"Charges go through the gateway\"\n      },\n      \"packages\": {}\n    },\n    \"payments\": {\n      \"purpose\": \"Talks to the payment gateway\",\n      \"files\": [\n        \"src/payments/**\"\n      ],\n      \"public\": \"src/payments/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    },\n    \"log\": {\n      \"purpose\": \"\",\n      \"files\": [\n        \"src/log/**\"\n      ],\n      \"public\": \"src/log/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    }\n  }\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-partial-fix",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-partial-fix.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"payments\": \"Charges go through the gateway\"",
+          "new_string": "\"payments\": \"\"",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_02"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "deny",
+        "messageIncludes": [
+          "buckets: edit not applied, buckets.config.json would be invalid.",
+          "buckets.billing.dependsOn.payments: reason is empty"
+        ],
+        "pending": [
+          "config-invalid"
+        ]
+      }
+    }
+  ]
+}

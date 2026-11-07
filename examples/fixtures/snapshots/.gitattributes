@@ -1,0 +1,2 @@
+# fixtures.test.ts compares these files byte for byte with generated JSON.
+*.json text eol=lf

@@ -1,0 +1,22 @@
+{
+  "description": "imports of existing stylesheets, CSS modules, JSON and SVG files, with or without a bundler query such as ?url, are no code edges: they never give import-unresolved and never hold back export-unused",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "export-unused",
+        "file": "src/billing/index.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "export-unused",
+          "bucket": "billing",
+          "name": "refund"
+        }
+      ]
+    }
+  }
+}

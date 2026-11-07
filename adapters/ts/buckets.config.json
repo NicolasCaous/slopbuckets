@@ -1,0 +1,23 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": [
+    "**/*.test.ts",
+    "src/test-*.ts"
+  ],
+  "buckets": {
+    "adapter": {
+      "purpose": "Scans TypeScript and JavaScript files for imports and exports and resolves each specifier like tsc",
+      "files": ["src/**"],
+      "public": "src/index.ts",
+      "dependsOn": {},
+      "packages": {
+        "node:fs": "Reads source files, tsconfig files and package.json files of the project",
+        "node:module": "Loads the TypeScript of the project with createRequire and tells built-ins apart",
+        "node:path": "Resolves specifiers against folders and turns paths into POSIX project paths",
+        "typescript": "Types of the compiler API that reads tsconfig.json and resolves package imports"
+      },
+      "external": "Entry of @slopbuckets/adapter-ts, which the CLI bundles and calls in-process"
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "description": "Claude Code: without session_id the hook keeps no memory, so every edit shows the full list and nothing shows as resolved",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "transcript_path": "/home/dev/.claude/projects/example/unknown.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "content": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        },
+        "tool_use_id": "toolu_22"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+          }
+        }
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "transcript_path": "/home/dev/.claude/projects/example/unknown.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/invoice.ts",
+          "old_string": "return charge(amount);",
+          "new_string": "return charge(amount + 1);",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_23"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+          }
+        }
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "transcript_path": "/home/dev/.claude/projects/example/unknown.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "old_string": "'../payments/client'",
+          "new_string": "'../payments'",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_24"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

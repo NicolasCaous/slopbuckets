@@ -1,31 +1,26 @@
 ---
 title: CI
-description: Run buckets check in CI with the CLI version the lock asks for, after buckets link sync when the project uses links.
+description: Run buckets check in CI, so every pull request follows buckets.config.json whoever wrote it, with annotations on the pull request and the architecture diff for the reviewer.
 ---
 
 # CI
 
-Each project pins the CLI version in `buckets.lock.json`, in the `cli` field, and `buckets check` refuses to run with a different version. In CI, install the version the lock asks for:
+The hooks keep agents in step with the config while they work, but some agents have no stop hook, a teammate may not have the CLI installed, and a human can commit too. `buckets check` in CI catches all of these on every pull request.
+
+## Pin the version
+
+A newer CLI can add a rule, so pin the version to get the same result on every machine. Add `slopbuckets` as a dev dependency and run the local copy:
 
 ```sh
-npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
+npm install --save-dev slopbuckets
+npx buckets check
 ```
 
-The command exits with the same codes as on a laptop, so a broken rule (1), an unapproved change (2) and an environment problem (3) all fail the job. It checks every nested project too, each against its own lock. Nested projects record their own `cli` version, and the check refuses a nested lock written by another version, so move all projects of a repository to a new version together.
+Without a dev dependency, name the version in the command, as in `npx slopbuckets@2.0.0 check`.
 
-The TypeScript adapter loads the `typescript` package from the project, so install the project's dependencies before the check. Without `typescript` in `node_modules`, the check exits with code 3 and the environment code `no-typescript`. A nested project with its own `package.json` needs its own install.
+The exit code fails the job: 1 for a violation, 3 for an environment problem, and 64 for a command line the CLI does not understand, so a typo in the workflow does not read as a violation. [Advice](../reference/rules#advice), the notes on short or generic reasons and on `ignore` globs that cover most of the project, never fails the job. The check covers every nested project listed in `projects`.
 
-## Projects with links
-
-Links in `link` mode are junctions or symlinks that stay out of git, so a fresh checkout does not have them. Without them, the check fails with `link-missing`, and a build that imports the linked code fails too. Run `buckets link sync` right after installing dependencies and before the build:
-
-```sh
-npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") link sync
-```
-
-`link sync` recreates every missing link of the project and of its nested projects from `buckets.links.json`. Links in copy mode are committed and need nothing. A link whose origin lives outside the repository cannot be recreated in CI. Use copy mode for those. See [Projects and links](./projects-and-links#git-and-ci).
-
-A link in `link` mode runs the code of the origin from its real folder, so the packages that code imports must be installed in the origin, and the check reports [`link-missing-dependency`](../reference/rules#link-missing-dependency) when they are not. When the origin has its own `package.json`, install its dependencies too, for example with `npm ci --prefix <origin folder>`. The type checking side resolves from the project that consumes the link, which the first `npm ci` covers.
+Install the dependencies first, because imports of workspace packages resolve through `node_modules`. Without the install, those imports are `import-unresolved`. The TypeScript adapter resolves imports with the project's `typescript` when it is version 5 or 6, so the check matches your build. With TypeScript 7 or without `typescript`, it uses the TypeScript 6 that slopbuckets installs with itself. A nested project with its own `package.json` needs its own install.
 
 ## GitHub Actions
 
@@ -37,32 +32,60 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
-      # Only when a link in link mode points at a project with its own package.json:
-      # - run: npm ci --prefix path/to/origin
-      - run: echo "BUCKETS=slopbuckets@$(node -p "require('./buckets.lock.json').cli")" >> "$GITHUB_ENV"
-      - run: npx "$BUCKETS" link sync
-      - run: npm run build
-      - run: npx "$BUCKETS" check
+      # slopbuckets is a dev dependency of the project, as in Pin the version
+      - run: npx buckets check --base origin/${{ github.base_ref || 'main' }}
 ```
 
-Leave out the `link sync` step when the project has no `buckets.links.json`. In that case the command prints that every link is present and does nothing, so keeping it costs little.
+The check reads the files that git lists. It needs the checkout and the installed dependencies, and no build step.
+
+On a GitHub Actions runner, `GITHUB_ACTIONS` is `true`, so `buckets check` also prints one `::error` line per violation on stderr. GitHub shows each one as an annotation on the file and line of the pull request. `--format github` turns these lines on outside Actions too.
+
+## The architecture diff
+
+Agents change the config without a human approval, so the pull request is where a person reads what changed in the architecture. The raw JSON diff of `buckets.config.json` is hard to read. `buckets check --base <ref>` runs the check and then lists the changes since the git ref, project by project:
+
+```text
+Architecture changes since origin/main:
+  Added bucket `mail`: Sends invoice and receipt emails
+  Added the dependency of `billing` on `mail`: Sends each invoice to the customer
+  Added the package `node:fs` to `billing`: Writes invoice PDFs to the export folder
+  Changed the public files of `billing` from src/billing/index.ts to src/billing/index.ts, src/billing/server.ts
+  Added the export `send` to src/mail/index.ts, a public file of `mail`
+  Removed the export `refund` from src/payments/index.ts, a public file of `payments`
+```
+
+It lists buckets added and removed, changed purposes, dependencies and packages added, removed or with a new reason, changed public files, and the names that the public files export or stopped exporting. When `GITHUB_STEP_SUMMARY` is set, as on Actions, it also appends the list to the summary page of the run as Markdown. It never changes the exit code. The ref must be in the clone, so check out with `fetch-depth: 0` or fetch the base branch first.
+
+## Code scanning
+
+`buckets check --format sarif` prints a SARIF 2.1.0 log with one result per violation. Upload it to code scanning, and every violation shows in the security tab and on the pull request:
+
+```yaml
+      - run: npx buckets check --format sarif > buckets.sarif
+        continue-on-error: true
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: buckets.sarif
+```
 
 ## JSON output
 
-`buckets check --json` prints a [JSON report](../reference/report) with the exit code, the violations, the lock differences, the environment problem if any, and one entry per project. The process still exits with the report's `exitCode`, so you can save the report and fail the job in one step:
+`buckets check --json` prints the [check report](../reference/report): the exit code, every violation with the fields its message uses, the environment errors, the advice and the projects that were checked. The process still exits with the report's `exitCode`, so you can save the report and fail the job in one step:
 
 ```sh
-npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check --json > buckets-report.json
+npx buckets check --json > buckets-report.json
 ```
 
-## The analysis cache
+## The cache
 
-The check keeps its analysis cache in `.buckets/cache/`, which ignores itself in git. CI starts without it, which only means the first run analyzes every project. You can cache the folder between runs, keyed on the lock files and the source, but a cold run is correct too.
+The check keeps its cache in `.buckets/cache/`, which `init` adds to `.gitignore`. CI starts without it, so the first run scans every file. That run is a cold check, which has a budget of 2 seconds for 10,000 files. See [Performance](./performance). Caching the folder between runs does not make it faster. Each cache file carries a random key kept in the git folder of the clone, and a fresh checkout has a new key, so the check ignores a restored cache and rebuilds it.
 
-## Upgrading the CLI
+## The git hook
 
-To move a project to a new CLI version, a human installs the new version and approves with `buckets refresh` or `buckets refresh --web`. The diff shows the version change, and the new lock records it. CI then installs the new version from the lock.
+`buckets init --git-hook` installs a pre-commit hook that runs `buckets check` before every commit, whoever makes it. It catches violations before they reach CI, and it covers agents without a stop hook. The hook runs the project's own copy in `node_modules/slopbuckets` when there is one, the version the project pins, and otherwise the `buckets` on the PATH.

@@ -1,10 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
-import { check, computeLock, writeLock } from './api.js';
-import { main } from './cli.js';
-import { cleanupProjects, LOGGER_PROJECT, makeProject, readFile } from './testing/fixture.js';
-import { approve, fakeIo, testContext } from './testing/harness.js';
+import { helpText, main } from './cli.js';
+import type { SnapshotV2 } from './contract/snapshot.js';
+import { createFakeEngine } from './testing/fake-engine.js';
+import { fakeUpdates } from './testing/fake-updates.js';
+import { cleanupProjects, makeProject } from './testing/fixture.js';
+import { fakeIo, testContext } from './testing/harness.js';
 
 afterEach(cleanupProjects);
+
+const SNAPSHOT = JSON.parse(readFileSync(new URL('../../examples/fixtures/snapshots/small.json', import.meta.url), 'utf8')) as SnapshotV2;
 
 describe('buckets command line', () => {
   it('prints help and versions', async () => {
@@ -13,73 +18,68 @@ describe('buckets command line', () => {
     expect(io.out).toContain('Usage: buckets');
     const version = fakeIo({ cwd: '.' });
     expect(await main(testContext(), version, ['--version'])).toBe(0);
-    expect(version.out).toBe('buckets 1.0.0\nadapter ts 1.0.0 (protocol 1)\n');
+    expect(version.out).toBe('buckets 1.0.0\nadapter ts 2.0.0 (protocol 2)\n');
   });
 
-  it('rejects unknown commands and options', async () => {
-    const io = fakeIo({ cwd: '.' });
-    expect(await main(testContext(), io, ['nope'])).toBe(1);
-    expect(io.err).toContain('unknown command');
-    expect(await main(testContext(), io, ['check', '--bogus'])).toBe(1);
-    expect(await main(testContext(), io, ['hook', 'nope'])).toBe(1);
+  it('lists only the 2.0 commands and exit codes in the help', () => {
+    const help = helpText('1.0.0');
+    for (const gone of ['refresh', 'link', 'lock', 'DMZ', '--file']) expect(help).not.toContain(gone);
+    for (const kept of ['init', 'check', 'inspect', 'hook', 'update']) expect(help).toContain(`  ${kept}`);
+    expect(help).not.toMatch(/^ {2}2 {2}/m);
+    const flat = help.replace(/\s+/g, ' ');
+    expect(flat).toContain('writes an empty buckets.config.json, adds .buckets/ to .gitignore');
+    for (const format of ['(svg)', '(mermaid)', '(dot)', '(html)']) expect(flat).toContain(format);
+    // fix --bucket picks the imported bucket, not the importing one.
+    expect(flat).toContain('--bucket <name> fixes only the imports into that bucket');
   });
 
-  it('check --json prints the CheckReport and exits with its code', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const io = fakeIo({ cwd: dir });
-    expect(await main(testContext(), io, ['check', '--json'])).toBe(2);
-    expect(JSON.parse(io.out)).toEqual({
-      exitCode: 2,
-      violations: [],
-      lockChanges: [{ kind: 'lock-missing', path: 'buckets.lock.json', message: expect.any(String), project: '.' }],
-      projects: [{ path: '.', exitCode: 2 }],
-    });
+  it('rejects unknown commands, including the removed ones', async () => {
+    for (const command of ['nope', 'refresh', 'link']) {
+      const io = fakeIo({ cwd: '.' });
+      expect(await main(testContext(), io, [command])).toBe(64);
+      expect(io.err).toContain('unknown command');
+    }
+    const option = fakeIo({ cwd: '.' });
+    expect(await main(testContext(), option, ['--jsno'])).toBe(64);
+    expect(option.err).toContain('unknown option "--jsno"');
+    expect(await main(testContext(), fakeIo({ cwd: '.' }), ['hook'])).toBe(64);
   });
 
-  it('check finds the project from a subfolder', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    await approve(dir);
-    const io = fakeIo({ cwd: `${dir}/root/log/_` });
-    expect(await main(testContext(), io, ['check'])).toBe(0);
-    expect(io.out).toContain('All bucket rules pass');
+  it('knows the 2.0 commands in the help and in the typo suggestions', async () => {
+    const help = helpText('1.0.0');
+    const typos = { uninstal: 'uninstall', fixx: 'fix', fnt: 'fmt', shwo: 'show', 'merge-drive': 'merge-driver', docter: 'doctor' };
+    for (const [typo, command] of Object.entries(typos)) {
+      expect(help).toMatch(new RegExp(`^ {2}${command}\\b`, 'm'));
+      const io = fakeIo({ cwd: '.' });
+      expect(await main(testContext(), io, [typo])).toBe(64);
+      expect(io.err).toContain(`Did you mean \`buckets ${command}\`?`);
+    }
   });
 
-  it('check prints text grouped by file with the next step', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import a from './a';\nimport b from './b';\n" });
-    const io = fakeIo({ cwd: dir });
-    expect(await main(testContext(), io, ['check'])).toBe(1);
-    expect(io.out).toMatch(/^root\/_\/main\.ts\n  line 1  import-relative\n    Relative import .*\n  line 2  import-relative\n    Relative import /);
-    expect(io.out).toContain('Exit code 1');
+  it('never checks for updates in merge-driver, which git runs', async () => {
+    const dir = makeProject({});
+    for (const [args, checks] of [
+      [['merge-driver'], 0],
+      [['fmt', '--help'], 1],
+    ] as const) {
+      const io = fakeIo({ cwd: dir, env: {} });
+      const updates = fakeUpdates({ cacheDir: null });
+      io.updates = updates;
+      await main(testContext(), io, [...args]);
+      expect(updates.requests.length, args.join(' ')).toBe(checks);
+    }
   });
 
-  it('check --file resolves the path from the current folder', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import a from './a';\n", 'root/log/_/logger.ts': "import b from './b';\n" });
-    const io = fakeIo({ cwd: `${dir}/root` });
-    expect(await main(testContext(), io, ['check', '--json', '--file', '_/main.ts'])).toBe(1);
-    const report = JSON.parse(io.out) as { violations: { file: string }[] };
-    expect(report.violations.map((v) => v.file)).toEqual(['root/_/main.ts']);
-  });
-});
-
-describe('programmatic API with an injected adapter', () => {
-  it('computeLock and writeLock prepare a project that then passes check', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const ctx = testContext();
-    const lock = await computeLock(dir, ctx);
-    await writeLock(dir, lock);
-    expect(readFile(dir, 'buckets.lock.json').endsWith('}\n')).toBe(true);
-    expect(await check(dir, {}, ctx)).toEqual({ exitCode: 0, violations: [], lockChanges: [], projects: [{ path: '.', exitCode: 0 }] });
-
-  });
-
-  it('computeLock throws on an invalid config', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': '{ "nope": 1 }' });
-    await expect(computeLock(dir, testContext())).rejects.toThrow(/Unknown field/);
-  });
-
-  it('uses the real adapter by default and reports its failures as exit 3', async () => {
-    const report = await check(makeProject(LOGGER_PROJECT));
-    expect(report.exitCode).toBe(3);
-    expect(report.environment).toBeDefined();
+  it('runs check and inspect through the engine', async () => {
+    const engine = createFakeEngine({ snapshot: SNAPSHOT });
+    const ctx = { ...testContext(), engine };
+    const dir = makeProject({});
+    const checked = fakeIo({ cwd: dir });
+    expect(await main(ctx, checked, ['check', '--json', '--no-recursive'])).toBe(0);
+    expect(JSON.parse(checked.out)).toEqual({ exitCode: 0, violations: [], environment: [], advice: [], projects: ['.'] });
+    expect(engine.calls[0]).toMatchObject({ method: 'checkAll', recursive: false });
+    const inspected = fakeIo({ cwd: dir });
+    expect(await main(ctx, inspected, ['inspect', '--json'])).toBe(0);
+    expect(JSON.parse(inspected.out)).toMatchObject({ snapshotVersion: 2 });
   });
 });

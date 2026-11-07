@@ -1,9 +1,0 @@
-{
-  "links": {
-    "root/../../outside/_/links/api": {
-      "alias": "@api",
-      "mode": "copy",
-      "origin": "../api"
-    }
-  }
-}

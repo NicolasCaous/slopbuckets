@@ -1,0 +1,23 @@
+{
+  "description": "import * as x from another bucket gives import-namespace",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-namespace",
+        "file": "src/app/report.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-namespace",
+          "from": "app",
+          "to": "billing",
+          "form": "import"
+        }
+      ]
+    }
+  }
+}

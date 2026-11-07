@@ -1,0 +1,18 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.7",
+  "buckets": {
+    "app": {
+      "purpose": "Starts the program and wires each part",
+      "files": [
+        "src/**"
+      ],
+      "public": null,
+      "dependsOn": {},
+      "packages": {},
+      "owners": [
+        "team-a"
+      ]
+    }
+  }
+}

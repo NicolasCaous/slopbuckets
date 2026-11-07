@@ -1,0 +1,23 @@
+{
+  "description": "export * from another bucket in a private file gives import-namespace",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-namespace",
+        "file": "src/app/reexport.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-namespace",
+          "from": "app",
+          "to": "billing",
+          "form": "export"
+        }
+      ]
+    }
+  }
+}

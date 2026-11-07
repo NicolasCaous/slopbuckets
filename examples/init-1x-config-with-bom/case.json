@@ -1,0 +1,21 @@
+{
+  "description": "buckets init stops on a 1.x config that starts with a byte order mark, and writes nothing",
+  "args": [
+    "init",
+    "--agent",
+    "claude"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "stderrIncludes": [
+      "is a slopbuckets 1.x config",
+      "\"root\"",
+      "Nothing was written"
+    ],
+    "filesMissing": [
+      ".claude/settings.json",
+      "AGENTS.md",
+      ".gitignore"
+    ]
+  }
+}

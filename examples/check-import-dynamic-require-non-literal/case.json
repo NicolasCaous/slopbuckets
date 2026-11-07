@@ -1,0 +1,21 @@
+{
+  "description": "require() with a computed path gives import-dynamic",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-dynamic",
+        "file": "src/app/legacy.cjs",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-dynamic",
+          "call": "require"
+        }
+      ]
+    }
+  }
+}

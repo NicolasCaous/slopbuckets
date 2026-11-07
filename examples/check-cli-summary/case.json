@@ -1,0 +1,8 @@
+{
+  "description": "check --summary counts the violations per rule and per bucket",
+  "args": ["check", "--summary"],
+  "expect": {
+    "exitCode": 1,
+    "message": "buckets check: 1 structure violation. Fix the code or edit buckets.config.json. Either is valid.\n\nBy rule:\n  1 dependency-undeclared\n\nBy bucket:\n  1 app\n  1 billing\n\nRun buckets check without --summary to see each violation with its fixes."
+  }
+}

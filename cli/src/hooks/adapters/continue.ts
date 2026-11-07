@@ -1,8 +1,8 @@
-// The Continue adapter. The Continue CLI loads hooks from `.claude/settings.json`, but nothing shows that it ever runs
-// them, so slopbuckets does not count on them. Continue gets the shared AGENTS.md block and the skill, like every
-// harness, and nothing else.
-import type { HookAdapter, InstallStep } from '../adapter.js';
-import { noHooksRun } from './no-hooks.js';
+// The Continue adapter. The Continue CLI loads Claude Code style hooks from `.claude/settings.json` and five other
+// files, but nothing in its source ever fires them, and its Stop helper always sends `stop_hook_active: true`. So
+// slopbuckets installs no hooks for Continue. It reads AGENTS.md, whose slopbuckets block tells the agent to run
+// `buckets check` before it finishes, and the git pre-commit hook checks every commit.
+import { defineAdapter, type InstallStep } from '../adapter.js';
 
 const TITLE = 'Continue';
 
@@ -10,17 +10,16 @@ function install(): InstallStep[] {
   return [
     {
       status: 'todo',
-      text: 'slopbuckets installs no hooks for Continue: its CLI loads hooks from .claude/settings.json, but they may never run. Continue gets the rules from AGENTS.md and the skill; run `buckets init --git-hook` and `buckets check` in CI to hold them.',
+      text: 'Continue runs no hooks, so slopbuckets wrote nothing for it. It reads AGENTS.md, which tells it to run `buckets check` before it finishes; run `buckets init --git-hook` so every commit is checked too.',
     },
   ];
 }
 
-export const continueAdapter: HookAdapter = {
+export const continueAdapter = defineAdapter({
   name: 'continue',
   title: TITLE,
   markers: ['.continue', '.continuerc.json'],
-  events: [],
-  run: noHooksRun(TITLE),
+  handlers: {},
   install,
   uninstall: () => [],
-};
+});

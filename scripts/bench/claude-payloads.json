@@ -1,0 +1,70 @@
+{
+  "$comment": "Claude Code hook payloads in the shape Claude Code sends on stdin. scripts/bench.mjs fills session_id, transcript_path, cwd and the paths in tool_input for each call.",
+  "preToolUseWrite": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": { "file_path": "", "content": "" },
+    "tool_use_id": "toolu_01BenchWrite00000000000000"
+  },
+  "preToolUseEdit": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": { "file_path": "", "old_string": "", "new_string": "", "replace_all": false },
+    "tool_use_id": "toolu_01BenchEdit000000000000000"
+  },
+  "preToolUseRead": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Read",
+    "tool_input": { "file_path": "" },
+    "tool_use_id": "toolu_01BenchRead000000000000000"
+  },
+  "preToolUseBash": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": { "command": "git mv src/old src/new", "description": "Move the old folder" },
+    "tool_use_id": "toolu_01BenchBash000000000000000"
+  },
+  "stop": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "Stop",
+    "stop_hook_active": false
+  },
+  "subagentStop": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "permission_mode": "default",
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": false,
+    "agent_id": "bench-subagent",
+    "agent_type": "Explore",
+    "agent_transcript_path": ""
+  },
+  "postCompact": {
+    "session_id": "",
+    "transcript_path": "",
+    "cwd": "",
+    "hook_event_name": "PostCompact",
+    "trigger": "auto",
+    "custom_instructions": ""
+  }
+}

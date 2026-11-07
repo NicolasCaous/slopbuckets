@@ -1,0 +1,22 @@
+{
+  "description": "check --format sarif prints a SARIF 2.1.0 log with one result per violation",
+  "args": ["check", "--format", "sarif"],
+  "expect": {
+    "exitCode": 1,
+    "stdoutJson": {
+      "version": "2.1.0",
+      "runs": [
+        {
+          "tool": { "driver": { "name": "slopbuckets", "rules": [{ "id": "dependency-undeclared" }] } },
+          "results": [
+            {
+              "ruleId": "dependency-undeclared",
+              "level": "error",
+              "locations": [{ "physicalLocation": { "region": { "startLine": 1 } } }]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

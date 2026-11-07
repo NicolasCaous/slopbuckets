@@ -1,0 +1,2 @@
+# messages.test.ts compares this file byte for byte.
+messages.reference.txt text eol=lf

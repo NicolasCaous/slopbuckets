@@ -1,0 +1,28 @@
+{
+  "description": "a bucket without purpose gives config-invalid",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "project": ".",
+          "problem": {
+            "kind": "missing",
+            "at": [
+              "buckets",
+              "billing"
+            ],
+            "field": "purpose"
+          }
+        }
+      ]
+    }
+  }
+}

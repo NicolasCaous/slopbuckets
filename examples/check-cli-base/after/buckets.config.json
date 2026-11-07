@@ -1,0 +1,36 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "buckets": {
+    "app": {
+      "purpose": "Starts the program and wires each part",
+      "files": [
+        "src/app/**"
+      ],
+      "public": null,
+      "dependsOn": {
+        "billing": "Charges each order at startup",
+        "mail": "Sends the receipt of each order"
+      },
+      "packages": {}
+    },
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": [
+        "src/billing/**"
+      ],
+      "public": "src/billing/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    },
+    "mail": {
+      "purpose": "Sends the email receipts of orders",
+      "files": [
+        "src/mail/**"
+      ],
+      "public": "src/mail/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    }
+  }
+}

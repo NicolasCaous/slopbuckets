@@ -1,126 +1,222 @@
 ---
-title: Who runs which command
-description: buckets check and buckets inspect are for anyone, buckets refresh --web is how an agent asks for approval, and only a human approves.
+title: Commands
+description: What each buckets command does, who runs it, and the exit codes, from init and check to doctor, show, fix import-private, fmt, merge-driver and uninstall.
 ---
 
-# Who runs which command
+# Commands
 
 | Command | Who runs it | What it does |
 |---|---|---|
-| `buckets check` | the AI, the agent hooks and CI | checks the rules and compares each project with its lock |
-| `buckets inspect` | anyone, the AI included | serves a read-only page with the map, contracts, traces, projects and approvals |
-| `buckets inspect --json` | the AI | prints the same state as JSON and exits |
-| `buckets refresh --web` | the AI, in the background | shows the changes on a local page, where a human approves them by typing a code into a window of the operating system |
-| `buckets refresh` | a human, in an interactive terminal | shows the changes, asks for confirmation and writes the lock |
-| `buckets link add`, `sync`, `update`, `remove` | the AI or a human | link the source of another project into a bucket, and keep the links current. They never write the lock |
-| `buckets init` | a human | sets up a project, or a nested one |
-| `buckets update` | a human | installs a newer slopbuckets, or a given version, the way the CLI was installed |
-| `buckets update --check`, `buckets update --json` | anyone, the AI included | prints the installed and latest versions and the install command, and installs nothing |
+| `buckets init` | a human or an agent, once per clone | writes the empty config, installs the hooks, the `AGENTS.md` block, the skill and the merge driver, and adds `.buckets/` to `.gitignore` |
+| `buckets check` | agents, CI, the git hook | checks every rule and prints every violation in full |
+| `buckets show <bucket>` | an agent | prints one bucket with its dependencies, packages, dependents and violations |
+| `buckets fix import-private` | an agent, mostly while adopting slopbuckets | routes private imports through public files |
+| `buckets fmt` | anyone | rewrites the config in its canonical form |
+| `buckets inspect` | a human | serves a read-only page with the architecture and the violations |
+| `buckets inspect --json` | an agent or a script | prints the same state as JSON and exits |
+| `buckets doctor` | a human or an agent | checks how slopbuckets is installed and wired into the project |
+| `buckets update` | anyone | installs a newer slopbuckets the way the CLI was installed |
+| `buckets uninstall` | a human | removes what `init` installed |
+| `buckets hook <event>` | the agent, through its hooks | runs one hook event with the JSON the agent sends |
+| `buckets merge-driver` | git, through `.gitattributes` | merges `buckets.config.json` as a map |
 
-The AI can edit any file, DMZ files included. It cannot write the lock. When the AI changes a contract, `buckets check` fails until a human approves the change.
+Agents and humans edit `buckets.config.json` the same way they edit code. After `init`, only `buckets fmt`, the merge driver and `buckets fix import-private --public` write it.
+
+Every command takes `-h` or `--help`, prints its usage and exits with 0. A command line it does not understand, such as an unknown option or a missing value, prints the usage on stderr and exits with 64, so a typo in CI does not read as a violation.
+
+## buckets init
+
+```sh
+buckets init [--agent <name>[,<name>...] | --agent auto] [--git-hook | --no-git-hook] [--root]
+```
+
+`init` asks nothing. It:
+
+- writes `buckets.config.json` with `"version": "2.0"`, `"ignore": []`, `"projects": []` and `"buckets": {}`, or keeps the config that is already there;
+- adds `.buckets/` to `.gitignore`;
+- installs the hooks of the agents named in `--agent`, which is Claude Code by default, or with `auto` every agent whose folder or file is in the project;
+- writes the slopbuckets block in `AGENTS.md` and copies the skill, with the CLI version in its frontmatter;
+- adds `buckets.config.json merge=slopbuckets` to `.gitattributes` and sets the merge driver in the git config of the clone, as [buckets merge-driver](#buckets-merge-driver) describes.
+
+`--git-hook` also installs a git pre-commit hook that runs `buckets check` before any hook already there, which then runs unchanged. `--root` is for a project below the top of its git repository: it installs the agent hooks at the top folder too, where an agent session opened at the top reads them. Running `init` again changes only what differs from the current version, and never overwrites an existing `buckets.config.json`.
+
+The hooks run slopbuckets the way `init` itself ran. A global install writes `buckets hook ...`. The `buckets init` of a project dev dependency writes `node ./node_modules/slopbuckets/dist/index.js hook ...`, the copy the project pins, or `node "$CLAUDE_PROJECT_DIR/node_modules/slopbuckets/dist/index.js" hook ...` for an agent that names its project folder in a variable and runs hooks in a POSIX shell: Claude Code, Crush, Devin and Droid. A copy run by its path from inside the project, such as `node tools/slopbuckets/dist/index.js init`, writes that path. A copy run by its path from outside the project writes `buckets hook ...`. In a project with its own copy in `node_modules`, a global or `npx` copy writes the path of the project copy too and says so, so `init` never replaces the hooks of a project install with a global `buckets`.
+
+At the end, `init` warns about what it cannot fix itself. None of these warnings fails `init`:
+
+- the folder has no `tsconfig.json`, which `buckets check` needs;
+- the hooks run `buckets`, and `buckets` is not on the PATH, or they run a project copy that does not exist yet, so they would fail without a word;
+- the hooks run a `buckets` on the PATH that is another slopbuckets version than the one running `init`;
+- the project's TypeScript is a version slopbuckets does not use, such as TypeScript 7, so it resolves imports with its own TypeScript 6;
+- the folder is below the top of its git repository, where a session opened at the top does not read its hooks; `--root` fixes that.
+
+The last lines say what to do next. When the config has no buckets yet, they print the prompt that hands the first architecture to a coding agent, with the check command of the install, such as `npx buckets check` for a project copy. A 1.x config stops `init` before it writes anything: rename the old file and run `init` again. See [Getting started](./getting-started#set-up-a-project).
 
 ## buckets check
 
-`buckets check` checks, in one run:
+```sh
+buckets check [--json | --format text|json|github|sarif] [--summary] [--base <ref>] [--no-recursive]
+```
 
-- the project settings the adapter needs
-- the folder rules, nested projects included
-- the content of every DMZ file, `.external.ts` files included
-- the imports, including imports of linked projects, which must go through their `.external.ts` files
-- the packages that linked files import, on the type checking side and the runtime side
-- cycles in the bucket graph
-- orphan contracts
-- the bucket tree, the config, the DMZ files, the nested projects and the links against the lock, including the signature of every symbol a linked project publishes
+`check` reads the config, scans the imports of every file and prints every violation in full form, in the same order and words as the stop hook, then the environment errors and the [advice](../reference/rules#advice), notes on weak reasons and large `ignore` globs that never fail the check:
 
-It checks the current project and every project nested in it, each against its own lock. `--no-recursive` checks only the current project. See [Projects and links](./projects-and-links).
+```text
+buckets check: 1 structure violation. Fix the code or edit buckets.config.json. Either is valid.
 
-The text report is written for an AI reader. It groups rule violations by file, lists orphan chains and lock differences in their own sections, has one section per project when there are several, and tags each problem with its [rule id](../reference/rules) or the kind of difference. It ends with a summary line and a line that says what to do next.
+billing -> payments: private file
+  src/billing/invoice.ts:1 imports charge from src/payments/client.ts
+  payments public: src/payments/index.ts
+  fix code: import from src/payments/index.ts instead
+```
 
-`buckets check --json` prints the same result as a [JSON report](../reference/report) for scripts and CI.
+With nothing to report it prints `buckets check: no structure violations.` It checks the nested projects listed in `projects`, recursively.
 
-`buckets check --file <path>` checks one file in its nearest project. It includes cycle detection, because a new import is what creates a cycle, but it skips the orphan rule and the lock comparison. The `PostToolUse` hook uses it after every edit.
+| Option | What it does |
+|---|---|
+| `--no-recursive` | checks only the current project, without the nested ones |
+| `--summary` | prints only the number of violations per rule and per bucket, the advice per id and the environment errors, for a first look at a large project |
+| `--json` | prints the result as JSON, the same as `--format json`; see [Check report](../reference/report) |
+| `--format github` | prints the text report, and on stderr one `::error` line per violation, which GitHub Actions shows as an annotation on that line of the pull request; with `GITHUB_ACTIONS=true` the text and JSON formats print them too |
+| `--format sarif` | prints a SARIF 2.1.0 log, for code scanning |
+| `--base <ref>` | after the check, lists what changed in the architecture since the git ref: buckets, purposes, dependencies and packages with their reasons, public files and their exports; with `GITHUB_STEP_SUMMARY` set it also writes the list there as Markdown, and it never changes the exit code |
+
+`--summary` prints text, so it does not combine with `--json` or `--format sarif`. With `--json` or `--format sarif`, the `--base` list goes to stderr, so stdout stays one JSON document. When a copy of the skill in the project is not the one of this CLI, `check` also prints one line on stderr that says to run `buckets init`.
 
 ### Exit codes
 
-| Code | Meaning | What the AI does |
+| Code | Meaning | What an agent does |
 |---|---|---|
-| 0 | everything passes | continues |
-| 1 | a rule is broken | fixes it |
-| 2 | the rules pass, but the project differs from the lock | asks for approval with `buckets refresh --web` |
-| 3 | environment problem, such as a CLI version that differs from the lock | stops and tells the human |
+| 0 | no violation | finishes its task |
+| 1 | at least one violation | fixes the code or edits the config, for each violation |
+| 3 | environment problem: no config, a config `version` newer than the CLI, no `tsconfig.json`, no TypeScript that loads, or the adapter failed | fixes it if it is part of its task, otherwise shows it to the human |
+| 64 | the command line is wrong | fixes the command |
 
-When a rule is broken and the project also differs from the lock, the code is 1, because the AI has to fix the rule before anyone approves anything. With nested projects, the code is the worst one in this order: 3, then 1, then 2, then 0. The [environment codes](../reference/lock#environment-codes) list every case behind exit code 3.
+Advice never changes the exit code. With nested projects, the exit code is 3 when any project has an environment problem, else 1 when any project has a violation, else 0. When a project could not be checked, the first line says so, such as `buckets check: could not check 1 project. Fix the problem below and run buckets check again.`, and the problem comes after the violations.
 
-## buckets refresh --web and buckets refresh
+## buckets show
 
-Both write the lock from the current state after a human approves it. Before anything else, both run the full check and refuse when a rule is broken. Both show the diff against the current lock: versions, config, buckets, nested projects, links, DMZ files, symbols and changed signatures. Both ignore a difference between the installed CLI or adapter and the versions in the lock, because approving is how a project moves to a new version. The version change shows up in the diff.
-
-`buckets refresh --web` is the one an agent runs. It needs no terminal. It prints the diff and a link to a page on `127.0.0.1`, and waits. The human reads the page, clicks Approve and types the confirmation code from the page into a window of the operating system. [The approval flow](./approval) describes it step by step.
-
-`buckets refresh` is the one a human runs in a terminal. It needs stdin and stdout to be a TTY, so an agent's shell cannot run it:
-
-```text
-buckets refresh needs an interactive terminal (stdin and stdout must both be a TTY), because a human must approve the contract changes.
-AI agents must not run it. Run `buckets refresh --web` in the background instead, send the link it prints to the human, and wait for it to finish.
+```sh
+buckets show <bucket> [--json]
 ```
 
-It asks `Approve and write buckets.lock.json? [y/N]`, once per project with changes. Only `y` or `yes` writes the lock. In Claude Code and the other agents whose hooks can refuse a tool call, the hook denies it before it even starts. See [Supported agents](./agents/).
+`show` prints one bucket, so an agent can read the part of the architecture it works on instead of the whole config: its purpose, its `files` globs, its public files, its dependencies and packages with their reasons, the buckets that depend on it with their reasons, and its violations in full. `<project>:<bucket>`, such as `packages/sdk:client`, names a bucket of a nested project. `--json` prints the same as JSON. It exits with 0 even when the bucket has violations, with 64 for a bucket the config does not have, and with 3 when the project cannot be checked.
 
-The [lock differences](../reference/lock#lock-differences) page lists every kind of change and how each one looks in the check and in the diff.
+```text
+billing
+  purpose: Issues and charges invoices
+  files:
+    src/billing/**
+  public:
+    src/billing/index.ts
+  dependsOn:
+    payments: Charges each invoice through the gateway
+  packages:
+    none
+  dependents:
+    app: Bills the order the program starts with
+  violations: none
+```
+
+## buckets fix import-private
+
+```sh
+buckets fix import-private [--bucket <name>] [--public <file>] [--dry-run]
+```
+
+Adopting slopbuckets in an existing project often means hundreds of imports of files that are not public. `fix import-private` rewrites them. For every private import that the check reports, as `import-private` or inside a `dependency-undeclared`, it adds the missing named re-exports to the public file of the imported bucket, with `export type { }` for interfaces, type aliases and names that every import takes as types only, and points the importing statement at that public file. A public file holds one default export at most, so a private default goes through it under the name of its file: `import Hand from './icons/HandyHand'` becomes `import { HandyHand as Hand } from './icons'`, with `export { default as HandyHand } from './HandyHand'` in the public file. It keeps the style of each specifier: a tsconfig alias stays an alias, a relative path stays relative, and an extension stays.
+
+- `--bucket <name>` fixes only the imports into that bucket. `<project>:<bucket>` names a bucket of a nested project.
+- `--public <file>`, with `--bucket`, picks the public file the imports go through. When the file is not in `public` yet, `fix` adds it there.
+- `--dry-run` prints the plan and writes nothing:
+
+```text
+Dry run, nothing was written. The plan:
+src/billing/invoice.ts:1: '../payments/client.js' -> '../payments/index.js'
+src/billing/invoice.ts:3: '../log/format.js' -> '../log/index.js'
+note: billing still imports log without a dependsOn entry. Declare it with a reason, or move the code. fix import-private never edits dependsOn.
+```
+
+It never edits `dependsOn`, so an undeclared dependency stays reported for the agent to decide. It skips the imports of a bucket with `"public": null` and then exits with 1. Imports skipped for the same reason share one line with their count. Each file it writes keeps its line endings.
+
+## buckets fmt
+
+```sh
+buckets fmt [--check]
+```
+
+`fmt` rewrites `buckets.config.json`, and the configs of the nested projects, in one canonical form: the top-level keys and the keys of each bucket in the order of the schema, the buckets and the entries of `dependsOn` and `packages` sorted by name, a two-space indent, and lists of two or more items one per line. Two edits of the same config then differ only where they change something. `--check` writes nothing, prints each file that is not formatted, and exits with 1 when there is one.
+
+## buckets merge-driver
+
+```sh
+buckets merge-driver <base> <ours> <theirs>
+```
+
+Two branches that each add a `dependsOn` entry to the same bucket conflict in a plain text merge, because of the comma on the line before. The merge driver merges the three versions of the config as maps instead, so two branches that each add a bucket, a dependency, a package or a glob merge cleanly. It writes the result in the form of `buckets fmt`. Only a key that both branches changed in different ways is a conflict: the driver puts conflict markers around the top-level key or the bucket that holds it, and exits with 1.
+
+`init` sets it up in two places. `.gitattributes` gets `buckets.config.json merge=slopbuckets`, which you commit. The git config of the clone gets `merge.slopbuckets.driver`, which git never commits, so each clone runs `buckets init` once. Git calls the driver itself. You never run it by hand.
 
 ## buckets inspect
 
-`buckets inspect` reads the same state as the check and shows it on a page that updates while files change. It writes nothing and approves nothing. `buckets inspect --json` prints that state for an agent, and `buckets inspect --export svg|mermaid|html` prints the map, the bucket graph or the whole page as one HTML file. See [Inspect](./inspect).
+```sh
+buckets inspect [--json] [--no-recursive] [--export svg|mermaid|dot|html [--out <file>]]
+```
+
+`inspect` serves a read-only page on `127.0.0.1` that updates while files change. It stops with Ctrl+C, or by itself after 30 minutes without an open page. `--json` prints the snapshot for an agent and exits. `--no-recursive` shows only the current project, without the nested ones. `--export` prints the layered bucket graph as SVG, a Mermaid flowchart with the reasons on the edges, a Graphviz file, or the whole page as one offline HTML file, and exits without a server. `--out <file>` writes the export to a file instead of stdout. See [Inspect](./inspect).
+
+## buckets doctor
+
+```sh
+buckets doctor
+```
+
+`doctor` checks how slopbuckets is installed and wired into the project, and says how to fix each problem it finds. It looks at:
+
+- the `buckets` on the PATH, and whether a global copy and the copy the project pins are different versions;
+- the `version` of the config, against the versions this CLI reads;
+- the `tsconfig.json`, and which TypeScript resolves the imports;
+- imports that do not resolve, by kind;
+- the copies of the skill, against the version of this CLI;
+- the commands that the agent hooks and the git pre-commit hook run, whether they exist, and whether the agent hooks run the same slopbuckets version as this CLI and the skill. A copy older than the `version` of the config fails, because it cannot check the project.
+
+`doctor` and `init` look for `buckets` on the PATH of an agent's shell. They leave out the folder of the node that runs them and every `node_modules/.bin` folder, which Volta, npx and npm scripts add for their own child processes only.
+
+```text
+  + buckets.config.json has version "2.0", which slopbuckets 2.0.0 reads.
+  + tsconfig.json exists.
+  + The project has no typescript package, so slopbuckets resolves imports with its own TypeScript 6.
+  - 1 import does not resolve (1 relative). Run the install of your package manager so workspace packages are linked, and check the "paths" of tsconfig.json. `buckets check` lists each one.
+  + The skill in .agents/skills/slopbuckets/SKILL.md is the one of slopbuckets 2.0.0.
+
+1 problem. Fix it and run `buckets doctor` again.
+```
+
+A line with `+` passed and a line with `-` is a problem. It exits with 1 when it found a problem, else 0.
 
 ## buckets update
 
-`buckets update` reads the latest version of `slopbuckets` from the npm registry (the one in `npm_config_registry`, or `https://registry.npmjs.org`), prints it next to the installed version, and prints the command that installs it. The TypeScript adapter ships inside the CLI package, so this updates the adapter too.
-
-The command depends on how the running CLI was installed. A global install uses `npm install -g --prefix <prefix>`, `pnpm add -g`, `yarn global add`, `bun add -g` or `volta install`. For npm, the prefix comes from the folder of the running CLI: `<prefix>/lib/node_modules/slopbuckets` on Linux and macOS, `<prefix>\node_modules\slopbuckets` on Windows. Without it, the first `npm` on PATH would install into its own prefix, which can belong to another Node.js version of nvm, fnm, asdf or mise, or to a copy installed with sudo. A path with spaces stays one argument, and the printed command quotes it for the shell. A project dependency uses the package manager of the lockfile next to its `package.json` (`package-lock.json`, `pnpm-lock.yaml`, `yarn.lock` or `bun.lock`), runs in that folder, keeps the dependency in `dependencies` or `devDependencies`, and pins the exact version, because the lock names one exact version. A copy that npx made, or a checkout of the repository, has nothing to update.
-
-Volta runs a global package from its own folder, `<VOLTA_HOME>/tools/image/packages/` (`~/.volta` on Linux and macOS, `%LOCALAPPDATA%\Volta` on Windows), through the `buckets` shim in its `bin` folder. `npm install -g` never reaches that copy, so a CLI in that folder updates with `volta install slopbuckets@<version>`. When `volta` is not on PATH, `buckets update` says so and prints the command.
-
-In a terminal it asks `Install slopbuckets <version>? [y/N]` and runs the command after `y`. It runs the package manager without a shell on Linux and macOS. On Windows it goes through cmd.exe, which finds `npm.cmd`, and refuses a path with `%`, `!` or `"`, because cmd.exe changes those even inside quotes. You then run the printed command yourself. `--yes` skips the question. Without a terminal and without `--yes`, it prints the command, installs nothing and exits with 1. `buckets update <version>` installs that version, such as the one a lock asks for. `buckets update --check` only prints, and `--json` prints this object without installing:
-
-```json
-{
-  "installed": "1.1.0",
-  "latest": "1.2.0",
-  "updateAvailable": true,
-  "install": {
-    "scope": "global",
-    "manager": "npm",
-    "command": "npm install -g --prefix /usr/local slopbuckets@1.2.0",
-    "dir": null,
-    "prefix": "/usr/local"
-  }
-}
+```sh
+buckets update [<version>] [--check] [--json] [--yes]
 ```
 
-`scope` is `global`, `local` or `unknown`. `manager` is `npm`, `pnpm`, `yarn`, `bun` or `volta`. For `local`, `dir` is the folder where the command runs. For a global npm install, `prefix` is the npm prefix of the running CLI, and null otherwise. For `unknown`, `manager` and `command` are null. When the registry cannot be reached, `--json` prints an object with only an `error` field, which holds the message, and exits with 1.
+`update` reads the latest version of `slopbuckets` from the npm registry and installs it the way the running CLI was installed: globally with npm, pnpm, yarn, bun or Volta, or as a project dependency with the package manager of its lockfile. In a terminal it asks first. Without a terminal it installs only with `--yes`. After the install it reads the version on disk and reports when the package manager left the running copy alone. `--check` and `--json` print the installed and latest versions and the install command without installing. Agents may run it.
 
-### After the install
+When the registry has a newer version, other commands first print one line on stderr with the new version and the installed one, and tell you to run `buckets update`. The line goes to stderr, so JSON on stdout stays valid, and it never changes an exit code. The CLI asks the registry at most once a day, and never when `CI` or `SLOPBUCKETS_NO_UPDATE_CHECK=1` is set.
 
-A package manager can exit with 0 and still leave the running copy alone, for example when it installs into another prefix. So `buckets update` reads the `version` in the package.json of the copy it updated: the folder of the running CLI, or the package in the `node_modules` of the project. pnpm keeps each version in a store folder of its own, so for pnpm it reads the package link in `node_modules`. When the version is not the one it installed, `buckets update` does not print `Installed` and exits with 1. It prints the folder and the version it found there. For a global install it also prints what `npm prefix -g`, `pnpm root -g` or `yarn global dir` answers when that is another folder. Then it says what you can do:
+## buckets uninstall
 
-- When Volta manages Node.js (`VOLTA_HOME` is set or a `volta` folder is on PATH), run `volta install slopbuckets@<version>`.
-- When another `buckets` comes first on PATH, keep one copy and remove the others.
-- When you cannot write to the folder, run the command with `sudo`, or on Windows from an administrator shell.
-
-When the package manager fails with `EACCES` or `EPERM`, the folder needs elevated rights. `buckets update` prints the same command with `sudo` in front, or on Windows asks for an administrator shell, and exits with 1.
-
-After a global install that worked, `buckets update` looks for `buckets` on PATH the way `which` and `where` do, without a shell. When that file runs another copy of slopbuckets, or a Volta shim while this copy is not Volta's, it prints a warning on stderr, because typing `buckets` would still run the old version.
-
-Each lock records the CLI version that approved it, and `buckets check` stops with exit code 3 (`cli-version`) while the installed CLI differs. After an update, a human runs `buckets refresh` in each project, or an agent asks for it with `buckets refresh --web`. The diff shows the version change. To keep a project on the version its lock names, run `buckets update <version>` with that version instead.
-
-### The update notice
-
-When the registry has a newer version, every command except `buckets hook`, `buckets check --file` and `buckets update` first prints one line on stderr:
-
-```text
-slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.
+```sh
+buckets uninstall [--agent <name>[,<name>...] | --all] [--config]
 ```
 
-It goes to stderr, so the JSON and exports on stdout stay valid, and it comes first, so the link of `buckets refresh --web` stays the last line of a shared log. `buckets check --json` also puts it in its `update` field. The notice never changes an exit code. An agent that sees it finishes its task and leaves the update to the human. The agent hooks deny an agent `buckets update` without `--check` or `--json`, and the reason tells the agent to give the human the version from the notice. See [the lock guard](./claude-code#the-lock-guard).
+`uninstall` removes what `init` installed. With `--all`, the default, that is the hooks of every agent, the slopbuckets block of `AGENTS.md`, both copies of the skill, the `.buckets/` line of `.gitignore`, the `.buckets/` folder, the slopbuckets lines of the git pre-commit hook and the merge driver. With `--agent`, only the hooks and files of those agents go, and what the other agents share stays. Your own hooks and settings stay. `buckets.config.json` stays too, unless you pass `--config`. It exits with 1 when a step failed.
 
-The CLI asks the registry at most once every 24 hours, with a timeout of 1.5 seconds, and keeps the answer in `%LOCALAPPDATA%\slopbuckets` on Windows and in `$XDG_CACHE_HOME/slopbuckets` or `~/.cache/slopbuckets` elsewhere. A failure prints nothing. It never asks when the `CI` variable is set or with `SLOPBUCKETS_NO_UPDATE_CHECK=1`.
+## buckets hook
+
+```sh
+buckets hook [--agent <name>] <event>
+```
+
+The hooks that `init` installs call this command. It reads the agent's JSON on stdin and answers in the agent's format. Each agent has its own event names, and `buckets hook --agent <name> --help` lists them. Inside the CLI each event maps to a phase: Claude Code's `pre-tool-use` runs pre-edit for `Write` and `Edit`, and pre-tool for every other tool. Without `--agent` it runs the Claude Code hook. An event the agent does not have, such as one from an older hook file, does nothing and exits with 0, with a note on stderr to run `buckets init` again. You do not run it by hand, except to test a hook. See [Hooks](./hooks).
+
+The [CLI reference](../reference/cli) has the full help text.

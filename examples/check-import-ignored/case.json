@@ -1,0 +1,21 @@
+{
+  "description": "a file of a bucket that imports an ignored file gives import-ignored",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-ignored",
+        "file": "src/billing/charge.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-ignored",
+          "target": "scripts/env.ts"
+        }
+      ]
+    }
+  }
+}

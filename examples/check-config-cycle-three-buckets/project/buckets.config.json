@@ -1,0 +1,39 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "buckets": {
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": [
+        "src/billing/**"
+      ],
+      "public": "src/billing/index.ts",
+      "dependsOn": {
+        "payments": "Charges go through the gateway"
+      },
+      "packages": {}
+    },
+    "ledger": {
+      "purpose": "Records every payment in the ledger",
+      "files": [
+        "src/ledger/**"
+      ],
+      "public": "src/ledger/index.ts",
+      "dependsOn": {
+        "billing": "Reissues invoices after a refund"
+      },
+      "packages": {}
+    },
+    "payments": {
+      "purpose": "Talks to the payment gateway",
+      "files": [
+        "src/payments/**"
+      ],
+      "public": "src/payments/index.ts",
+      "dependsOn": {
+        "ledger": "Records each payment in the ledger"
+      },
+      "packages": {}
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "buckets": {
+    "app": {
+      "purpose": "Starts the program and wires the billing routes",
+      "files": [
+        "src/app/**"
+      ],
+      "public": null,
+      "dependsOn": {
+        "billing": "Uses billing",
+        "log": "Writes the startup line to the application log"
+      },
+      "packages": {}
+    },
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": [
+        "src/billing/**"
+      ],
+      "public": "src/billing/index.ts",
+      "dependsOn": {
+        "payments": "Charges each invoice through the payment gateway"
+      },
+      "packages": {}
+    },
+    "payments": {
+      "purpose": "Talks to the payment gateway",
+      "files": [
+        "src/payments/**"
+      ],
+      "public": "src/payments/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    },
+    "log": {
+      "purpose": "Formats and writes application logs",
+      "files": [
+        "src/log/**"
+      ],
+      "public": "src/log/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    }
+  }
+}

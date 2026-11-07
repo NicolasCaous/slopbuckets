@@ -1,0 +1,12 @@
+{
+  "description": "when the target already depends on the importer, the undeclared dependency names the path back and offers no config fix",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "messageIncludes": [
+      "would create the cycle billing -> app -> billing"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, fileExists, makeProject, readFile, writeFile } from '../testing/fixture.js';
-import { AGENTS_BLOCK, BLOCK_END, BLOCK_START, installInstructions, removeBlock, uninstallInstructions, upsertBlock } from './instructions.js';
+import { AGENTS_BLOCK, BLOCK_END, BLOCK_START, installInstructions, skillCopies, skillVersion, stampSkill, upsertBlock } from './instructions.js';
 
 afterEach(cleanupProjects);
 
@@ -13,11 +13,20 @@ describe('the managed block of AGENTS.md', () => {
     expect(AGENTS_BLOCK.split('\n').length).toBeLessThan(20);
     expect(AGENTS_BLOCK).toContain('https://nicolascaous.github.io/slopbuckets/');
     expect(AGENTS_BLOCK).toContain('.agents/skills/slopbuckets/SKILL.md');
-    expect(AGENTS_BLOCK).toContain('buckets refresh --web');
-    expect(AGENTS_BLOCK).toContain('Never write any `buckets.lock.json` or `buckets.config.json`');
-    expect(AGENTS_BLOCK).toContain('Never run `buckets update` without `--check` or `--json`');
-    expect(AGENTS_BLOCK).toMatch(/`access-denied` or `access-ambiguous`[^\n]*stop and ask the human/);
+    expect(AGENTS_BLOCK).toContain('`buckets.config.json`');
     expect(AGENTS_BLOCK).not.toMatch(new RegExp("[\u2013\u2014]"));
+  });
+
+  it('says the four things of 2.0: where the architecture lives, the warnings, both fixes, and the check without a stop hook', () => {
+    const points = AGENTS_BLOCK.split('\n').filter((line) => line.startsWith('- '));
+    expect(points).toHaveLength(4);
+    expect(points[0]).toContain('`buckets.config.json` holds the architecture');
+    expect(points[1]).toContain('warn you when the code and `buckets.config.json` disagree');
+    expect(points[2]).toContain('both valid');
+    expect(points[3]).toContain('run `buckets check` unless you know a slopbuckets stop hook runs it');
+    expect(points[3]).toContain('If it exits 3, fix the problem if it is part of your task, otherwise show it to the human.');
+    expect(points[3]).toContain('exits 0');
+    expect(AGENTS_BLOCK).not.toMatch(/approv|lock/i);
   });
 
   it('creates the block in an empty file and appends it after user content', () => {
@@ -48,10 +57,6 @@ describe('the managed block of AGENTS.md', () => {
     const broken = `# Rules\n${BLOCK_START}\nhalf\n`;
     expect(upsertBlock(broken)).toEqual({ text: broken, problem: expect.stringContaining('without its partner') });
   });
-
-  it('removes the block and leaves the rest', () => {
-    expect(removeBlock(`# Top\n${AGENTS_BLOCK}\n## Mine\n`)).toBe('# Top\n## Mine\n');
-  });
 });
 
 describe('installInstructions', () => {
@@ -71,18 +76,28 @@ describe('installInstructions', () => {
     const dir = makeProject({ 'AGENTS.md': '# Project rules\n\nUse tabs.\n' }, false);
     expect(installInstructions(dir, '# skill\n')[0]).toEqual({ status: 'done', text: 'Added the slopbuckets rules to the end of AGENTS.md' });
     expect(readFile(dir, 'AGENTS.md').startsWith('# Project rules\n\nUse tabs.\n\n')).toBe(true);
-    writeFile(dir, 'AGENTS.md', readFile(dir, 'AGENTS.md').replace('Import internal code', 'OLD'));
+    writeFile(dir, 'AGENTS.md', readFile(dir, 'AGENTS.md').replace('holds the architecture', 'OLD'));
     expect(installInstructions(dir, '# skill\n')[0]).toEqual({ status: 'done', text: 'Updated the slopbuckets rules in AGENTS.md' });
     expect(count(readFile(dir, 'AGENTS.md'), BLOCK_START)).toBe(1);
     expect(readFile(dir, 'AGENTS.md')).toContain('Use tabs.');
   });
 
-  it('adds the config and access rules to a block written by 1.0.0, which named only the lock', () => {
-    const old = `${BLOCK_START}\n## slopbuckets\n\n- Never write any \`buckets.lock.json\`, under any name, and never run \`buckets refresh\` without exactly the \`--web\` flag. Read the lock with a file reading tool, not a shell command.\n${BLOCK_END}\n`;
+  it('replaces a block written by an older version', () => {
+    const old = `${BLOCK_START}\n## slopbuckets\n\n- Old rules.\n${BLOCK_END}\n`;
     const dir = makeProject({ 'AGENTS.md': `# Mine\n\n${old}` }, false);
     expect(installInstructions(dir, '# skill\n')[0]).toEqual({ status: 'done', text: 'Updated the slopbuckets rules in AGENTS.md' });
     expect(readFile(dir, 'AGENTS.md')).toBe(`# Mine\n\n${AGENTS_BLOCK}\n`);
-    expect(readFile(dir, 'AGENTS.md')).toContain('`buckets.config.json`, nested ones included');
+  });
+
+  it('tells the agent the check command it can type for the command the hooks run', () => {
+    const dir = makeProject({}, false);
+    installInstructions(dir, '# skill\n', 'node ./node_modules/slopbuckets/dist/index.js');
+    expect(readFile(dir, 'AGENTS.md')).toContain('run `npx buckets check` unless');
+    installInstructions(dir, '# skill\n', 'node ./cli/dist/index.js');
+    expect(readFile(dir, 'AGENTS.md')).toContain('run `node ./cli/dist/index.js check` unless');
+    installInstructions(dir, '# skill\n');
+    expect(readFile(dir, 'AGENTS.md')).toBe(`${AGENTS_BLOCK}\n`);
+    expect(AGENTS_BLOCK).toContain('run `buckets check` unless');
   });
 
   it('reports a missing skill once as a failure and still writes AGENTS.md', () => {
@@ -91,16 +106,39 @@ describe('installInstructions', () => {
     expect(steps.map((s) => s.status)).toEqual(['done', 'failed']);
     expect(fileExists(dir, '.agents/skills/slopbuckets/SKILL.md')).toBe(false);
   });
+});
 
-  it('uninstalls the block and the skill, and deletes AGENTS.md only when nothing else is in it', () => {
-    const dir = makeProject({ 'AGENTS.md': '# Mine\n' }, false);
-    installInstructions(dir, '# skill\n');
-    uninstallInstructions(dir);
-    expect(readFile(dir, 'AGENTS.md')).toBe('# Mine\n\n');
-    expect(fileExists(dir, '.agents/skills/slopbuckets/SKILL.md')).toBe(false);
-    const empty = makeProject({}, false);
-    installInstructions(empty, '# skill\n');
-    uninstallInstructions(empty);
-    expect(fileExists(empty, 'AGENTS.md')).toBe(false);
+describe('the version line of a skill copy', () => {
+  const skill = '---\nname: slopbuckets\ndescription: How to work here.\n---\n\n# Skill\n';
+
+  it('goes under metadata in the frontmatter, and is read back', () => {
+    const stamped = stampSkill(skill, '2.0.0');
+    expect(stamped).toBe('---\nname: slopbuckets\ndescription: How to work here.\nmetadata:\n  slopbuckets-version: "2.0.0"\n---\n\n# Skill\n');
+    expect(skillVersion(stamped)).toBe('2.0.0');
+    expect(skillVersion(skill)).toBeNull();
+  });
+
+  it('replaces an earlier version, joins an existing metadata map, and keeps CRLF', () => {
+    expect(stampSkill(stampSkill(skill, '2.0.0'), '2.1.0')).toBe(stampSkill(skill, '2.1.0'));
+    const withMetadata = '---\nname: x\nmetadata:\n  author: me\n---\nbody\n';
+    expect(stampSkill(withMetadata, '2.0.0')).toBe('---\nname: x\nmetadata:\n  slopbuckets-version: "2.0.0"\n  author: me\n---\nbody\n');
+    const crlf = skill.replace(/\n/g, '\r\n');
+    expect(stampSkill(crlf, '2.0.0')).toBe(stampSkill(skill, '2.0.0').replace(/\n/g, '\r\n'));
+    expect(skillVersion(stampSkill(crlf, '2.0.0'))).toBe('2.0.0');
+  });
+
+  it('leaves a text without frontmatter alone, and ignores the key in the body', () => {
+    expect(stampSkill('# skill\n', '2.0.0')).toBe('# skill\n');
+    expect(skillVersion('# skill\n  slopbuckets-version: "2.0.0"\n')).toBeNull();
+  });
+
+  it('lists the copies of a project with their versions', () => {
+    const dir = makeProject({ '.claude/skills/slopbuckets/SKILL.md': stampSkill(skill, '2.0.0') }, false);
+    expect(skillCopies(dir)).toEqual([{ file: '.claude/skills/slopbuckets/SKILL.md', version: '2.0.0' }]);
+    writeFile(dir, '.agents/skills/slopbuckets/SKILL.md', skill);
+    expect(skillCopies(dir)).toEqual([
+      { file: '.claude/skills/slopbuckets/SKILL.md', version: '2.0.0' },
+      { file: '.agents/skills/slopbuckets/SKILL.md', version: null },
+    ]);
   });
 });

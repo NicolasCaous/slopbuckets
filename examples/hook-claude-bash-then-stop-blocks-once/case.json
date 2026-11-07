@@ -1,0 +1,70 @@
+{
+  "description": "Claude Code: a Bash call marks the session, Stop runs the full check and blocks once with every violation in full, then lets stop_hook_active through",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-bash-stop",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-bash-stop.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git apply ../refactor.patch",
+          "description": "Run a command"
+        },
+        "tool_use_id": "toolu_12"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n",
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n",
+        "src/billing/audit.ts": "import { logLine } from '../log';\n\nexport function audit(text: string): void {\n  logLine(text);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-bash-stop",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-bash-stop.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 3 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 3 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+        }
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-bash-stop",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-bash-stop.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": true,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

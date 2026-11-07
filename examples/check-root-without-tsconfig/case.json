@@ -1,0 +1,7 @@
+{
+  "description": "a root project whose code lives in nested projects needs no tsconfig.json, and ignore hides the configs of its examples",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

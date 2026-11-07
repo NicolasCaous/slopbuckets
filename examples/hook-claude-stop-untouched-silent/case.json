@@ -1,0 +1,65 @@
+{
+  "description": "Claude Code: Stop stays silent when the session only read files, even with a violation already on disk",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-untouched",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-untouched.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/utils/date.ts"
+        },
+        "tool_use_id": "toolu_13"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-untouched",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-untouched.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Grep",
+        "tool_input": {
+          "pattern": "today",
+          "path": "${PROJECT}/src"
+        },
+        "tool_use_id": "toolu_14"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-untouched",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-untouched.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "description": "an import with a .js extension of a private .ts file gives import-private for the .ts file",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "src/app/main.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "imports": [
+            {
+              "target": "src/billing/charge.ts"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

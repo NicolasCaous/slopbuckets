@@ -1,0 +1,59 @@
+{
+  "description": "Windsurf: a warning has no way to reach the model, so pre_write_code exits 0 with nothing on stdout, and a pre_run_command hook left by 1.x does nothing",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-write-code",
+      "agent": "windsurf",
+      "payload": {
+        "agent_action_name": "pre_write_code",
+        "trajectory_id": "traj-windsurf-1",
+        "execution_id": "exec-1",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "model_name": "SWE-1.5",
+        "tool_info": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "edits": [
+            {
+              "old_string": "",
+              "new_string": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-run-command",
+      "agent": "windsurf",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "agent_action_name": "pre_run_command",
+        "trajectory_id": "traj-windsurf-1",
+        "execution_id": "exec-2",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "model_name": "SWE-1.5",
+        "tool_info": {
+          "command_line": "npm test",
+          "cwd": "${PROJECT}"
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": [
+          "import-private"
+        ]
+      }
+    }
+  ]
+}

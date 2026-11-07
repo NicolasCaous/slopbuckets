@@ -1,0 +1,25 @@
+{
+  "description": "a check lists the violations of the root and of a nested project, each with its project",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-unowned",
+        "file": "src/utils/date.ts",
+        "project": "."
+      },
+      {
+        "rule": "import-private",
+        "file": "src/client/main.ts",
+        "line": 2,
+        "project": "packages/sdk"
+      }
+    ],
+    "stdoutJson": {
+      "projects": [
+        ".",
+        "packages/sdk"
+      ]
+    }
+  }
+}

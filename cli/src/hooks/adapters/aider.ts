@@ -1,12 +1,14 @@
 // The Aider adapter. Aider has no hooks. Install makes it load AGENTS.md as a read-only file through `read:` in
-// `.aider.conf.yml`, merged into the user's config, and suggests the two settings that bring the checks closer: a
-// `lint-cmd` that runs `buckets check --file` on each edited file, and `git-commit-verify: true`, so Aider's own commits
-// run the pre-commit hook of `buckets init --git-hook`.
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// `.aider.conf.yml`, merged into the user's config, and suggests the settings that bring the check closer:
+// `test-cmd: buckets check` with `auto-test: true`, which runs the check after each edit and offers its output to the
+// model, and `git-commit-verify: true`, so Aider's own commits run the pre-commit hook of `buckets init --git-hook`.
+// `lint-cmd` does not fit, because Aider appends the edited file to it and `buckets check` takes no file.
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import type { HookAdapter, InstallStep } from '../adapter.js';
+import { message } from '../../output/index.js';
+import { defineAdapter, type InstallStep } from '../adapter.js';
 import { AGENTS_FILE } from '../instructions.js';
-import { noHooksRun } from './no-hooks.js';
+import { writeProjectFile } from '../project-file.js';
 
 const TITLE = 'Aider';
 export const AIDER_CONFIG = '.aider.conf.yml';
@@ -85,10 +87,6 @@ export function removeAgentsRead(text: string): string {
   return kept.length === lines.length ? text : kept.join(eol);
 }
 
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function install(projectDir: string): InstallStep[] {
   const file = path.join(projectDir, AIDER_CONFIG);
   const steps: InstallStep[] = [];
@@ -101,7 +99,7 @@ function install(projectDir: string): InstallStep[] {
     } else if (result.kind === 'present') {
       steps.push({ status: 'kept', text: `${AIDER_CONFIG} already loads ${AGENTS_FILE}` });
     } else {
-      writeFileSync(file, result.text, 'utf8');
+      writeProjectFile(projectDir, file, result.text);
       steps.push({ status: 'done', text: exists ? `Added "read: ${AGENTS_FILE}" to ${AIDER_CONFIG}` : `Created ${AIDER_CONFIG} with "read: ${AGENTS_FILE}"` });
     }
   } catch (error) {
@@ -109,7 +107,7 @@ function install(projectDir: string): InstallStep[] {
   }
   steps.push({
     status: 'todo',
-    text: `Aider has no hooks. For a report after each edit, add \`lint-cmd: "buckets check --file"\` to ${AIDER_CONFIG}. To check Aider's own commits, add \`git-commit-verify: true\` and run \`buckets init --git-hook\`.`,
+    text: `Aider has no hooks, so it relies on AGENTS.md, which tells it to run \`buckets check\` before it finishes. To run the check after each edit, add \`test-cmd: buckets check\` and \`auto-test: true\` to ${AIDER_CONFIG}. To check Aider's own commits, add \`git-commit-verify: true\` and run \`buckets init --git-hook\`.`,
   });
   return steps;
 }
@@ -125,19 +123,18 @@ function uninstall(projectDir: string): InstallStep[] {
       rmSync(file, { force: true });
       return [{ status: 'done', text: `Removed ${AIDER_CONFIG}, which held only the slopbuckets line` }];
     }
-    writeFileSync(file, next, 'utf8');
+    writeProjectFile(projectDir, file, next);
     return [{ status: 'done', text: `Removed "read: ${AGENTS_FILE}" from ${AIDER_CONFIG}` }];
   } catch (error) {
     return [{ status: 'failed', text: `Could not update ${AIDER_CONFIG}: ${message(error)}` }];
   }
 }
 
-export const aiderAdapter: HookAdapter = {
+export const aiderAdapter = defineAdapter({
   name: 'aider',
   title: TITLE,
   markers: [AIDER_CONFIG],
-  events: [],
-  run: noHooksRun(TITLE),
+  handlers: {},
   install,
   uninstall,
-};
+});

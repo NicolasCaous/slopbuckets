@@ -1,0 +1,79 @@
+{
+  "description": "Claude Code: a session opened at a monorepo root with no config checks an edit inside a nested project, from the nearest config, with the project prefix",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-monorepo",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-monorepo.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/packages/sdk/scripts/build.ts",
+          "content": "import { run } from '../src/run';\n\nrun('build');\n"
+        },
+        "tool_use_id": "toolu_47"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "decision": "context",
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "files": {
+        "packages/sdk/scripts/build.ts": "import { run } from '../src/run';\n\nrun('build');\n"
+      },
+      "payload": {
+        "session_id": "s-claude-monorepo",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-monorepo.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/README.md",
+          "content": "# Monorepo\n"
+        },
+        "tool_use_id": "toolu_48"
+      },
+      "expect": {
+        "exitCode": 0,
+        "messageIncludes": "[OLD]\npackages/sdk: scripts/build.ts: in no bucket",
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "files": {
+        "packages/sdk/scripts/build.ts": "import { run } from '../src/run';\n\nrun('build');\n",
+        "README.md": "# Monorepo\n"
+      },
+      "payload": {
+        "session_id": "s-claude-monorepo",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-monorepo.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "block",
+        "message": "buckets: 1 structure violation remains. Fix the code or edit buckets.config.json. Either is valid.\n\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+      }
+    }
+  ]
+}

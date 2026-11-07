@@ -1,0 +1,29 @@
+{
+  "description": "an import of a bucket missing from dependsOn gives dependency-undeclared",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dependency-undeclared",
+        "file": "src/app/main.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "dependency-undeclared",
+          "from": "app",
+          "to": "billing",
+          "imports": [
+            {
+              "file": "src/app/main.ts",
+              "line": 1,
+              "target": "src/billing/index.ts"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,43 +1,29 @@
 // The Pi adapter. Pi loads extensions, not shell hooks, so `install` writes .pi/extensions/slopbuckets.ts, which calls
-// `buckets hook --agent pi <event>` with the normalized protocol of ../plugin-protocol.ts. Pi's tools: bash and
-// powershell run `command`; edit and write change `path`. Pi has no patch tool and no subagents.
-import type { HookAdapter } from '../adapter.js';
+// `buckets hook --agent pi <event>` with the protocol of ../plugin-protocol.ts. Pi's tools: bash and powershell run
+// `command`; edit (`path`, `edits[]`) and write (`path`, `content`) change one file. Pi has no patch tool and no
+// subagents.
+import { defineAdapter } from '../adapter.js';
 import { installPluginFile, uninstallPluginFile, type PluginFileSpec } from '../plugin-file.js';
-import { lowercaseReadTool, NO_TOOL_CALL, pathArg, runPluginHook, type PluginInput, type PluginToolCall } from '../plugin-protocol.js';
-import { PI_PLUGIN } from '../plugins/pi.js';
+import { PLUGIN_NEUTRAL, pluginHandlers, type ToolTable } from '../plugin-protocol.js';
+import { piPlugin } from '../plugins/sources.js';
 
-export const PI_EVENTS = ['pre-tool-use', 'post-tool-use', 'stop'] as const;
+export const PI_TOOLS: ToolTable = { shell: ['bash', 'powershell'], edit: ['edit', 'write'], patch: [] };
 
-/** The core action of a Pi tool call. */
-export function piToolCall(input: PluginInput): PluginToolCall {
-  const { tool, args } = input;
-  if (tool === 'edit' || tool === 'write') {
-    const file = pathArg(args, 'path');
-    const paths = file === undefined ? [] : [file];
-    return { action: { kind: 'write', paths }, edited: paths };
-  }
-  if (tool === 'bash' || tool === 'powershell') {
-    return { action: { kind: 'shell', command: typeof args.command === 'string' ? args.command : '' }, edited: [] };
-  }
-  return NO_TOOL_CALL;
-}
-
-export const PI_PLUGIN_FILE: PluginFileSpec = {
+export const PI_PLUGIN_FILE: Omit<PluginFileSpec, 'content'> = {
   title: 'Pi',
   dir: '.pi/extensions',
   name: 'slopbuckets.ts',
   altName: 'slopbuckets-hooks.ts',
-  content: PI_PLUGIN,
 };
 
-export const piAdapter: HookAdapter = {
+export const piAdapter = defineAdapter({
   name: 'pi',
   title: 'Pi',
   markers: ['.pi'],
-  events: PI_EVENTS,
-  run: (ctx, io, event) => runPluginHook(ctx, io, event, piToolCall, { denyReason: lowercaseReadTool }),
-  install: (projectDir) => {
-    const step = installPluginFile(projectDir, PI_PLUGIN_FILE);
+  handlers: pluginHandlers(PI_TOOLS, 'pre-edit', 'pre-tool', 'stop', 'post-compact'),
+  neutral: { 'pre-edit': PLUGIN_NEUTRAL, 'pre-tool': PLUGIN_NEUTRAL, stop: PLUGIN_NEUTRAL, 'post-compact': PLUGIN_NEUTRAL },
+  install: (projectDir, options) => {
+    const step = installPluginFile(projectDir, { ...PI_PLUGIN_FILE, content: piPlugin(options.command) });
     if (step.status === 'failed') return [step];
     return [
       step,
@@ -48,4 +34,4 @@ export const piAdapter: HookAdapter = {
     ];
   },
   uninstall: (projectDir) => uninstallPluginFile(projectDir, PI_PLUGIN_FILE),
-};
+});

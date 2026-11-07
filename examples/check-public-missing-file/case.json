@@ -1,0 +1,21 @@
+{
+  "description": "public pointing to a file that does not exist gives public-missing",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-missing",
+        "file": "src/billing/api.ts"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "public-missing",
+          "state": "not-found",
+          "owner": null
+        }
+      ]
+    }
+  }
+}

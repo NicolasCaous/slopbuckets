@@ -1,0 +1,12 @@
+{
+  "description": "a code file in no bucket and not ignored gives file-unowned",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-unowned",
+        "file": "src/utils/date.ts"
+      }
+    ]
+  }
+}

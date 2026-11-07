@@ -1,0 +1,185 @@
+{
+  "description": "Claude Code: a subagent keeps its own pending list and stop mark per agent_id, apart from the main session",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "content": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        },
+        "tool_use_id": "toolu_15"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+          }
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/audit.ts",
+          "content": "import { logLine } from '../log';\n\nexport function audit(text: string): void {\n  logLine(text);\n}\n"
+        },
+        "tool_use_id": "toolu_16",
+        "agent_id": "a1b2c3d4",
+        "agent_type": "general-purpose"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 2 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+          }
+        },
+        "pending": [
+          "dependency-undeclared",
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/billing/audit.ts": "import { logLine } from '../log';\n\nexport function audit(text: string): void {\n  logLine(text);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/invoice.ts"
+        },
+        "tool_use_id": "toolu_17"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)"
+          }
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "subagent-stop",
+      "event": "subagent-stop",
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "SubagentStop",
+        "stop_hook_active": false,
+        "agent_id": "a1b2c3d4",
+        "agent_type": "general-purpose",
+        "agent_transcript_path": "/home/dev/.claude/projects/example/subagents/agent-a1b2c3d4.jsonl",
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+        }
+      }
+    },
+    {
+      "hook": "subagent-stop",
+      "event": "subagent-stop",
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "SubagentStop",
+        "stop_hook_active": true,
+        "agent_id": "a1b2c3d4",
+        "agent_type": "general-purpose",
+        "agent_transcript_path": "/home/dev/.claude/projects/example/subagents/agent-a1b2c3d4.jsonl",
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> log: undeclared dependency\n  src/billing/audit.ts:1 imports logLine from src/log/index.ts\n  billing: Issues and charges invoices\n  log: Formats and writes application logs\n  app depends on log: Logs the startup of the app\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing\n  fix config: add \"log\": \"<one-line reason>\" to buckets.billing.dependsOn\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+        }
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-subagent",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-subagent.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": true,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

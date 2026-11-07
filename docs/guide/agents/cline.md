@@ -1,17 +1,20 @@
 ---
 title: Cline
-description: The hook scripts that buckets init writes in .clinerules/hooks/ for Cline, and why a blocked call ends the task.
+description: The hook scripts that buckets init writes in .clinerules/hooks/ for the Cline extension and CLI, and why refusing an edit ends the task.
 ---
 
 # Cline
 
-This page covers the Cline VS Code extension 4.x and the Cline CLI.
+This page covers the Cline VS Code and JetBrains extension 4.x and the Cline CLI 3.x.
 
-| Protection | Support | How |
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | partial | `PreToolUse` stops the call, but Cline ends the whole task when a hook refuses |
-| Feedback after edits | yes | `PostToolUse` hands the `buckets check --file` report to the model |
-| Block the end of a turn | no | Cline has no hook that can keep the agent working |
+| Warning on edit | yes | `PreToolUse` simulates `editor` and `apply_patch` and returns the pending list in `contextModification` |
+| Pending list on other tools | yes | the same `PreToolUse` hook returns the current pending list for every other tool |
+| Interrupt on an invalid config | partial | `PreToolUse` answers `cancel: true`, which ends the whole task |
+| Interrupt at the end | no | Cline has no hook that can keep the agent working |
+| Subagents | no | no subagent event can block |
+| Compaction | no | Cline does not wire its compaction hook |
 
 ## Install
 
@@ -19,47 +22,54 @@ This page covers the Cline VS Code extension 4.x and the Cline CLI.
 buckets init --agent cline
 ```
 
-It writes four scripts and the shared instructions:
+It writes:
 
-- `.clinerules/hooks/PreToolUse` and `.clinerules/hooks/PostToolUse`, executable shell scripts for macOS and Linux
-- `.clinerules/hooks/PreToolUse.ps1` and `.clinerules/hooks/PostToolUse.ps1`, PowerShell scripts for Windows
+- `.clinerules/hooks/PreToolUse`, an executable shell script for macOS and Linux
+- `.clinerules/hooks/PreToolUse.ps1`, a PowerShell script for Windows
 - the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`
 
-Each script runs `buckets hook --agent cline <event>` and passes on the JSON Cline sends. A script that already exists and is not one of these is left alone, and `init` tells you what to add to it. If `.clinerules` is a single rules file, `init` changes nothing and asks you to move the rules into the folder first.
+Each script runs `buckets hook --agent cline pre-tool-use` and passes on the JSON Cline sends. When the `buckets` command is missing, the script prints `{"cancel":false}` and a note on stderr, so the tool runs. Each script carries the line `slopbuckets: written by`, which is how `init` tells it from your own. A script that already exists without that line is left alone, and `init` tells you what to add to it. When `.clinerules` is a single rules file instead of a folder, `init` installs nothing and tells you to move the rules into `.clinerules/<name>.md` first.
 
-Then turn hooks on:
+After it writes the scripts, `init` lists two steps:
 
-1. In VS Code, open the Cline settings and check "Enable Hooks" under Feature Settings.
-2. Commit the scripts with the executable bit. On Windows, git does not record it by itself, so run `git update-index --chmod=+x .clinerules/hooks/PreToolUse .clinerules/hooks/PostToolUse`.
-3. Do not run the Cline CLI with `--yolo` in this project, because that flag turns every hook off.
+1. Turn hooks on. In the extension, that is the "Enable Hooks" setting under Settings, Feature Settings. The CLI runs hooks unless you pass `--yolo`, which turns them off.
+2. Commit `.clinerules/hooks/PreToolUse` with the executable bit. On Windows, git does not record it by itself, so run `git update-index --chmod=+x .clinerules/hooks/PreToolUse` before the commit.
+
+slopbuckets 1.x also wrote `.clinerules/hooks/PostToolUse` and `PostToolUse.ps1`. `init` leaves them in place. They now do nothing but print a note on stderr, so delete them by hand.
 
 ## How it works
 
-Before each tool call, Cline runs `PreToolUse` with the tool name and its parameters. The hook reads the `editor` tool's `path`, the file headers of an `apply_patch` patch and each command of `run_commands`, plus the tool names of older Cline builds. When a call would write any `buckets.lock.json` or `buckets.config.json`, nested projects included, or a command runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook answers `{"cancel": true}` with an `errorMessage` that says why the task stopped. Every other call gets `{"cancel": false}`.
+Cline sends each event as JSON on stdin. The CLI sends `tool_call: {id, name, input}` and the legacy `preToolUse: {toolName, parameters}`. The extension sends only the legacy block, with every value that is not a string encoded as a JSON string, which the hook decodes. The hook uses the first workspace root as the project folder, and `taskId` as the session.
 
-After an `editor` or `apply_patch` call, `PostToolUse` runs `buckets check --file` on each edited file inside the root bucket folder. When a file has problems, the hook answers with the report in `contextModification`, and Cline adds it to the next request so the model can fix the file.
+- `PreToolUse` runs before every tool. For `editor` and `apply_patch`, and the older `write_to_file` and `replace_in_file`, it runs the `pre-edit` phase. `editor` carries `path`, `old_text` and `new_text`: without `old_text` it writes `new_text` as the whole file, and with `insert_line` the new text is unknown. `apply_patch` carries the patch text in `input`, and the hook applies its hunks to the files on disk. For every other tool it runs the `pre-tool` phase, and `run_commands` and `execute_command` also mark the session as one that may have changed files.
+- With pending violations, the hook prints `{"cancel": false, "contextModification": "<pending list>"}`. Cline queues the text and sends it after the tool results, before the next model request. Cline cuts the context at 50 KB, so the hook cuts the list at 48,000 characters and ends it with a pointer to `buckets check`. With nothing to say, it prints `{"cancel": false}`.
+- When the edit makes `buckets.config.json` worse, the hook prints `{"cancel": true, "errorMessage": "..."}`. Cline file hooks have no per-call deny, so this ends the whole task. The hook uses it for that case only.
+- A subagent sends `agent_id` and `parent_agent_id`, and keeps its own memory of what was shown.
 
-Each command in a `run_commands` list is judged on its own, so `buckets refresh --web` followed by `git status` passes.
+The CLI has a per-call deny in TypeScript plugins: a `beforeTool` that returns `{ skip: true, reason }` skips one call and sends the reason back as the tool error. A `.cline/plugins/` plugin may use it later. Plugins do not run in the extension.
 
 ## Limits
 
-- Cline has no way to refuse one tool call. `{"cancel": true}` ends the whole task, so the hook uses it only for a lock or config write, a plain `buckets refresh` and an installing `buckets update`. You start a new task after it.
-- Nothing runs `buckets check` before the agent ends its turn. The rules in `AGENTS.md` ask the agent to run it, but nothing enforces that.
-- The hooks fail open, like every slopbuckets integration. On a machine without the `buckets` command, the scripts print a warning and allow everything. Cline also lets a call through when a hook fails, times out or prints something that is not JSON.
-- The Cline CLI with `--yolo` runs no hooks at all.
+- After a project install, the hook command names the copy relative to the project folder: `node ./node_modules/slopbuckets/dist/index.js`. Cline sets no variable with the project folder. If Cline runs a hook from another folder than the project folder, for example the folder the agent moved to with `cd`, the command does not find the copy and the hook does nothing.
+- The extension dropped `PreToolUse` context from 4.0 to 4.1.10, and the CLI before 3.0.56. Use extension 4.1.11 or CLI 3.0.56 or later.
+- `TaskComplete` runs after a completed task, but its output is ignored, so nothing runs `buckets check` before the agent stops. The `AGENTS.md` block tells the agent to run it, and `init` reminds you to add `buckets init --git-hook`.
+- No file hook field approves a tool. `{"cancel": false}` is the neutral answer, and a crash of the hook prints it too.
+- In the extension on Windows, Cline runs only the `.ps1` script, with `powershell -File`. The CLI on Windows finds both scripts, and the shell script steps aside there, so the hook runs once. PowerShell 7 on macOS or Linux skips the `.ps1` script for the same reason.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Open the project in VS Code with Cline and hooks turned on.
-2. Ask Cline to "add an empty line at the end of buckets.lock.json". The task should stop with a message from slopbuckets that names the lock.
-3. In a new task, ask it to add `import { x } from './x';` to a file under the root bucket folder. Cline should get the `buckets check --file` report after the edit and fix the import.
+In a project where `billing` and `payments` are buckets and the public file of `payments` is `src/payments/index.ts`:
 
-You can also run a hook by hand from the project folder:
+1. Turn on "Enable Hooks" in the extension, or start the CLI in the project.
+2. Ask Cline to add `import { charge } from '../payments/client';` to `src/billing/invoice.ts`. After the edit, it should get the pending list with `billing -> payments: private file`.
+3. Ask it to empty the `purpose` of a bucket in `buckets.config.json`. Cline should end the task with `buckets: edit not applied, buckets.config.json would be invalid.`
+
+By hand, from the project folder, send the `editor` call of the CLI that creates a file with the violation:
 
 ```sh
-echo '{"hookName":"PreToolUse","workspaceRoots":["'"$PWD"'"],"preToolUse":{"toolName":"run_commands","parameters":{"commands":"[\"buckets refresh\"]"}}}' | .clinerules/hooks/PreToolUse
+echo '{"taskId":"test","workspaceRoots":["'"$PWD"'"],"hookName":"PreToolUse","tool_call":{"id":"1","name":"editor","input":{"path":"src/billing/refund.ts","new_text":"import { charge } from \"../payments/client\";\n"}}}' | buckets hook --agent cline pre-tool-use
 ```
 
-It prints `{"cancel":true,...}`.
+It prints `{"cancel":false,"contextModification":"buckets: 1 pending. ..."}` and writes nothing to `src/billing/refund.ts`. Cline has no stop event, so there is no stop to try. Delete `.buckets/sessions/test.json` afterwards.

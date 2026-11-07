@@ -1,0 +1,22 @@
+{
+  "description": "an environment error in a nested project gives exit 3, even when the root has violations",
+  "expect": {
+    "exitCode": 3,
+    "violations": [
+      {
+        "rule": "file-unowned",
+        "file": "src/utils/date.ts",
+        "project": "."
+      }
+    ],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": [
+        {
+          "code": "no-tsconfig",
+          "project": "packages/sdk"
+        }
+      ]
+    }
+  }
+}

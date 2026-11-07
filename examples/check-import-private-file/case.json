@@ -1,0 +1,36 @@
+{
+  "description": "an import of a file of another bucket other than its public file gives import-private",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "src/app/main.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "from": "app",
+          "to": "billing",
+          "imports": [
+            {
+              "target": "src/billing/charge.ts",
+              "names": [
+                {
+                  "name": "rate",
+                  "typeOnly": false
+                }
+              ]
+            }
+          ],
+          "public": [
+            "src/billing/index.ts"
+          ]
+        }
+      ]
+    }
+  }
+}

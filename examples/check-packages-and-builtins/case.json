@@ -1,0 +1,7 @@
+{
+  "description": "imports of npm packages and node builtins that the bucket declares in packages give no violation",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

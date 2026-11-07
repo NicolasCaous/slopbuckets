@@ -1,0 +1,15 @@
+{
+  "description": "a project whose typescript package cannot be loaded is checked with the TypeScript of slopbuckets",
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "stdoutJson": {
+      "exitCode": 0,
+      "violations": [],
+      "environment": [],
+      "projects": [
+        "."
+      ]
+    }
+  }
+}

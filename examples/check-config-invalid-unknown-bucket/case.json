@@ -1,0 +1,25 @@
+{
+  "description": "dependsOn naming a bucket that does not exist gives config-invalid",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "project": ".",
+          "problem": {
+            "kind": "unknown-bucket",
+            "bucket": "app",
+            "dependency": "mail"
+          }
+        }
+      ]
+    }
+  }
+}

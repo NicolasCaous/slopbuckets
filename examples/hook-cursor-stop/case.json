@@ -1,0 +1,85 @@
+{
+  "description": "Cursor: after a Shell call stop sends the violations as followup_message when loop_count is 0, and stays silent at 1",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "post-tool-use",
+      "agent": "cursor",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n",
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "conversation_id": "c-cursor-1",
+        "generation_id": "11111111-1111-4111-8111-111111111111",
+        "model": "claude-4.5-sonnet",
+        "hook_event_name": "postToolUse",
+        "cursor_version": "3.21.16",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "transcript_path": null,
+        "tool_name": "Shell",
+        "tool_input": {
+          "command": "git apply ../refactor.patch",
+          "working_directory": "${PROJECT}"
+        },
+        "tool_use_id": "tool_1",
+        "cwd": "${PROJECT}",
+        "tool_output": "{\"success\":true}"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "cursor",
+      "payload": {
+        "conversation_id": "c-cursor-1",
+        "generation_id": "11111111-1111-4111-8111-111111111111",
+        "model": "claude-4.5-sonnet",
+        "hook_event_name": "stop",
+        "cursor_version": "3.21.16",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "transcript_path": null,
+        "status": "completed",
+        "loop_count": 0
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "followup_message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+        }
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "cursor",
+      "payload": {
+        "conversation_id": "c-cursor-1",
+        "generation_id": "11111111-1111-4111-8111-111111111111",
+        "model": "claude-4.5-sonnet",
+        "hook_event_name": "stop",
+        "cursor_version": "3.21.16",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "transcript_path": null,
+        "status": "completed",
+        "loop_count": 1
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

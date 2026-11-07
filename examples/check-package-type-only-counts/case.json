@@ -1,0 +1,13 @@
+{
+  "description": "a type-only import of a package counts as an import of it, so packages must list it",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "package-undeclared",
+        "file": "src/billing/charge.ts",
+        "line": 1
+      }
+    ]
+  }
+}

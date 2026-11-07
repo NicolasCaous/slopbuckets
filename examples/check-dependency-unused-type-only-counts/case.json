@@ -1,0 +1,7 @@
+{
+  "description": "an import type is enough to use a declared dependency",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

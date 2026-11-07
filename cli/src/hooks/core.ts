@@ -1,329 +1,464 @@
-// The decisions of the slopbuckets hooks, for any agent harness. An adapter turns a harness payload into one of the
-// calls below and turns the answer into the harness output. Nothing here reads stdin, writes stdout or knows a tool name.
+// The hook core of slopbuckets 2.0, for any agent harness. An adapter parses the harness payload into a HookInput,
+// calls hookCore with the rule engine and prints the HookDecision in the harness format. Nothing here reads stdin,
+// writes stdout or knows a tool name.
 //
-// - preTool: before a tool runs. Denies a write to any buckets.lock.json or buckets.config.json, any
-//   `buckets refresh` but `--web`, any `buckets update` without `--check` or `--json`, and a shell command that
-//   nests more commands than the guard reads.
-// - postEdit: after files were written. Returns the `buckets check --file` report of the files with problems.
-// - stop: before the agent (or a subagent) ends its turn. Returns the full check report when it fails.
+// pre-edit simulates the edit and shows the pending list, or denies an edit that makes a config worse. pre-tool shows
+// the last pending list, rechecked against the disk, and checks a project again when its buckets.config.json changed.
+// After an edit of a config, the next pre-edit or pre-tool also shows once the reason-generic advice on what it wrote.
+// stop and subagent-stop run the full check and block once. post-compact forgets what was shown. The session state
+// lives in <root>/.buckets/sessions/ (./session.ts).
 //
-// None of them throws. An unexpected error comes back in `error`, for the adapter to print on stderr, and the answer
-// follows the rule of hookFailure below: a crash never lets the agent finish with unchecked work.
+// A session can span several projects, such as a monorepo opened at its root. Each edited file belongs to the project
+// of the nearest buckets.config.json at or above it, inside the session root, and the engine checks that project from
+// its own folder. Every violation, environment error and advice then carries its project relative to the session root.
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { CACHE_DIR } from '../core/cache.js';
-import { runCheck } from '../core/check.js';
-import { loadConfig } from '../core/config.js';
-import { diskCase, relativeToProject } from '../core/paths.js';
-import { findProjectDir } from '../core/project.js';
-import { runRecursiveCheck } from '../core/recursive.js';
-import type { CheckReport, Context } from '../core/types.js';
-import { formatReport } from '../output/text.js';
 import {
-  guardedAboveProjects,
-  guardedByIdentity,
-  guardedName,
-  mentionsConfig,
-  mentionsLock,
-  normalizeTargetPath,
-  runsForbiddenRefresh,
-  runsInstallingUpdate,
-  sameFile,
-  tooComplexToCheck,
-  type GuardedFile,
-} from './lock-guard.js';
-import { liveSessionProjects, readSessionProjects, recordSessionProject, sessionStateFile } from './session.js';
+  CONFIG_FILE,
+  reasonAdvice,
+  renderAdviceNote,
+  renderEnvironment,
+  renderInterrupt,
+  renderPending,
+  renderStop,
+  sortAdvice,
+  sortViolations,
+  violationKey,
+  type Advice,
+  type AdviceOf,
+  type CheckResult,
+  type ConfigInvalidViolation,
+  type ConfigPath,
+  type EnvironmentError,
+  type FileEdit,
+  type HookCore,
+  type HookDecision,
+  type HookInput,
+  type RuleEngine,
+  type Violation,
+} from '../contract/index.js';
+import { unexpectedError } from '../output/index.js';
+import { isRecord, parseJson } from '../files/index.js';
+import { projectPath } from './edit-text.js';
+import { advance, environmentKey, loadSession, markSessionDirty, resetShown, saveSession, sessionRef, type HookState, type SessionRef } from './session.js';
 
-export const LOCK_DENY_REASON =
-  'buckets.lock.json records the contracts a human approved, and only a human may change it: with `buckets refresh` in their own terminal, or by confirming the approval that `buckets refresh --web` asks for. ' +
-  'Do not edit or write the lock under any name (alternative streams, short names, links), do not run shell commands that mention it, also through wildcards, and do not run `buckets refresh` with anything but exactly the `--web` flag. Output redirections such as `> refresh.log 2>&1`, a pipe to `tee` and a trailing `&` are allowed after `--web`. To read the lock, use the Read tool. ' +
-  'If `buckets check` reports lock differences (exit code 2), run `buckets refresh --web` in the background, send the link it prints to the human with a summary of what changed and why, as the report lists it, and wait for the command to finish.';
+const SILENT: HookDecision = { kind: 'silent' };
 
-export const CONFIG_DENY_REASON =
-  'buckets.config.json belongs to the human: it sets the root bucket folder, the import alias and the `access` rules that decide which buckets may use which, in this project and in every nested project. ' +
-  'Do not edit or write any buckets.config.json under any name (alternative streams, short names, links), and do not run shell commands that mention it, also through wildcards. To read it, use the Read tool. ' +
-  'A shell glob that can match buckets.config.json, such as `*config*` or `*.config.json`, counts as naming it, so to list or search files use your file reading or search tool instead of the shell. ' +
-  'If a task needs a change in it, such as an `access` line that allows a dependency, stop and ask the human to make the change, with the exact lines you need and why.';
+// ---------------------------------------------------------------------------------------------------------------
+// Projects inside the session root. A project is named by its folder relative to the root, with `/`, `.` for the root.
 
-export const UPDATE_DENY_REASON =
-  'Only a human updates the slopbuckets CLI, because the lock of each project records the CLI version that a human approved. ' +
-  'Do not run `buckets update` without `--check` or `--json`, also through npx, pnpm, yarn, bunx or a path to the CLI. `buckets update --check` and `buckets update --json` only report, so you may run them. ' +
-  'If a notice said that a newer slopbuckets version is available, tell the human the version it showed, and ask them to run `buckets update` in their own terminal.';
+function join(project: string, inner: string): string {
+  if (project === '.') return inner;
+  return inner === '.' ? project : `${project}/${inner}`;
+}
 
-export const COMPLEX_DENY_REASON =
-  'This shell command nests more commands (substitutions, `bash -c`, `eval` or text piped to a shell) than the slopbuckets guard reads, so the guard cannot tell whether it runs `buckets refresh` or `buckets update`. ' +
-  'Split it into smaller commands and run them one at a time.';
+function under(project: string, inner: string): boolean {
+  return project === '.' || inner === project || inner.startsWith(`${project}/`);
+}
 
-/** What the guard refuses: a write to a guarded file, a `buckets update` that can install, or a shell command too complex to check. */
-export type Guarded = GuardedFile | 'update' | 'complex';
+function folder(root: string, project: string): string {
+  return project === '.' ? root : path.join(root, ...project.split('/'));
+}
 
-const DENY_REASONS: Record<Guarded, string> = { lock: LOCK_DENY_REASON, config: CONFIG_DENY_REASON, update: UPDATE_DENY_REASON, complex: COMPLEX_DENY_REASON };
+function isConfig(file: string): boolean {
+  return path.basename(file).toLowerCase() === CONFIG_FILE;
+}
 
-/** The first line of a stop report, by exit code. Exit 2 needs a human, so the agent must not try to fix it. */
-export const STOP_INTRO: Record<0 | 1 | 2 | 3, string> = {
-  0: '',
-  1: 'buckets check found broken bucket rules, so you cannot finish yet. The report below says how to fix each one.',
-  2: 'buckets check passes the rules, but the project differs from its buckets.lock.json (contracts, buckets, nested projects or links), and only a human can approve that. Ask for the approval with `buckets refresh --web`, as the last line of the report says.',
-  3: 'buckets check could not run, so the bucket rules were not verified. Stop and show the message below to the human.',
+/** The project of a file: the nearest folder at or above it, inside `root`, with a config. An edited config is one. */
+function projectOf(root: string, file: string): string | null {
+  const abs = path.resolve(root, file);
+  let dir = path.dirname(abs);
+  for (;;) {
+    const rel = path.relative(root, dir);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    if ((dir === path.dirname(abs) && isConfig(abs)) || existsSync(path.join(dir, CONFIG_FILE))) return rel === '' ? '.' : rel.split(path.sep).join('/');
+    if (rel === '') return null;
+    dir = path.dirname(dir);
+  }
+}
+
+/** The mtime and size of a project's config, so that a change by another agent or a shell shows. */
+function configStamp(root: string, project: string): string {
+  try {
+    const stat = statSync(path.join(folder(root, project), CONFIG_FILE));
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+type ReasonAdvice = AdviceOf<'reason-generic'>;
+
+/** The id of one purpose or reason with its text, for HookState.adviceSeen and HookState.adviceShown. */
+function reasonAdviceKey(at: ConfigPath, text: string): string {
+  return createHash('sha256').update(JSON.stringify([at, text])).digest('hex').slice(0, 16);
+}
+
+/**
+ * The reason-generic advice on every purpose and reason in a project's config on disk, read the way the engine reads
+ * them (engine/rules.ts, computeAdvice), with `project` relative to the session root. None when the config is missing
+ * or not JSON.
+ */
+function configAdvice(root: string, project: string): ReasonAdvice[] {
+  let value: unknown;
+  try {
+    value = parseJson(readFileSync(path.join(folder(root, project), CONFIG_FILE), 'utf8'));
+  } catch {
+    return [];
+  }
+  if (!isRecord(value) || !isRecord(value.buckets)) return [];
+  const names = Object.keys(value.buckets);
+  const out: ReasonAdvice[] = [];
+  const check = (at: ConfigPath, text: unknown): void => {
+    const why = typeof text === 'string' ? reasonAdvice(text, names) : null;
+    if (why !== null) out.push({ advice: 'reason-generic', project, at, text: text as string, why });
+  };
+  for (const [name, bucket] of Object.entries(value.buckets)) {
+    if (!isRecord(bucket)) continue;
+    check(['buckets', name, 'purpose'], bucket.purpose);
+    for (const field of ['dependsOn', 'packages'] as const) {
+      const map = bucket[field];
+      if (isRecord(map)) for (const [key, reason] of Object.entries(map)) check(['buckets', name, field, key], reason);
+    }
+    check(['buckets', name, 'external'], bucket.external);
+  }
+  return out;
+}
+
+function adviceKeyOf(a: ReasonAdvice): string {
+  return reasonAdviceKey(a.at, a.text);
+}
+
+/** `state` with the advice baseline of every project in `projects` that has none yet. */
+function withAdviceBaseline(root: string, state: HookState, projects: readonly string[]): HookState {
+  const missing = projects.filter((p) => state.adviceSeen[p] === undefined);
+  if (missing.length === 0) return state;
+  return { ...state, adviceSeen: { ...state.adviceSeen, ...Object.fromEntries(missing.map((p) => [p, configAdvice(root, p).map(adviceKeyOf)])) } };
+}
+
+/**
+ * The reason-generic advice that the configs of `projects` on disk have now and that is neither in the baseline of the
+ * project nor shown by an earlier pre-tool, with `state` that counts it as shown. A project without a baseline gets none,
+ * as at the stop. The pre-tool after an edit of a config calls it, so the agent reads the advice on what it wrote.
+ */
+function freshAdvice(root: string, state: HookState, projects: readonly string[]): { advice: Advice[]; state: HookState } {
+  const advice: Advice[] = [];
+  const adviceShown = { ...state.adviceShown };
+  for (const p of projects) {
+    const seen = state.adviceSeen[p];
+    if (seen === undefined) continue;
+    const old = new Set([...seen, ...(adviceShown[p] ?? [])]);
+    const found = configAdvice(root, p).filter((a) => !old.has(adviceKeyOf(a)));
+    if (found.length === 0) continue;
+    advice.push(...found);
+    adviceShown[p] = [...(adviceShown[p] ?? []), ...found.map(adviceKeyOf)];
+  }
+  return advice.length === 0 ? { advice, state } : { advice, state: { ...state, adviceShown } };
+}
+
+/** Marks a HookState.configs entry that holds the hash of the config text an edit of this session wrote. */
+const WRITTEN = 'written:';
+
+/** The WRITTEN stamp of a config text, or `missing` for a deleted config, as configStamp names a missing one. */
+function writtenStamp(content: string | null): string {
+  return content === null ? 'missing' : `${WRITTEN}${createHash('sha256').update(content).digest('hex').slice(0, 32)}`;
+}
+
+/** The WRITTEN stamp of a project's config on disk now. */
+function diskWrittenStamp(root: string, project: string): string {
+  try {
+    return writtenStamp(readFileSync(path.join(folder(root, project), CONFIG_FILE), 'utf8'));
+  } catch {
+    return 'missing';
+  }
+}
+
+/**
+ * True when the config of `project` changed since the hook last saw it. After an edit of this session the stamp is the
+ * hash of the text the edit wrote, so another agent that overwrites the config right after it still shows. A project
+ * seen for the first time, or with the null of an older state, only gets its stamp.
+ */
+function configChanged(root: string, project: string, seen: string | null | undefined, stamp: string): boolean {
+  if (typeof seen !== 'string') return false;
+  return seen.startsWith(WRITTEN) ? seen !== diskWrittenStamp(root, project) : seen !== stamp;
+}
+
+/** The projects the session knows: the root when it has a config, and every project it checked. Shortest first. */
+function knownProjects(root: string, state: HookState): string[] {
+  const set = new Set(Object.keys(state.configs));
+  if (existsSync(path.join(root, CONFIG_FILE))) set.add('.');
+  return [...set].sort((a, b) => (a === '.' ? -1 : b === '.' ? 1 : a.split('/').length - b.split('/').length || a.localeCompare(b)));
+}
+
+/** A result of the engine run in `project`, with every project relative to the session root. */
+function rooted(project: string, result: CheckResult): CheckResult {
+  if (project === '.') return result;
+  return {
+    ...result,
+    violations: result.violations.map((v) => ({ ...v, project: join(project, v.project) }) as Violation),
+    environment: result.environment.map((e) => ({ ...e, project: join(project, e.project) })),
+    advice: result.advice.map((a) => ({ ...a, project: join(project, a.project) }) as Advice),
+    projects: result.projects.map((p) => join(project, p)),
+  };
+}
+
+/** `list` with the violations of the projects `result` covers replaced by the ones it found. */
+function merge(list: readonly Violation[], result: CheckResult, found: readonly Violation[] = result.violations): Violation[] {
+  const covered = new Set(result.projects);
+  return sortViolations([...list.filter((v) => !covered.has(v.project)), ...found]);
+}
+
+/** Rechecks each violation from the folder of the deepest known project that holds it. */
+async function recheckAll(engine: RuleEngine, root: string, projects: readonly string[], list: readonly Violation[]): Promise<Violation[]> {
+  const groups = new Map<string, Violation[]>();
+  for (const v of list) {
+    const owner = [...projects].reverse().find((p) => under(p, v.project)) ?? '.';
+    groups.set(owner, [...(groups.get(owner) ?? []), v]);
+  }
+  const out: Violation[] = [];
+  for (const [project, group] of groups) {
+    const local = group.map((v) => ({ ...v, project: v.project === project ? '.' : project === '.' ? v.project : v.project.slice(project.length + 1) }) as Violation);
+    out.push(...(await engine.recheck(folder(root, project), local)).map((v) => ({ ...v, project: join(project, v.project) }) as Violation));
+  }
+  return groups.size > 1 ? sortViolations(out) : out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Phases
+
+/** The edits of a pre-edit input when every one has known content, else null. */
+function knownEdits(input: HookInput): FileEdit[] | null {
+  if (input.edits.length === 0 || input.edits.some((e) => e.content === undefined)) return null;
+  return input.edits.map((e) => ({ path: e.path, content: e.content as string | null }));
+}
+
+function configInvalid(violations: readonly Violation[]): ConfigInvalidViolation[] {
+  return violations.filter((v): v is ConfigInvalidViolation => v.rule === 'config-invalid');
+}
+
+function environmentLine(e: EnvironmentError): string {
+  return `buckets: ${renderEnvironment(e)}`;
+}
+
+/** `state` after showing `current`: fresh violations count as shown, gone ones leave. */
+function advanced(state: HookState, current: readonly Violation[]): HookState {
+  return { ...state, ...advance(state, current).next };
+}
+
+/**
+ * The line under the pending header after a shell command. A full check of a 10,000-file project takes about 150 ms,
+ * over the 80 ms of a pre-tool call, so until the stop the hooks recheck only the pending files, and pre-edit the
+ * folders of the edit.
+ */
+export const SHELL_NOTE = 'A shell command ran since the last full check, so this list may miss problems it caused. The stop at the end of the turn checks every file.';
+
+/**
+ * Shows `current` against the session state, and every environment error not shown yet in this session, saves the new
+ * state and returns the context or silence. `partial` adds SHELL_NOTE under the header of a list it shows. `advice`
+ * goes last, under its own header, which says that it does not block.
+ */
+function show(
+  ref: SessionRef,
+  state: HookState,
+  current: readonly Violation[],
+  environment: readonly EnvironmentError[] = [],
+  partial = false,
+  advice: readonly Advice[] = [],
+): HookDecision {
+  const { diff } = advance(state, current);
+  const fresh = environment.filter((e) => !state.environmentShown.includes(environmentKey(e)));
+  const next = advanced(state, current);
+  saveSession(ref, fresh.length === 0 ? next : { ...next, environmentShown: [...next.environmentShown, ...fresh.map(environmentKey)] });
+  const pending = renderPending(diff);
+  const list = partial && pending !== '' ? pending.replace(/\n|$/, (end) => `\n${SHELL_NOTE}${end}`) : pending;
+  const text = [list, ...fresh.map(environmentLine), renderAdviceNote(advice)].filter((part) => part !== '').join('\n\n');
+  return text === '' ? SILENT : { kind: 'context', text };
+}
+
+/** A tool may change files: this session, and the main session of a subagent, must check at the next stop. */
+function dirtied(input: HookInput, state: HookState): HookState {
+  if (input.agentId !== null) markSessionDirty(sessionRef(input.root, input.sessionId));
+  return { ...state, dirty: true, stopBlocked: false };
+}
+
+/**
+ * Shows the pending list rechecked against the disk. A project whose config changed since the hook last saw it, by
+ * another agent or a shell command, is checked again in full, even when nothing is pending. After an edit of a config
+ * or a change on disk, the list also shows once the reason-generic advice on purposes and reasons that are new.
+ */
+async function onPreTool(input: HookInput, engine: RuleEngine, ref: SessionRef, state: HookState, changesFiles: boolean): Promise<HookDecision> {
+  if (changesFiles) state = dirtied(input, state);
+  // This call runs before its own shell command, so its list is as complete as before; the next ones are not.
+  const shellRan = state.shellRan;
+  if (input.isShell) state = { ...state, shellRan: true };
+  const projects = knownProjects(input.root, state);
+  const stamps = Object.fromEntries(projects.map((p) => [p, configStamp(input.root, p)]));
+  const changed = projects.filter((p) => configChanged(input.root, p, state.configs[p], stamps[p]!));
+  const restamped = projects.some((p) => state.configs[p] !== stamps[p]);
+  const touched = projects.filter((p) => changed.includes(p) || state.configs[p]?.startsWith(WRITTEN) === true);
+  const fresh = freshAdvice(input.root, withAdviceBaseline(input.root, state, projects), touched);
+  state = { ...fresh.state, configs: { ...state.configs, ...stamps } };
+  if (state.pending.length === 0 && changed.length === 0 && fresh.advice.length === 0) {
+    if (changesFiles || restamped) saveSession(ref, state);
+    return SILENT;
+  }
+  let current: Violation[] = [];
+  const environment: EnvironmentError[] = [];
+  const covered = new Set<string>();
+  for (const project of changed) {
+    const result = rooted(project, await engine.checkAll(folder(input.root, project), { recursive: false }));
+    for (const p of result.projects) covered.add(p);
+    current.push(...result.violations);
+    environment.push(...result.environment);
+  }
+  const rechecked = await recheckAll(engine, input.root, projects, state.pending.filter((v) => !covered.has(v.project)));
+  current = changed.length === 0 ? rechecked : sortViolations([...rechecked, ...current]);
+  return show(ref, state, current, environment, shellRan && projects.some((p) => !covered.has(p)), fresh.advice);
+}
+
+/**
+ * The deny reason when the edits make a config worse than it is on disk: a config problem that was not there, or more
+ * of them. When a config is already invalid (a shell command, a checkout or a merge broke it), only an edit that adds a
+ * problem is denied, so the agent can edit other files and fix the config one problem at a time; its problems show in
+ * the pending list.
+ */
+async function worseConfig(engine: RuleEngine, root: string, project: string, after: ConfigInvalidViolation[]): Promise<string | undefined> {
+  if (after.length === 0) return undefined;
+  const before = new Set(configInvalid(rooted(project, await engine.checkEdit(folder(root, project), [])).violations).map(violationKey));
+  const added = after.filter((v) => !before.has(violationKey(v)));
+  if (added.length === 0 && after.length <= before.size) return undefined;
+  const bad = (added[0] ?? after[0]!).project;
+  return renderInterrupt(after.filter((v) => v.project === bad));
+}
+
+async function onPreEdit(input: HookInput, engine: RuleEngine, ref: SessionRef, state: HookState): Promise<HookDecision> {
+  const edits = knownEdits(input);
+  // An edit whose new content is unknown still changes the file.
+  if (edits === null) return onPreTool(input, engine, ref, state, input.edits.length > 0);
+  const groups = new Map<string, FileEdit[]>();
+  for (const edit of edits) {
+    const project = projectOf(input.root, edit.path);
+    if (project !== null) groups.set(project, [...(groups.get(project) ?? []), edit]);
+  }
+  // A file outside every project changes nothing the check sees.
+  if (groups.size === 0) return onPreTool(input, engine, ref, state, true);
+  // The advice baseline comes from the config on disk before the edit lands. An earlier config edit that no pre-tool
+  // followed has landed by now, so its advice shows here.
+  const written = Object.keys(state.configs).filter((p) => state.configs[p]?.startsWith(WRITTEN) === true);
+  const fresh = freshAdvice(input.root, withAdviceBaseline(input.root, state, [...groups.keys()]), written);
+  state = fresh.state;
+  let pending = state.pending;
+  const environment: EnvironmentError[] = [];
+  const configs = { ...state.configs };
+  for (const [project, list] of groups) {
+    const result = rooted(project, await engine.checkEdit(folder(input.root, project), list));
+    const after = configInvalid(result.violations);
+    const configEdit = list.find((e) => isConfig(e.path));
+    const editsConfig = configEdit !== undefined;
+    // The edit changes the stamp of the config, so the next pre-tool compares the text on disk with what it wrote.
+    configs[project] = configEdit !== undefined ? writtenStamp(configEdit.content) : configStamp(input.root, project);
+    if (input.applied === true && after.length > 0 && editsConfig) {
+      // The edit already landed: the config on disk is invalid now, and later calls recheck it.
+      const bad = after.filter((v) => v.project === after[0]!.project);
+      saveSession(ref, advanced({ ...dirtied(input, state), configs }, merge(pending, result, bad)));
+      return { kind: 'context', text: [renderInterrupt(bad, { applied: true }), renderAdviceNote(fresh.advice)].filter((part) => part !== '').join('\n\n') };
+    }
+    const reason = input.applied === true || !editsConfig ? undefined : await worseConfig(engine, input.root, project, after);
+    // A denied edit does not land, so the session state stays as it was.
+    if (reason !== undefined) return { kind: 'deny', text: reason };
+    pending = merge(pending, result);
+    environment.push(...result.environment);
+  }
+  return show(ref, { ...dirtied(input, state), configs }, pending, environment, state.shellRan, fresh.advice);
+}
+
+function sameKeys(a: readonly Violation[], b: readonly Violation[]): boolean {
+  const left = a.map(violationKey).sort();
+  const right = b.map(violationKey).sort();
+  return left.length === right.length && left.every((key, i) => key === right[i]);
+}
+
+/** checkAll of the root and of every project the session checked that the root does not cover. */
+async function checkSession(engine: RuleEngine, root: string, projects: readonly string[]): Promise<CheckResult> {
+  const violations: Violation[] = [];
+  const environment: EnvironmentError[] = [];
+  const advice: Advice[] = [];
+  const covered: string[] = [];
+  for (const project of projects) {
+    if (covered.includes(project)) continue;
+    const result = rooted(project, await engine.checkAll(folder(root, project)));
+    violations.push(...result.violations);
+    environment.push(...result.environment);
+    advice.push(...result.advice);
+    covered.push(...result.projects);
+  }
+  return { exitCode: 0, violations: sortViolations(violations), environment, advice: sortAdvice(advice), projects: covered };
+}
+
+async function onStop(input: HookInput, engine: RuleEngine, ref: SessionRef, state: HookState): Promise<HookDecision> {
+  if (!state.dirty && state.pending.length === 0) return SILENT;
+  const projects = knownProjects(input.root, state);
+  const result = await checkSession(engine, input.root, projects);
+  const list = result.violations;
+  // config-newer means the CLI is older than the config. It never blocks: updating the CLI is the human's call.
+  const blocking = result.environment.filter((e) => e.code !== 'config-newer');
+  // The reason-generic advice on a purpose or reason this session wrote: not in the baseline of a project it knew.
+  const flagged = new Map<string, string[]>();
+  for (const a of result.advice) if (a.advice === 'reason-generic') flagged.set(a.project, [...(flagged.get(a.project) ?? []), reasonAdviceKey(a.at, a.text)]);
+  const caused = result.advice.filter((a) => a.advice === 'reason-generic' && state.adviceSeen[a.project]?.includes(reasonAdviceKey(a.at, a.text)) === false);
+  // Every stop shows that advice or passes it, so the advice the config has now becomes the baseline.
+  const adviceSeen = Object.fromEntries(Object.keys(state.adviceSeen).map((p) => [p, flagged.get(p) ?? []]));
+  // Stop shows every violation in full, so all of them count as shown.
+  const base = { ...advanced(state, list), configs: { ...state.configs, ...Object.fromEntries(projects.map((p) => [p, configStamp(input.root, p)])) }, adviceSeen, adviceShown: {}, dirty: false, shellRan: false };
+  const nothing = list.length === 0 && blocking.length === 0;
+  const repeat = input.stopHookActive || (state.stopBlocked && sameKeys(state.pending, list));
+  if (nothing || repeat) {
+    const stopBlocked = nothing ? false : state.stopBlocked || input.stopHookActive;
+    saveSession(ref, { ...base, stopBlocked, stopKeys: list.length === 0 ? [] : state.stopKeys }, { clearDirty: true });
+    // A clean stop does not block, but it shows once the advice on what this session wrote, which no check showed yet.
+    if (nothing && caused.length > 0) return { kind: 'note', text: renderAdviceNote(caused) };
+    return SILENT;
+  }
+  const keys = list.map(violationKey);
+  const repeated = keys.length > 0 && keys.every((key) => state.stopKeys.includes(key));
+  const shown = [...new Set([...state.environmentShown, ...result.environment.map(environmentKey)])];
+  saveSession(ref, { ...base, stopBlocked: true, stopKeys: keys, environmentShown: shown }, { clearDirty: true });
+  const parts = list.length > 0 ? [renderStop(list, { advice: result.advice, repeated })] : [];
+  parts.push(...result.environment.map(environmentLine));
+  return { kind: 'block', text: parts.join('\n\n') };
+}
+
+async function decide(input: HookInput, engine: RuleEngine): Promise<HookDecision> {
+  const ref = sessionRef(input.root, input.sessionId, input.agentId);
+  let state = loadSession(ref);
+  // Without a session id nothing is remembered, so a stop cannot know the session is clean and always checks.
+  if (ref.file === null) state = { ...state, dirty: true };
+  switch (input.phase) {
+    case 'pre-edit':
+      return onPreEdit(input, engine, ref, state);
+    case 'pre-tool':
+      return onPreTool(input, engine, ref, state, input.isShell);
+    case 'stop':
+    case 'subagent-stop':
+      return onStop(input, engine, ref, state);
+    case 'post-compact':
+      saveSession(ref, { ...state, ...resetShown(state) });
+      return SILENT;
+  }
+}
+
+/**
+ * The 2.0 hook core that every harness adapter calls after parsing its payload. Edits of files outside the session
+ * root are dropped first, since the check never sees them. It never throws: an internal error writes its stack to
+ * stderr and comes back as silent, which every adapter prints as its fail-open answer.
+ */
+export const hookCore: HookCore = async (input, engine) => {
+  try {
+    const edits = input.edits.filter((e) => projectPath(input.root, e.path) !== null);
+    return await decide(edits.length === input.edits.length ? input : { ...input, edits }, engine);
+  } catch (error) {
+    process.stderr.write(unexpectedError(`buckets hook ${input.phase}`, error));
+    return SILENT;
+  }
 };
-
-/** What a tool call is about to do, as far as the lock guard cares. */
-export type ToolAction =
-  /** The tool writes, edits, deletes or moves these files. Relative paths resolve from the call's `cwd`. */
-  | { kind: 'write'; paths: string[] }
-  /** The tool runs this shell command. `cwd` is its working folder when the harness reports one apart from the call's. */
-  | { kind: 'shell'; command: string; cwd?: string }
-  /** Anything else, such as a read or a search. Always allowed. */
-  | { kind: 'other' };
-
-/** Where a hook call happens. Every adapter fills it from its payload. */
-export interface HookScope {
-  /**
-   * The folder the session was opened in: Claude Code's `CLAUDE_PROJECT_DIR` or a workspace root. It may be a
-   * project, a folder inside one or a folder above several projects. Defaults to `cwd`.
-   */
-  projectDir?: string;
-  /** The working folder of the call. Relative paths resolve from it. */
-  cwd: string;
-  /** The session id, which keys the projects recorded in a session opened above the projects. Optional. */
-  sessionId?: string;
-}
-
-export interface PreToolInput extends HookScope {
-  action: ToolAction;
-}
-
-export type PreToolResult = { decision: 'allow'; error?: string } | { decision: 'deny'; reason: string };
-
-export interface PostEditInput extends HookScope {
-  /** Files the tool wrote. Each one is checked with `buckets check --file` in its nearest project. */
-  paths: string[];
-  /** Files the tool wrote that are not checked, such as notebooks. They only record their project for the session. */
-  touched?: string[];
-}
-
-export interface PostEditResult {
-  /** The report to hand to the model, when a file has problems or the check crashed. */
-  feedback?: string;
-  error?: string;
-}
-
-export interface StopInput extends HookScope {
-  /** True when this stop already follows a block of this hook (Claude Code's `stop_hook_active`). Nothing runs then. */
-  active: boolean;
-  /** True for the end of a subagent's work. The check is the same; adapters may phrase the output differently. */
-  subagent: boolean;
-}
-
-export interface StopResult {
-  /** The report that keeps the agent from finishing, once. */
-  block?: string;
-  error?: string;
-}
-
-/** The session folder and whether a project holds it. */
-function locate(scope: HookScope): { sessionDir: string; projectDir: string | null } {
-  const start = scope.projectDir ?? scope.cwd;
-  return { sessionDir: path.resolve(start), projectDir: findProjectDir(start) };
-}
-
-function errorDetail(error: unknown): string {
-  return error instanceof Error ? (error.stack ?? error.message) : String(error);
-}
-
-/**
- * The guarded file that writing `file` would write: a lock or a config. A name check alone without `where`. With
- * `where`, a path that does not name one is also compared with the real files on disk (short names, hard links,
- * symbolic links). Null when it writes neither.
- */
-export function guardedWrite(file: string, where?: { projectDir: string; cwd: string }): GuardedFile | null {
-  const { dir, base } = normalizeTargetPath(file);
-  const named = guardedName(base);
-  if (named !== null) return named;
-  if (where === undefined || base === '') return null;
-  return guardedByIdentity(path.resolve(where.cwd, dir === '' ? '.' : dir, base), base, where.projectDir);
-}
-
-/** True when writing `file` would write a lock or a config, as `guardedWrite` reads it. */
-export function isLockWrite(file: string, where?: { projectDir: string; cwd: string }): boolean {
-  return guardedWrite(file, where) !== null;
-}
-
-/**
- * What a shell command touches that the guard refuses: the guarded file it names, `lock` when it runs
- * `buckets refresh` in any form but `--web`, `update` when it runs `buckets update` without `--check` or `--json`, or
- * `complex` when it nests more commands than the guard reads.
- */
-export function guardedShell(command: string): Guarded | null {
-  if (mentionsLock(command) || runsForbiddenRefresh(command)) return 'lock';
-  if (mentionsConfig(command)) return 'config';
-  if (runsInstallingUpdate(command)) return 'update';
-  return tooComplexToCheck(command) ? 'complex' : null;
-}
-
-/**
- * True when a shell command names a lock or a config, runs `buckets refresh` in any form but `--web`, or runs
- * `buckets update` without `--check` or `--json`.
- */
-export function isForbiddenShell(command: string): boolean {
-  return guardedShell(command) !== null;
-}
-
-/**
- * The guard of the lock and the config. A crash allows the call, because a crash here would break every tool call
- * the agent makes.
- */
-export function preTool(input: PreToolInput): PreToolResult {
-  const deny = (kind: Guarded): PreToolResult => ({ decision: 'deny', reason: DENY_REASONS[kind] });
-  try {
-    const { action } = input;
-    if (action.kind === 'other') return { decision: 'allow' };
-    const { sessionDir, projectDir } = locate(input);
-    if (action.kind === 'shell') {
-      const guarded = guardedShell(action.command);
-      if (guarded !== null) return deny(guarded);
-      // A session above the projects records the project of every shell command, so its stop hook checks it.
-      if (projectDir === null) {
-        const cwd = path.resolve(sessionDir, action.cwd ?? input.cwd);
-        const project = findProjectDir(cwd);
-        if (project !== null) recordSessionProject(sessionStateFile(input.sessionId), project);
-      }
-      return { decision: 'allow' };
-    }
-    if (projectDir !== null) {
-      for (const file of action.paths) {
-        const guarded = guardedWrite(file, { projectDir, cwd: input.cwd });
-        if (guarded !== null) return deny(guarded);
-      }
-      return { decision: 'allow' };
-    }
-    const stateFile = sessionStateFile(input.sessionId);
-    const recorded = () => (stateFile === null ? [] : readSessionProjects(stateFile).projects);
-    const cwd = path.resolve(sessionDir, input.cwd);
-    for (const file of action.paths) {
-      const guarded = guardedAboveProjects(file, cwd, sessionDir, recorded);
-      if (guarded !== null) return deny(guarded);
-    }
-    return { decision: 'allow' };
-  } catch (error) {
-    return { decision: 'allow', error: errorDetail(error) };
-  }
-}
-
-const FAILURE_ADVICE =
-  'Report this error to the human: it is a bug in slopbuckets or a problem in the environment, and the bucket rules were not verified. ' +
-  'Do not try to work around it by editing slopbuckets, the lock or the hook settings.';
-
-/**
- * `buckets check --file` on each file the agent just wrote, in the nearest project of the file. Inside a project, only
- * files of that project and of the projects nested in it count. In a session opened above the projects, each file
- * records its project for the stop hook.
- */
-export async function postEdit(ctx: Context, input: PostEditInput): Promise<PostEditResult> {
-  // True once the hook works on a project, so a crash after that point reports instead of passing silently.
-  let inProject = false;
-  try {
-    const { sessionDir, projectDir } = locate(input);
-    const sections: string[] = [];
-    if (projectDir !== null) {
-      inProject = true;
-      for (const file of input.paths) {
-        const absolute = path.resolve(input.cwd, file);
-        // The edited file belongs to the nearest project above it: the session's project or one nested in it.
-        const fileProject = findProjectDir(path.dirname(absolute));
-        if (fileProject === null) continue;
-        const nested = relativeToProject(projectDir, fileProject);
-        if (nested === null) continue;
-        const where = nested === '' ? '' : ` in the nested project ${nested} (the paths below are relative to it)`;
-        const report = await checkEditedFile(ctx, absolute, fileProject, path.join(projectDir, CACHE_DIR), where);
-        if (report !== null) sections.push(report);
-      }
-    } else {
-      const stateFile = sessionStateFile(input.sessionId);
-      const cwd = path.resolve(sessionDir, input.cwd);
-      const checked = new Set(input.paths);
-      for (const file of [...input.paths, ...(input.touched ?? [])]) {
-        const absolute = path.resolve(cwd, file);
-        const fileProject = findProjectDir(path.dirname(absolute));
-        if (fileProject === null) continue;
-        inProject = true;
-        recordSessionProject(stateFile, fileProject);
-        if (!checked.has(file)) continue;
-        const where = ` in the project ${fileProject} (the paths below are relative to it)`;
-        const report = await checkEditedFile(ctx, absolute, fileProject, path.join(fileProject, CACHE_DIR), where);
-        if (report !== null) sections.push(report);
-      }
-    }
-    return sections.length > 0 ? { feedback: sections.join('\n\n') } : {};
-  } catch (error) {
-    const detail = errorDetail(error);
-    if (!inProject) return { error: detail };
-    return { feedback: `buckets check --file crashed with an unexpected error after your edit:\n\n${detail}\n\n${FAILURE_ADVICE}`, error: detail };
-  }
-}
-
-/** The report of `buckets check --file` on a file inside the root bucket folder of its project, or null when it is clean. */
-async function checkEditedFile(ctx: Context, absolute: string, fileProject: string, cacheDir: string, where: string): Promise<string | null> {
-  const config = loadConfig(fileProject);
-  if (config.kind !== 'ok') return null;
-  const typed = relativeToProject(fileProject, absolute);
-  // On a file system that ignores case, the agent may spell the path with other case than the disk.
-  const rel = typed === null ? null : diskCase(fileProject, typed);
-  const root = config.config.root;
-  if (rel === null || (rel !== root && !rel.startsWith(`${root}/`))) return null;
-  const result = await runCheck(ctx, fileProject, { file: absolute, cacheDir });
-  if (result.report.violations.length === 0) return null;
-  return `buckets check --file ${rel} found problems in the file you just edited${where}. Fix them before you continue.\n\n${formatReport(result.report, [], { file: rel })}`;
-}
-
-function chainsOf(runs: Awaited<ReturnType<typeof runRecursiveCheck>>['runs']) {
-  return runs.flatMap((run) => run.result.orphanChains.map((chain) => ({ ...chain, project: run.path })));
-}
-
-function samePath(a: string, b: string): boolean {
-  return sameFile(path.resolve(a), path.resolve(b));
-}
-
-/**
- * The full check before the agent finishes. Inside a project: the project and every project nested in it, like
- * `buckets check`. Above the projects: each project the session recorded, in one report that names each folder.
- */
-export async function stop(ctx: Context, input: StopInput): Promise<StopResult> {
-  if (input.active) return {};
-  let inProject = false;
-  try {
-    const { projectDir } = locate(input);
-    if (projectDir !== null) {
-      inProject = true;
-      const { report, runs } = await runRecursiveCheck(ctx, projectDir, { cacheDir: path.join(projectDir, CACHE_DIR) });
-      if (report.exitCode === 0) return {};
-      return { block: `${STOP_INTRO[report.exitCode]}\n\n${formatReport(report, chainsOf(runs))}` };
-    }
-    const recorded = liveSessionProjects(sessionStateFile(input.sessionId));
-    if (recorded.length === 0) return {};
-    inProject = true;
-    // Outer projects first, so a project nested in one already checked is not checked twice.
-    const ordered = [...recorded].sort((a, b) => a.length - b.length);
-    const covered: string[] = [];
-    const checked: { dir: string; report: CheckReport; chains: ReturnType<typeof chainsOf> }[] = [];
-    for (const dir of ordered) {
-      if (covered.some((done) => samePath(done, dir))) continue;
-      const { report, runs } = await runRecursiveCheck(ctx, dir, { cacheDir: path.join(dir, CACHE_DIR) });
-      covered.push(...runs.map((run) => run.dir));
-      checked.push({ dir, report, chains: chainsOf(runs) });
-    }
-    const failed = checked.filter((c) => c.report.exitCode !== 0);
-    if (failed.length === 0) return {};
-    const intro =
-      checked.length === 1
-        ? 'buckets check failed in the project this session changed.'
-        : `buckets check failed in ${failed.length} of the ${checked.length} projects this session changed.`;
-    const sections = failed.map((c) => `--- Project folder: ${c.dir}\n\n${STOP_INTRO[c.report.exitCode]}\n\n${formatReport(c.report, c.chains)}`);
-    return {
-      block: `${intro} Each section below starts with the project folder. Run the commands a section asks for, such as \`buckets refresh --web\`, in that folder.\n\n${sections.join('\n\n')}`,
-    };
-  } catch (error) {
-    const detail = errorDetail(error);
-    if (!inProject) return { error: detail };
-    return { block: `buckets check crashed with an unexpected error before you finished:\n\n${detail}\n\n${FAILURE_ADVICE}`, error: detail };
-  }
-}

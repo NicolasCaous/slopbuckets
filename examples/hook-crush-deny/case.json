@@ -1,0 +1,30 @@
+{
+  "description": "Crush: an edit that would make the config invalid is denied with decision deny and the interrupt text",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "crush",
+      "payload": {
+        "event": "PreToolUse",
+        "session_id": "s-crush-1",
+        "cwd": "${PROJECT}",
+        "tool_name": "edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"payments\": \"Charges go through the gateway\"",
+          "new_string": "\"payments\": \"\""
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\"",
+        "stdoutJson": {
+          "decision": "deny",
+          "reason": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\""
+        },
+        "pending": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "description": "files that ignore matches need no packages entry, and declared packages and built-ins give no violation",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

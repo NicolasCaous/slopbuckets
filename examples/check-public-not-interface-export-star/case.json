@@ -1,0 +1,22 @@
+{
+  "description": "export * in a public file gives public-not-interface",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-not-interface",
+        "file": "src/billing/index.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "public-not-interface",
+          "kind": "export-star",
+          "specifier": "./charge"
+        }
+      ]
+    }
+  }
+}

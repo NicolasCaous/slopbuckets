@@ -1,0 +1,21 @@
+{
+  "description": "a public file with code gives public-not-interface at the first line of code",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-not-interface",
+        "file": "src/billing/index.ts",
+        "line": 3
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "public-not-interface",
+          "kind": "code"
+        }
+      ]
+    }
+  }
+}

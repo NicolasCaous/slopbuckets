@@ -1,0 +1,13 @@
+{
+  "description": "an npm package that a bucket imports without a packages entry is package-undeclared, by package name for a subpath import",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "package-undeclared",
+        "file": "src/billing/charge.ts",
+        "line": 1
+      }
+    ]
+  }
+}

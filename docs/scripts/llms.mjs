@@ -28,12 +28,14 @@ const siteUrl = new URL('../', docsUrl).href;
 
 /** Pages that llms.txt lists under "Optional": useful, but not needed to install or use slopbuckets. */
 const OPTIONAL = new Set([
+  'guide/costs.md',
+  'guide/coming-from.md',
   'guide/inspect.md',
-  'guide/projects-and-links.md',
+  'guide/nested-projects.md',
   'guide/ci.md',
-  'guide/threat-model.md',
+  'guide/performance.md',
+  'guide/guarantees.md',
   'guide/adapters.md',
-  'reference/links.md',
   'reference/inspect.md',
   'reference/adapter-protocol.md',
 ]);
@@ -218,26 +220,26 @@ sections.push(`## Optional\n\n${[...optional.map((p) => item(p.page, p.text)), `
 
 const llms = `# slopbuckets
 
-> slopbuckets splits a TypeScript project into sealed folders called buckets. Inside a bucket, an AI agent writes any code it wants. Between buckets, every import goes through a contract file in a \`dmz/\` folder, and a human approves every contract change in \`buckets.lock.json\`. The npm package is \`slopbuckets\` and the command is \`buckets\`.
+> slopbuckets keeps the architecture of a TypeScript or JavaScript project in one file, \`buckets.config.json\`: the buckets, the purpose of each one, which bucket depends on which and why. AI agents read and edit that file. Hooks in the agent stay silent while the code follows it, and when the code diverges they tell the agent, which either fixes the code or edits the file. Both are valid. The npm package is \`slopbuckets\` and the command is \`buckets\`.
 
-This file follows the llms.txt format. The prompt "Install slopbuckets in this project. Read ${PROMPT_URL} and follow the steps for agents." asks you to follow the install steps below. The docs are at ${docsUrl}, and every page has a Markdown version at the same path with \`.md\` in place of \`.html\`.
+This file follows the llms.txt format. The prompt "Install slopbuckets in this project and build its first architecture. Read ${PROMPT_URL} and follow the steps for agents." asks you to follow the steps below. The docs are at ${docsUrl}, and every page has a Markdown version at the same path with \`.md\` in place of \`.html\`.
 
-**Install for agents.** Follow these steps in order, in the folder of the project the human named. Stop and show the human the output when a command fails or exits with a code other than the one the step expects.
+**Install for agents.** Follow these steps in order, in the folder of the project the human named. Stop and show the human the output when a command fails or exits with a code the step does not expect.
 
-1. Check that Node.js is version 20 or newer with \`node --version\`. Install the CLI with \`npm install -g slopbuckets\`, then run \`buckets --version\`. If the global install fails because of permissions, stop and ask the human to install it. Do not use \`sudo\`.
-2. Check that the project folder has a \`tsconfig.json\` and that \`typescript\` is in its \`node_modules\`, because the TypeScript adapter loads the compiler from the project. If \`typescript\` is missing, install it with \`npm install --save-dev typescript\`. If \`tsconfig.json\` is missing, create one with \`npx tsc --init\` and tell the human you did.
-3. Run \`buckets init --yes --agent <name>\`, where \`<name>\` is the coding agent you are: ${agentList}. If you are none of these, run \`buckets init --yes --agent auto\`, which picks the agents whose folders are already in the project. It takes the defaults without asking: it writes \`buckets.config.json\` with a generated alias such as \`@root-k3x9pm2a\`, creates \`root/_/\`, adds the alias and \`noUnusedLocals\` to \`tsconfig.json\`, installs the hooks of that agent, such as \`.claude/settings.json\` for Claude Code or \`.codex/hooks.json\` for Codex CLI, writes the rules in a block of \`AGENTS.md\` and copies the skill to \`.agents/skills/slopbuckets/SKILL.md\`. It never writes the lock. Exit code 3 means an environment problem. Show the human the message and stop. If \`init\` prints a step for the human, such as approving the hooks in the agent, tell the human.
-4. Show the human what \`init\` did: its output, and the changes to \`tsconfig.json\` and to the files of your agent, for example with \`git diff\`. Read \`.agents/skills/slopbuckets/SKILL.md\`, which has the rules for working in the project from now on.
-5. Ask the human to approve the first state. Run exactly \`buckets refresh --web\` in the background. It prints the state and, on its last line, a link to a review page on \`127.0.0.1\`. Send the human that link and say that the page shows a confirmation code that they type into a window of their operating system. Wait for the command to finish. Do not open the page or call its endpoints. Exit code 0 means the human approved and \`buckets.lock.json\` exists. Exit code 1 means the human cancelled or the page timed out. Ask the human what to do, and do not retry on your own.
-6. If \`buckets refresh --web\` says it cannot ask for approval on this machine (an SSH session, a container or no desktop), or the human prefers a terminal, ask the human to run \`buckets refresh\` in their own terminal and answer \`y\`.
-7. Run \`buckets check\`. Exit code 0 means the setup is done. Tell the human to commit \`buckets.lock.json\` together with \`buckets.config.json\`, \`tsconfig.json\`, \`AGENTS.md\`, \`.agents/\` and the files \`init\` wrote for your agent.
+1. Check that Node.js is version 20 or newer with \`node --version\`. If the project already has slopbuckets, in \`node_modules/slopbuckets\`, skip the install and run every \`buckets\` command below as \`npx buckets\`, such as \`npx buckets check\`. If \`buckets --version\` prints a version, slopbuckets is installed globally, so skip the install too. Otherwise install the CLI with \`npm install -g slopbuckets\`, then run \`buckets --version\`. If the global install fails because of permissions, stop and ask the human to install it. Do not use \`sudo\`.
+2. Check that the project folder has a \`tsconfig.json\`. A JavaScript project needs one too, because slopbuckets does not read \`jsconfig.json\`. If it is missing, create one with \`npx -p typescript@6 tsc --init\` and tell the human you did. Do not install \`typescript\` for slopbuckets. It uses the project's TypeScript 5 or 6 when there is one, and otherwise its own TypeScript 6.
+3. If the project folder already has a \`buckets.config.json\`, \`init\` has already run here, so skip this step. Otherwise run \`buckets init --agent <name>\`, where \`<name>\` is the coding agent you are: ${agentList}. If you are none of these, run \`buckets init --agent auto\`. It writes an empty \`buckets.config.json\` (\`"version": "2.0"\`, \`"buckets": {}\`, \`"ignore": []\`, \`"projects": []\`), installs the hooks of that agent, writes a block in \`AGENTS.md\`, copies the skill to \`.agents/skills/slopbuckets/SKILL.md\`, sets up the merge driver of the config in \`.gitattributes\` and adds \`.buckets/\` to \`.gitignore\`. It ends with warnings, such as a missing \`tsconfig.json\` or a hook command that is not on the PATH: tell the human each one. If \`init\` exits with 1, a setup step failed: show the human the failed lines, which start with \`!\` (or \`✗\` in a terminal) on stderr, and stop. If it exits with 64, the command line was wrong, for example an unknown agent name: read the usage it printed, fix the command and run it again. A 1.x \`buckets.config.json\` also makes \`init\` exit with 1 before it writes anything: tell the human, who renames that file. If \`init\` prints a step for the human, such as approving the hooks in the agent, tell the human.
+4. Read \`.agents/skills/slopbuckets/SKILL.md\`. It says how to read the config, where a new file goes, when to create a bucket, how to write a purpose and a reason, and how to translate an Nx, eslint-plugin-boundaries, Sheriff or dependency-cruiser setup.
+5. Build the first architecture. Run \`buckets check\`. Right after \`init\` it reports that the config has no buckets yet and lists the folders of the project with their file counts. Read the code and write the buckets in \`buckets.config.json\`: for each one a one-line \`purpose\`, the \`files\` globs, \`public\` (one file, a list of files, or \`null\` for an entry point that exports nothing), \`dependsOn\` with a one-line reason per bucket it imports, and \`packages\` with a one-line reason per npm package or Node built-in it imports, such as \`"node:fs"\`. Put tests, scripts and tool configs in \`ignore\`. A public file holds only named re-exports, such as \`export { charge } from './client'\`, so create one per bucket where none exists, then run \`buckets fix import-private\` to point the existing imports at the public files. On a large project, \`buckets check --summary\` gives the counts first. Run \`buckets check\` again after each change, and fix the code or the config for every violation, until it exits with 0.
+6. Show the human the config and a short summary of the buckets and their dependencies. Tell the human to commit \`buckets.config.json\`, \`AGENTS.md\`, \`.agents/\`, \`.gitignore\`, \`.gitattributes\` and the files \`init\` wrote for your agent.
 
-**Rules you must never break**, during the install and after it:
+**What to avoid** when you build or change the architecture:
 
-- Never create, edit, move or delete any \`buckets.lock.json\`, nested ones included, under any name or path: no short names, links, wildcards or scripts that compute the name. Only a human approves a state.
-- Never create, edit, move or delete any \`buckets.config.json\` yourself. \`buckets init\` writes it, and after that only a human changes it. When a task needs a change in it, such as an \`access\` line, stop and ask the human with the exact line.
-- Never run plain \`buckets refresh\`, or any form of it other than exactly \`buckets refresh --web\`. A human runs \`buckets refresh\` in their own terminal.
-- Never type the confirmation code, and never ask the human for it. The human reads it on the review page and types it into the window of the operating system.
+- One giant bucket, such as a single bucket with \`src/**\`. It passes every rule and says nothing about the architecture.
+- A \`utils\` or \`shared\` bucket that every bucket depends on.
+- A dependency added only to silence a warning. Write the real reason, or move the code.
+- \`ignore\` as an escape hatch for code that belongs to a bucket, generated code that a bucket imports included.
+- A reason or purpose that repeats the bucket name. Write it for the next agent, who will read it months later.
 
 ${sections.join('\n\n')}
 `;

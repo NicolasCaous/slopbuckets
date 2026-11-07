@@ -25,11 +25,65 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Check the architecture of this repository
+        # The root buckets.config.json lists cli, adapters/ts and docs, and each of them has its own config.
+        run: node cli/dist/index.js check
       - name: Unit tests
-        run: npm test
+        run: npm test -- --reporter=default --reporter=json --outputFile.json="${{ runner.temp }}/unit-tests.json"
+      - name: Code conventions
+        # Fails on a function over 150 lines or complexity 30, a unit test file over 10 s, a test that waits on real
+        # time, a second definition of a shared helper, and the other conventions listed in scripts/quality.mjs.
+        run: node scripts/quality.mjs --unit-report "${{ runner.temp }}/unit-tests.json"
+      - name: Generator and benchmark tests
+        run: node --test "scripts/bench/*.test.mjs"
       - name: Examples battery
         run: npx vitest run --project examples
       - name: Smoke test the CLI
         run: node cli/dist/index.js --version
-      - name: Check the package contents
-        run: npm pack --dry-run --workspace cli
+      - name: Smoke test the package
+        # Installs the packed tarball in an empty folder, then runs init and check on a small generated project. init
+        # may rewrite the config, so the generated one comes back before the check, which must find no violation.
+        # The first run installs only the tarball, so the adapter uses the TypeScript 6 that slopbuckets depends on.
+        # The second run adds TypeScript 7, which has no JavaScript API, so the adapter must fall back to the same one.
+        shell: bash
+        run: |
+          npm pack --workspace cli --pack-destination "$RUNNER_TEMP"
+          for extra in "" "typescript@7"; do
+            smoke="$RUNNER_TEMP/smoke${extra:+-ts7}"
+            mkdir "$smoke"
+            cd "$smoke"
+            npm init -y > /dev/null
+            npm install "$RUNNER_TEMP"/slopbuckets-*.tgz $extra
+            buckets="$smoke/node_modules/slopbuckets/dist/index.js"
+            node "$GITHUB_WORKSPACE/scripts/stress-project.mjs" "$smoke/project" --preset tiny
+            cd project
+            node "$buckets" init --yes
+            git checkout -- buckets.config.json
+            node "$buckets" check
+          done
+
+  bench:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Benchmark
+        # Fails when a budget of docs/guide/performance.md or a median 20% over bench/baseline.json repeats in a second measurement.
+        run: node scripts/bench.mjs --work "${{ runner.temp }}/bench" --json "${{ runner.temp }}/bench-results.json"
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: bench-${{ matrix.os }}
+          path: ${{ runner.temp }}/bench-results.json
+          if-no-files-found: ignore

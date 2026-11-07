@@ -1,0 +1,76 @@
+{
+  "description": "Gemini CLI: after a shell command AfterAgent denies the end of the turn once, and lets stop_hook_active through",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "after-tool",
+      "agent": "gemini",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n",
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-gemini-1",
+        "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "AfterTool",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "tool_name": "run_shell_command",
+        "tool_input": {
+          "command": "git apply ../refactor.patch",
+          "is_background": false
+        },
+        "tool_response": {
+          "llmContent": "ok"
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "after-agent",
+      "agent": "gemini",
+      "payload": {
+        "session_id": "s-gemini-1",
+        "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "AfterAgent",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "prompt": "add a refund helper",
+        "prompt_response": "Done.",
+        "stop_hook_active": false
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "decision": "deny",
+          "reason": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+        }
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "after-agent",
+      "agent": "gemini",
+      "payload": {
+        "session_id": "s-gemini-1",
+        "transcript_path": "/home/dev/.gemini/tmp/chats/session.json",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "AfterAgent",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "prompt": "add a refund helper",
+        "prompt_response": "Done.",
+        "stop_hook_active": true
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

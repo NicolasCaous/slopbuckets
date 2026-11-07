@@ -1,0 +1,77 @@
+{
+  "description": "Codex CLI: after a Bash call Stop blocks once with every violation, and lets stop_hook_active through",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "agent": "codex",
+      "payload": {
+        "session_id": "s-codex-1",
+        "turn_id": "turn-1",
+        "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "PreToolUse",
+        "model": "gpt-5.3-codex",
+        "permission_mode": "default",
+        "tool_name": "Bash",
+        "tool_use_id": "call_1",
+        "tool_input": {
+          "command": "git apply ../refactor.patch"
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "codex",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n",
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-codex-1",
+        "turn_id": "turn-1",
+        "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "Stop",
+        "model": "gpt-5.3-codex",
+        "permission_mode": "default",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+        }
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "codex",
+      "payload": {
+        "session_id": "s-codex-1",
+        "turn_id": "turn-1",
+        "transcript_path": "/home/dev/.codex/sessions/rollout.jsonl",
+        "cwd": "${PROJECT}",
+        "hook_event_name": "Stop",
+        "model": "gpt-5.3-codex",
+        "permission_mode": "default",
+        "stop_hook_active": true,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "description": "public pointing to an ignored file gives public-missing",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-missing",
+        "file": "scripts/env.ts"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "public-missing",
+          "state": "ignored"
+        }
+      ]
+    }
+  }
+}

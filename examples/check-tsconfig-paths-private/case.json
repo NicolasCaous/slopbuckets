@@ -1,0 +1,25 @@
+{
+  "description": "an import through a tsconfig paths alias of a private file gives import-private",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "src/app/main.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "imports": [
+            {
+              "target": "src/billing/charge.ts"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

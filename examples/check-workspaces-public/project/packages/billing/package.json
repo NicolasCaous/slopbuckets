@@ -1,0 +1,9 @@
+{
+  "name": "@shop/billing",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./charge": "./src/charge.ts"
+  }
+}

@@ -1,15 +1,18 @@
 ---
 title: Goose
-description: The plugin hooks that buckets init writes in .agents/plugins/slopbuckets/ for Goose.
+description: The plugin hooks that buckets init writes in .agents/plugins/ for Goose, which can refuse an edit and block the end of a turn.
 ---
 
 # Goose
 
-| Protection | Support | How |
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` answers `block`, and Goose refuses the call |
-| Feedback after edits | no | Goose has no hook after an edit that can talk to the model |
-| Block the end of a turn | yes | `Stop` answers `block` once with the `buckets check` report |
+| Warning on edit | no | Goose reads no context from any hook |
+| Pending list on other tools | no | same |
+| Interrupt on an invalid config | yes | `PreToolUse` answers `decision: "block"` |
+| Interrupt at the end | yes | `Stop` answers `decision: "block"` once |
+| Subagents | unverified | the `Stop` hook probably runs at the end of a subagent too, with the subagent's own session id |
+| Compaction | no | Goose has no compaction event |
 
 ## Install
 
@@ -17,44 +20,48 @@ description: The plugin hooks that buckets init writes in .agents/plugins/slopbu
 buckets init --agent goose
 ```
 
-It writes a project plugin and the shared instructions:
+It writes:
 
-- `.agents/plugins/slopbuckets/hooks/hooks.json` with a `PreToolUse` hook and a `Stop` hook
-- `.agents/plugins/slopbuckets/plugin.json`, the plugin manifest
+- a project plugin in `.agents/plugins/slopbuckets/`, with a `plugin.json` manifest and `hooks/hooks.json`. The hooks file has `PreToolUse` with the matcher `(?:^|__)(?:shell|write|edit|text_editor)$` and a timeout of 60 seconds, and `Stop` with a timeout of 600 seconds. They run `buckets hook --agent goose pre-tool-use` and `buckets hook --agent goose stop`. Running `init` again replaces the 1.x entries, which set `on_failure`.
 - the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`
 
-Goose finds project plugins in `.agents/plugins/` when a session starts and turns new ones on by itself. If you disabled the plugin before, remove `slopbuckets` from `disabledPlugins` in `.config/goose/settings.json`.
+When it writes the hooks, `init` reminds you that Goose runs hooks with `sh`, so Windows needs `sh` on the PATH, and that Goose shows hook text to no one, so the agent sees the structure problems only when the stop hook blocks.
 
-Running `init` again updates the slopbuckets entries in `hooks.json` and leaves your own hooks there alone. An install from an older version had `on_failure: "block"` on the `PreToolUse` hook, and `init` removes it.
-
-Goose runs hook commands with `sh -c`, also on Windows, so Windows needs `sh` on the PATH. Git for Windows has one.
+Goose reads project plugins from the folder where the agent starts. A plugin listed in `disabledPlugins` in the Goose settings is skipped.
 
 ## How it works
 
-Before a tool whose name ends in `shell`, `write`, `edit` or `text_editor` runs, Goose runs `buckets hook --agent goose pre-tool-use` with `tool_name`, `tool_input` and `working_dir` on stdin. When a `write` or `edit` targets any `buckets.lock.json` or `buckets.config.json`, or a `shell` command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook prints `{"decision": "block", "reason": "..."}`. Goose refuses the call and tells the model not to retry it. For every other call the hook prints nothing and exits with 0, which Goose reads as allow.
+Goose sends each event as JSON on stdin with `session_id`, `tool_name`, `tool_input` and `working_dir`. The hook uses `working_dir` as the project folder.
 
-The hook keeps Goose's default `on_failure: "allow"`, so a hook that fails or times out lets the call through. slopbuckets never blocks the agent because the hook itself broke.
-
-When the agent is about to end its turn, Goose runs `buckets hook --agent goose stop`. The hook runs `buckets check` with nested projects. When it fails, the hook prints `{"decision": "block", "reason": "<report>"}`, and Goose hands the report to the model and keeps it working. Goose sends no `stop_hook_active` flag, so the hook leaves a small mark in the system temp folder and lets the next stop of the same session through. It never blocks twice in a row.
+- `PreToolUse` with the matcher `(?:^|__)(?:shell|write|edit|text_editor)$` sees the call before it runs. The matcher accepts both the bare names and an extension prefix such as `developer__`, and the hook reads the tool kind from the part after the last `__`. `write` carries `path` and the whole new `content`, `edit` carries `path`, `before` and `after`, and `text_editor` is the tool of the older developer extension. When the edit makes `buckets.config.json` worse, the hook prints `{"decision": "block", "reason": "..."}` and exits 0. Otherwise it exits 0 with empty stdout, the allow that Goose expects. Goose reads no context, so the hook prints no pending list, but it still records the edit and marks the session as one that changed files. `shell` calls mark the session too.
+- `Stop` runs the `stop` phase, only when the session changed files or still has pending violations. With violations, the hook prints `{"decision": "block", "reason": "<every violation in full>"}`, and Goose adds the reason as a hidden user message and continues. The payload has no loop flag, so the hook keeps a mark per `session_id` in `.buckets/sessions/` of the project to block once. Goose also ends the turn by itself after 8 blocks, a cap that `GOOSE_STOP_HOOK_BLOCK_CAP` changes.
 
 ## Limits
 
-- After an edit, nothing reports the problems in the file. The model hears about them at the end of the turn.
-- The hooks fail open, like every slopbuckets integration. When the `buckets` command is missing, or a hook fails or times out, Goose lets the call through and lets the turn end without a check.
-- Goose does not run hooks for the tool calls of subagents.
+- After a project install, the hook command names the copy relative to the project folder: `node ./node_modules/slopbuckets/dist/index.js`. Goose sets no variable with the project folder. If Goose runs a hook from another folder than the project folder, for example the folder the agent moved to with `cd`, the command does not find the copy and the hook does nothing.
+- No output of any Goose hook reaches the model except a block reason, so the pending list arrives only at the end of a turn.
+- In approve mode, Goose asks the user before the hook runs, so no hook answer can skip the prompt.
+- Stray text on stdout turns an allow into a hook failure, which still allows but logs a warning. The hook writes its logs to stderr.
+- A hook that fails, such as on a machine without the CLI, allows the call under Goose's default `on_failure: "allow"`, and a failing stop hook always lets the turn end.
+- Goose runs every hook command with `sh -c`, also on Windows, so Windows needs `sh` on the PATH, for example from Git for Windows.
+- Hooks inside subagents are read from the Goose source, not tested in a live session.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Start a Goose session in the project.
-2. Ask it to "run buckets refresh". Goose should say a policy hook from `slopbuckets` denied the call.
-3. Ask it to add `import { x } from './x';` to a file under the root bucket folder and stop. Before it finishes, Goose should get the `buckets check` report and fix the import.
+In a project where `billing` and `payments` are buckets and the public file of `payments` is `src/payments/index.ts`:
 
-By hand, from the project folder:
+1. Start Goose in the project folder.
+2. Ask it to add `import { charge } from '../payments/client';` to `src/billing/invoice.ts` and end the turn. The stop hook should send it back once with `buckets: 1 structure violation remains.`
+3. Ask it to empty the `purpose` of a bucket in `buckets.config.json`. Goose should refuse the edit with `buckets: edit not applied, buckets.config.json would be invalid.`
+
+By hand, from the project folder, write a file with the violation, send the `write` call that created it, then the stop of the same session:
 
 ```sh
-echo '{"event":"PreToolUse","session_id":"s1","tool_name":"shell","tool_input":{"command":"buckets refresh"},"working_dir":"'"$PWD"'"}' | buckets hook --agent goose pre-tool-use
+printf "import { charge } from '../payments/client';\n" > src/billing/refund.ts
+echo '{"event":"PreToolUse","session_id":"test","working_dir":"'"$PWD"'","tool_name":"write","tool_input":{"path":"src/billing/refund.ts","content":"import { charge } from \"../payments/client\";\n"}}' | buckets hook --agent goose pre-tool-use
+echo '{"event":"Stop","session_id":"test","working_dir":"'"$PWD"'"}' | buckets hook --agent goose stop
 ```
 
-It prints `{"decision":"block",...}`.
+The first command prints nothing. The second prints `{"decision":"block","reason":"buckets: 1 structure violation remains. ..."}`, and the same stop sent again prints nothing. A stop without the tool call before it prints nothing. Delete `src/billing/refund.ts` and `.buckets/sessions/test.json` afterwards.

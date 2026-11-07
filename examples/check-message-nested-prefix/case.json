@@ -1,0 +1,10 @@
+{
+  "description": "the text output starts a violation of a nested project with its folder",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "message": "buckets check: 1 structure violation. Fix the code or edit buckets.config.json. Either is valid.\n\npackages/sdk: client -> core: private file\n  src/client/main.ts:2 imports timeout from src/core/connect.ts\n  core public: src/core/index.ts\n  fix code: import from src/core/index.ts instead, and add the re-exports it lacks: export { timeout } from './connect'"
+  }
+}

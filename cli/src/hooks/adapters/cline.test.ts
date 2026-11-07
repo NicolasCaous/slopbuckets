@@ -1,145 +1,168 @@
-// The Cline adapter with Cline payloads: stringified parameters, editor, apply_patch and run_commands calls.
+// The Cline adapter with Cline payloads: the CLI 3.x tool_call block and the legacy stringified preToolUse block,
+// context through contextModification, and a cancel only for the config-invalid deny.
 import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HookDecision, HookInput } from '../../contract/hooks.js';
+import { renderInterrupt } from '../../contract/messages.js';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { feedbackFor, line, LOCK_DENY_REASON, guardedNames, patch, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
-import { cancelMessage, clineAdapter, clineCommands, clineParameters, powershellScript, unixScript } from './cline.js';
+import { SAMPLES } from '../../testing/samples.js';
+import { line, patch, runAdapter } from './adapter-test-kit.js';
+import { clineAdapter, clineParameters, powershellScript, unixScript } from './cline.js';
 
+const core = vi.hoisted(() => ({ decision: { kind: 'silent' } as HookDecision, inputs: [] as HookInput[], fail: false }));
+vi.mock('../core.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core.js')>()),
+  hookCore: async (input: HookInput) => {
+    core.inputs.push(input);
+    if (core.fail) throw new Error('core crashed');
+    return core.decision;
+  },
+}));
+
+beforeEach(() => {
+  core.decision = { kind: 'silent' };
+  core.inputs = [];
+  core.fail = false;
+});
 afterEach(cleanupProjects);
 
-const ALLOW = line({ cancel: false });
+const NEUTRAL = line({ cancel: false });
 
 /** Cline turns every parameter value that is not a string into a JSON string. */
 function stringify(params: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(params).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]));
 }
 
-function payload(dir: string, hookName: 'PreToolUse' | 'PostToolUse', toolName: string, params: Record<string, unknown>) {
-  const part = { toolName, parameters: stringify(params) };
-  return {
-    clineVersion: '4.2.0',
-    hookName,
-    timestamp: '1759590000000',
-    taskId: '01K6P3M8Z7Q2W4E5R6T7Y8U9I0',
-    workspaceRoots: [dir],
-    userId: 'user-1',
-    ...(hookName === 'PreToolUse' ? { preToolUse: part } : { postToolUse: { ...part, result: 'ok', success: true, executionTimeMs: 12 } }),
-  };
+/** The VS Code payload: only the legacy block. */
+function legacy(dir: string, toolName: string, params: Record<string, unknown>) {
+  return { clineVersion: '4.2.0', hookName: 'PreToolUse', timestamp: '1759590000000', taskId: 'task-1', workspaceRoots: [dir], userId: 'u', preToolUse: { toolName, parameters: stringify(params) } };
 }
 
-const commands = (dir: string, list: unknown[]) => payload(dir, 'PreToolUse', 'run_commands', { commands: list });
-const deny = (tool: string) => line({ cancel: true, errorMessage: cancelMessage(tool, LOCK_DENY_REASON) });
+/** The CLI 3.x payload: tool_call with objects, next to the legacy block. */
+function sdk(dir: string, name: string, input: Record<string, unknown>, agent: { agent_id: string; parent_agent_id: string | null } = { agent_id: 'a1', parent_agent_id: null }) {
+  return { ...legacy(dir, name, input), hookName: 'tool_call', sessionContext: { rootSessionId: 'root-1' }, ...agent, tool_call: { id: 'c1', name, input } };
+}
 
-describe('cline parameters', () => {
-  it('decodes stringified values and reads every command shape', () => {
+async function inputFor(dir: string, body: unknown): Promise<HookInput> {
+  await runAdapter(clineAdapter, 'pre-tool-use', body, dir);
+  return core.inputs.at(-1)!;
+}
+
+describe('cline payloads', () => {
+  it('turns editor calls into pre-edit with the new text, from either block', async () => {
+    const dir = makeProject({ 'src/a.ts': 'const a = 1;\n' }, false);
+    const file = path.join(dir, 'src/a.ts');
+    expect(await inputFor(dir, legacy(dir, 'editor', { path: file, old_text: '1', new_text: '2' }))).toEqual({
+      phase: 'pre-edit',
+      sessionId: 'task-1',
+      agentId: null,
+      cwd: dir,
+      root: dir,
+      toolName: 'editor',
+      edits: [{ path: file, content: 'const a = 2;\n' }],
+      isShell: false,
+      stopHookActive: false,
+    });
+    expect((await inputFor(dir, sdk(dir, 'editor', { path: 'src/b.ts', new_text: 'b\n' }))).edits).toEqual([{ path: path.join(dir, 'src/b.ts'), content: 'b\n' }]);
+    expect((await inputFor(dir, sdk(dir, 'editor', { path: file, new_text: 'x', insert_line: 3 }))).edits).toEqual([{ path: file }]);
+    expect((await inputFor(dir, legacy(dir, 'write_to_file', { path: file, content: 'all\n' }))).edits).toEqual([{ path: file, content: 'all\n' }]);
+  });
+
+  it('reads apply_patch: added files with text, deleted files as null, updated files with the hunks applied', async () => {
+    const dir = makeProject({ 'src/a.ts': 'a\n' }, false);
+    const text = patch(['*** Add File: src/new.ts', '+export const n = 1;', '+', '*** Delete File: src/old.ts', '*** Update File: src/a.ts', '@@', '-a', '+b'], true);
+    expect((await inputFor(dir, sdk(dir, 'apply_patch', { input: text }))).edits).toEqual([
+      { path: path.join(dir, 'src/new.ts'), content: 'export const n = 1;\n\n' },
+      { path: path.join(dir, 'src/old.ts'), content: null },
+      { path: path.join(dir, 'src/a.ts'), content: 'b\n' },
+    ]);
+  });
+
+  it('turns commands and reads into pre-tool, and gives a subagent its own id', async () => {
+    const dir = makeProject({}, false);
+    expect(await inputFor(dir, legacy(dir, 'run_commands', { commands: ['npm test'] }))).toMatchObject({ phase: 'pre-tool', isShell: true, edits: [] });
+    expect(await inputFor(dir, sdk(dir, 'read_files', { files: [{ path: 'a.ts' }] }))).toMatchObject({ phase: 'pre-tool', isShell: false, edits: [] });
+    expect(await inputFor(dir, sdk(dir, 'read_files', {}, { agent_id: 'sub-7', parent_agent_id: 'a1' }))).toMatchObject({ sessionId: 'task-1', agentId: 'sub-7' });
+    const noTask = { ...sdk(dir, 'read_files', {}), taskId: undefined };
+    expect(await inputFor(dir, noTask)).toMatchObject({ sessionId: 'root-1', agentId: null });
+  });
+
+  it('decodes stringified values', () => {
     expect(clineParameters({ parameters: { commands: '["npm test","buckets check"]', path: '/a/b.ts' } })).toEqual({ commands: ['npm test', 'buckets check'], path: '/a/b.ts' });
     expect(clineParameters({ parameters: '{"path":"x"}' })).toEqual({ path: 'x' });
     expect(clineParameters({ parameters: { note: '[not json' } })).toEqual({ note: '[not json' });
-    expect(clineCommands({ commands: ['a', { command: 'buckets', args: ['refresh'] }] })).toEqual(['a', 'buckets refresh']);
-    expect(clineCommands({ command: 'ls' })).toEqual(['ls']);
   });
 });
 
-describe('cline pre-tool-use', () => {
-  it('allows ordinary edits and commands with an explicit cancel: false', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: path.join(dir, 'root/_/main.ts'), old_text: 'a', new_text: 'b' }), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    expect(await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['npm test']), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    expect(await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'read_files', { files: [{ path: path.join(dir, 'buckets.lock.json') }] }), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
+describe('cline answers', () => {
+  const run = async () => {
+    const dir = makeProject({}, false);
+    return runAdapter(clineAdapter, 'pre-tool-use', legacy(dir, 'write_to_file', { path: 'a.ts', content: 'x' }), dir);
+  };
+
+  it('answers cancel: false with the context, and cancels only on deny', async () => {
+    expect(await run()).toEqual({ code: 0, out: NEUTRAL, err: '' });
+    core.decision = { kind: 'context', text: 'buckets: 1 pending.' };
+    expect(await run()).toEqual({ code: 0, out: line({ cancel: false, contextModification: 'buckets: 1 pending.' }), err: '' });
+    const interrupt = renderInterrupt([SAMPLES['config-invalid']] as never);
+    core.decision = { kind: 'deny', text: interrupt };
+    expect(await run()).toEqual({ code: 0, out: line({ cancel: true, errorMessage: interrupt }), err: '' });
   });
 
-  it('cancels the task, saying why, for an editor or apply_patch write to the lock', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      expect(await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: name, new_text: '{}' }), dir)).toEqual(as({ code: 0, out: deny('editor'), err: '' }));
-      const input = patch([`*** Update File: ${name}`, '@@', '-a', '+b']);
-      expect((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'apply_patch', { input }), dir)).out).toBe(as(deny('apply_patch')));
-    }
-    const out = JSON.parse((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'editor', { path: 'buckets.lock.json', new_text: '' }), dir)).out) as { errorMessage: string };
-    expect(out.errorMessage).toContain('ends the whole task');
+  it('cuts a long context at the Cline limit', async () => {
+    core.decision = { kind: 'context', text: 'x'.repeat(60_000) };
+    const out = JSON.parse((await run()).out) as { contextModification: string };
+    expect(out.contextModification.length).toBeLessThan(50_000);
+    expect(out.contextModification).toContain('buckets check');
   });
 
-  it('cancels for a plain buckets refresh or an installing buckets update in any command of the list, and allows buckets refresh --web', async () => {
-    const dir = violationProject();
-    for (const command of REFRESH_DENIED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['npm test', command]), dir)).out).toBe(deny('run_commands'));
-    for (const command of REFRESH_ALLOWED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [command]), dir)).out).toBe(ALLOW);
-    for (const command of UPDATE_DENIED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['npm test', command]), dir)).out).toBe(asUpdateDeny(deny('run_commands')));
-    for (const command of UPDATE_ALLOWED) expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [command]), dir)).out).toBe(ALLOW);
-    // `buckets refresh --web` followed by another command in the list stays allowed: each command is judged alone.
-    expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, ['buckets refresh --web', 'git status']), dir)).out).toBe(ALLOW);
-    expect((await runAdapter(clineAdapter, 'pre-tool-use', commands(dir, [{ command: 'buckets', args: ['refresh'] }]), dir)).out).toBe(deny('run_commands'));
-    // The older VS Code runtime.
-    expect((await runAdapter(clineAdapter, 'pre-tool-use', payload(dir, 'PreToolUse', 'execute_command', { command: 'cat buckets.lock.json' }), dir)).out).toBe(deny('execute_command'));
-  });
-
-  it('allows on a broken payload', async () => {
-    const dir = makeProject({});
-    expect(await runAdapter(clineAdapter, 'pre-tool-use', 'not json', dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-  });
-});
-
-describe('cline post-tool-use', () => {
-  it('hands the check report back in contextModification', async () => {
-    const dir = violationProject();
-    const result = await runAdapter(clineAdapter, 'post-tool-use', payload(dir, 'PostToolUse', 'editor', { path: path.join(dir, 'root/_/main.ts'), new_text: 'x' }), dir);
-    expect(result).toEqual({ code: 0, out: line({ cancel: false, contextModification: await feedbackFor(dir, 'root/_/main.ts') }), err: '' });
-    const input = patch(['*** Update File: root/_/main.ts', '@@', '-a', '+b']);
-    expect(JSON.parse((await runAdapter(clineAdapter, 'post-tool-use', payload(dir, 'PostToolUse', 'apply_patch', { input }), dir)).out)).toMatchObject({ cancel: false, contextModification: expect.stringContaining('import-relative') });
-  });
-
-  it('says nothing more for a clean file, a failed tool or a command', async () => {
-    const dir = violationProject();
-    expect((await runAdapter(clineAdapter, 'post-tool-use', payload(dir, 'PostToolUse', 'editor', { path: path.join(dir, 'root/log/_/logger.ts') }), dir)).out).toBe(ALLOW);
-    const edited = payload(dir, 'PostToolUse', 'editor', { path: path.join(dir, 'root/_/main.ts') }) as Record<string, unknown> & { postToolUse: Record<string, unknown> };
-    const failed = { ...edited, postToolUse: { ...edited.postToolUse, success: false } };
-    expect((await runAdapter(clineAdapter, 'post-tool-use', failed, dir)).out).toBe(ALLOW);
-    expect((await runAdapter(clineAdapter, 'post-tool-use', payload(dir, 'PostToolUse', 'run_commands', { commands: ['ls'] }), dir)).out).toBe(ALLOW);
+  it('fails open on a broken payload and on a crash', async () => {
+    const dir = makeProject({}, false);
+    expect(await runAdapter(clineAdapter, 'pre-tool-use', 'not json', dir)).toEqual({ code: 0, out: NEUTRAL, err: '' });
+    core.fail = true;
+    const crashed = await run();
+    expect(crashed).toMatchObject({ code: 0, out: NEUTRAL });
+    expect(crashed.err).toContain('core crashed');
   });
 });
 
 describe('cline install', () => {
-  const files = ['PreToolUse', 'PostToolUse', 'PreToolUse.ps1', 'PostToolUse.ps1'].map((f) => `.clinerules/hooks/${f}`);
+  const files = ['PreToolUse', 'PreToolUse.ps1'].map((f) => `.clinerules/hooks/${f}`);
 
-  it('writes one script per event and platform, idempotently, and uninstalls them', () => {
+  it('writes one script per platform, idempotently', () => {
     const dir = makeProject({}, false);
     const first = clineAdapter.install(dir, { skill: null });
-    expect(first[0]).toMatchObject({ status: 'done' });
+    expect(first[0]).toEqual({ status: 'done', text: 'Installed the Cline hooks in .clinerules/hooks/ (PreToolUse, PreToolUse.ps1)' });
     expect(first.some((s) => s.status === 'todo' && s.text.includes('Enable Hooks'))).toBe(true);
+    expect(first.at(-1)).toMatchObject({ status: 'todo', text: expect.stringContaining('buckets init --git-hook') });
     for (const file of files) expect(existsSync(path.join(dir, file))).toBe(true);
     expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse'), 'utf8')).toBe(unixScript('pre-tool-use'));
-    expect(readFileSync(path.join(dir, '.clinerules/hooks/PostToolUse.ps1'), 'utf8')).toBe(powershellScript('post-tool-use'));
+    expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse.ps1'), 'utf8')).toBe(powershellScript('pre-tool-use'));
     expect(unixScript('pre-tool-use')).toContain('exec buckets hook --agent cline pre-tool-use');
-    expect(powershellScript('post-tool-use')).toContain('& buckets hook --agent cline post-tool-use');
     if (process.platform !== 'win32') expect(statSync(path.join(dir, '.clinerules/hooks/PreToolUse')).mode & 0o111).not.toBe(0);
 
-    expect(clineAdapter.install(dir, { skill: null })).toEqual([{ status: 'kept', text: 'The Cline hooks in .clinerules/hooks/ are up to date' }]);
-
-    expect(clineAdapter.uninstall(dir)[0]).toMatchObject({ status: 'done' });
-    for (const file of files) expect(existsSync(path.join(dir, file))).toBe(false);
-    expect(existsSync(path.join(dir, '.clinerules/hooks'))).toBe(false);
-    expect(clineAdapter.uninstall(dir)).toEqual([]);
+    expect(clineAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'kept', text: 'The Cline hooks in .clinerules/hooks/ are up to date' });
   });
 
   it("leaves the user's own hook scripts and rules alone", () => {
-    const dir = makeProject({ '.clinerules/hooks/PreToolUse': '#!/bin/sh\necho \'{"cancel":false}\'\n', '.clinerules/style.md': '# style\n' }, false);
+    const mine = '#!/bin/sh\necho \'{"cancel":false}\'\n';
+    const dir = makeProject({ '.clinerules/hooks/PreToolUse': mine, '.clinerules/hooks/PostToolUse': mine, '.clinerules/style.md': '# style\n' }, false);
     const steps = clineAdapter.install(dir, { skill: null });
-    expect(steps[0]).toMatchObject({ status: 'done' });
     expect(steps.some((s) => s.status === 'todo' && s.text.includes('.clinerules/hooks/PreToolUse is your own hook'))).toBe(true);
-    expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse'), 'utf8')).toBe('#!/bin/sh\necho \'{"cancel":false}\'\n');
-    clineAdapter.uninstall(dir);
-    expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse'), 'utf8')).toBe('#!/bin/sh\necho \'{"cancel":false}\'\n');
-    expect(existsSync(path.join(dir, '.clinerules/hooks/PostToolUse'))).toBe(false);
+    expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse'), 'utf8')).toBe(mine);
+    expect(readFileSync(path.join(dir, '.clinerules/hooks/PreToolUse'), 'utf8')).toBe(mine);
+    expect(readFileSync(path.join(dir, '.clinerules/hooks/PostToolUse'), 'utf8')).toBe(mine);
     expect(existsSync(path.join(dir, '.clinerules/style.md'))).toBe(true);
   });
 
   it('updates an outdated slopbuckets script', () => {
     const dir = makeProject({}, false);
     clineAdapter.install(dir, { skill: null });
-    const file = path.join(dir, '.clinerules/hooks/PostToolUse');
+    const file = path.join(dir, '.clinerules/hooks/PreToolUse');
     writeFileSync(file, readFileSync(file, 'utf8').replace('exec buckets', 'exec old-buckets'), 'utf8');
-    expect(clineAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: 'Installed the Cline hooks in .clinerules/hooks/ (PostToolUse)' });
-    expect(readFileSync(file, 'utf8')).toBe(unixScript('post-tool-use'));
+    expect(clineAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: 'Installed the Cline hooks in .clinerules/hooks/ (PreToolUse)' });
+    expect(readFileSync(file, 'utf8')).toBe(unixScript('pre-tool-use'));
   });
 
   it('does not touch a .clinerules rules file', () => {

@@ -1,0 +1,50 @@
+{
+  "description": "a config with three problems gives one config-invalid per problem",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "problem": {
+            "kind": "empty",
+            "at": [
+              "buckets",
+              "app",
+              "dependsOn",
+              "billing"
+            ]
+          }
+        },
+        {
+          "rule": "config-invalid",
+          "problem": {
+            "kind": "missing",
+            "at": [
+              "buckets",
+              "billing"
+            ],
+            "field": "purpose"
+          }
+        },
+        {
+          "rule": "config-invalid",
+          "problem": {
+            "kind": "unknown-field",
+            "at": [
+              "buckets",
+              "billing"
+            ],
+            "field": "access"
+          }
+        }
+      ]
+    }
+  }
+}

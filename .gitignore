@@ -1,6 +1,3 @@
-# Local design notes, not part of the repository
-SPEC.md
-
 node_modules/
 dist/
 *.tgz
@@ -30,3 +27,6 @@ site/demo/
 # Written by docs/scripts/llms.mjs on every docs build
 site/llms.txt
 site/llms-full.txt
+
+# The cache and hook sessions of slopbuckets
+.buckets/

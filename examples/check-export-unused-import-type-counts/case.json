@@ -1,0 +1,7 @@
+{
+  "description": "an import type of a public export counts as a use",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

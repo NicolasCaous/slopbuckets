@@ -1,0 +1,2 @@
+export { PACKAGE_NAME, binTarget, checkForUpdate, cliCommand, compareVersions, detectInstall, envValue, fetchVersion, findOnPath, formatCommand, globalLocationQuery, installArgs, installedPackageDir, isVersion, localScript, packageVersion, processUpdateDeps, registryUrl, samePackage, voltaInUse, windowsCommandLine, writable, writeUpdateCache } from './update.js';
+export type { Install, UpdateDeps } from './update.js';

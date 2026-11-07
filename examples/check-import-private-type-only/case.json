@@ -1,0 +1,12 @@
+{
+  "description": "a private import of types only gets the export type fix line, which isolatedModules accepts",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "messageIncludes": [
+      "export type { Invoice } from './invoice'"
+    ]
+  }
+}

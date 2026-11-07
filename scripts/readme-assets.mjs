@@ -1,42 +1,45 @@
 #!/usr/bin/env node
-// Builds the images that README.md shows, into .github/readme/:
+// Builds the images of the README, the inspect guide and the landing page from the real CLI:
 //
-//   hero.svg          the website hero (block-letter banner, slop bucket, tagline) inside a CRT monitor
-//   check-fail.svg    `buckets check` with broken rules, exit code 1
-//   check-lock.svg    `buckets check` with lock differences, exit code 2
-//   check-pass.svg    `buckets check` on an approved project, exit code 0
-//   inspect.svg       the map page of `buckets inspect` inside a CRT monitor
-//   refresh-web.svg   the review page of `buckets refresh --web` inside a CRT monitor, with the confirmation window
+//   .github/readme/hero.svg           the website hero (block-letter banner, slop bucket, tagline) inside a CRT monitor
+//   .github/readme/check-fail.svg     `buckets check` after the hook sequence below, exit code 1
+//   .github/readme/hook-warning.svg   the pending list of the third edit of a hook session, with [NEW], [OLD] and [RESOLVED]
+//   .github/readme/inspect.svg        the inspect page of the shop project, dark scheme, inside a CRT monitor
+//   docs/public/img/inspect-*.webp    the five screenshots of docs/guide/inspect.md, light scheme
+//   site/img/inspect-map.webp         the screenshot of the Inspect section of the landing page, dark scheme
 //
 // The hero reads the banner and the bucket from site/index.html, so it follows the website.
-// The terminal images come from the real CLI. The script builds cli/dist when a source file is newer than it,
-// copies examples/valid-readme/project to examples/.tmp/readme-<name>/ (inside the repository, so `typescript`
-// resolves), gives the copy the alias @root-k3x9pm2a in place of @root (the shape of the unique alias that
-// `buckets init` generates), writes a fresh lock with computeLock and writeLock from cli/src/api.ts, applies the edits of the
-// scenario, runs `node cli/dist/index.js check` there and turns the colored output into SVG. A small preload
-// tells the CLI that stdout is an 88-column terminal, so the output wraps and gets its marks the way a human
-// sees it. The copies are deleted at the end.
 //
-// The two monitor images are screenshots of the real pages. The script builds examples/.tmp/readme-screens/acme
-// (valid-readme with a nested project and the edits of the `lock` scenario), starts `buckets inspect` and
-// `buckets refresh --web` there, and takes a WebP screenshot of each page with a headless Chrome or Edge over the
-// DevTools protocol. The review server is stopped without a decision, so no confirmation window opens and no lock
-// is written. The confirmation window in front of the review page is drawn from the real dialogRequest() text
-// and the code of the review. Without Chrome (set CHROME_PATH to point at one), the script keeps the current
-// inspect.svg and refresh-web.svg.
+// The terminal images come from the real CLI. The script builds cli/dist when a source file is newer than it, writes
+// the README example project (app, billing, log and payments, the same config the landing page shows) into
+// examples/.tmp/readme-<name>/ (inside the repository, so `typescript` resolves), commits it to a git repository of
+// its own, and runs `node cli/dist/index.js` there. hook-warning.svg is the `additionalContext` that
+// `buckets hook pre-tool-use` returns for the third of these edits, each written to disk after its hook ran:
+//
+//   1. Write src/billing/refund.ts, which imports '../payments/client' (a private file of payments)
+//   2. Write src/utils/date.ts, a file in no bucket
+//   3. Write src/billing/refund.ts again: it imports '../payments' and '../log' (billing does not declare log)
+//
+// check-fail.svg is `buckets check` on the result, after a check of the project before the edits exits with 0. The CLI prints plain text, so the colors are the script's.
+//
+// The screenshots come from `buckets inspect` on the shop of scripts/stress-project.mjs (31 buckets, a nested project
+// and a few violations), taken with a headless Chrome or Edge over the DevTools protocol with reduced motion. The
+// files view is the shop after `buckets init` on a copy without buckets.config.json. Without Chrome (set
+// CHROME_PATH to point at one), the script keeps the current screenshots.
 //
 // Run with `npm run readme:assets`. Pass `--print` to also print the captured output.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { PRESETS, generate } from './stress-project.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rel = (...parts) => path.join(repo, ...parts);
 const outDir = rel('.github', 'readme');
+const docsImg = rel('docs', 'public', 'img');
 const tmpDir = rel('examples', '.tmp');
-const COLUMNS = 88;
 const PRINT = process.argv.includes('--print');
 
 /* ------------------------------------------------------------------ palette (site/index.html :root) */
@@ -62,7 +65,7 @@ const MONO = `ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const n = (v) => String(Math.round(v * 100) / 100);
 
-/* ------------------------------------------------------------------ CLI build and scenarios */
+/* ------------------------------------------------------------------ CLI build */
 
 function newestMtime(dir) {
   let newest = 0;
@@ -83,402 +86,157 @@ function ensureCliBuilt() {
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build', '-w', 'cli'], { cwd: repo, stdio: 'inherit', shell: process.platform === 'win32' });
 }
 
-/**
- * Bundles cli/src/api.ts, the API the examples battery uses to write a fresh lock, into examples/.tmp/, together
- * with the review that `buckets refresh --web` shows and the text of its confirmation window.
- */
-async function loadApi() {
-  const { build } = await import('esbuild');
-  const outfile = path.join(tmpDir, 'readme-api.mjs');
-  await build({
-    stdin: {
-      contents: [
-        "export * from './api.ts';",
-        "export { evaluateTree } from './web/lock-review.ts';",
-        "export { dialogRequest } from './web/refresh-app.ts';",
-      ].join('\n'),
-      resolveDir: rel('cli', 'src'),
-      sourcefile: 'readme-entry.ts',
-      loader: 'ts',
-    },
-    outfile,
-    bundle: true,
-    format: 'esm',
-    platform: 'node',
-    target: 'node20',
-    external: ['typescript'],
-    // version.ts reads ../package.json next to its own file, so the bundle keeps the URL of cli/src.
-    define: { 'import.meta.url': JSON.stringify(pathToFileURL(rel('cli', 'src', 'api.ts')).href) },
-    logLevel: 'warning',
-  });
-  return import(pathToFileURL(outfile).href);
+/** The environment of every child, without GIT_* variables, which would point git at the outer repository. */
+const childEnv = (dir) => ({
+  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^GIT_/i.test(key))),
+  NO_COLOR: '1',
+  FORCE_COLOR: '0',
+  SLOPBUCKETS_NO_UPDATE_CHECK: '1',
+  CLAUDE_PROJECT_DIR: dir,
+});
+
+function cli(dir, args, input) {
+  const run = spawnSync(process.execPath, [rel('cli', 'dist', 'index.js'), ...args], { cwd: dir, encoding: 'utf8', input, env: childEnv(dir) });
+  return { status: run.status, stdout: run.stdout.replace(/\r\n/g, '\n'), stderr: run.stderr };
 }
 
-const TTY_PRELOAD = `// Written by scripts/readme-assets.mjs: makes the CLI format its output for a ${COLUMNS}-column terminal.
-for (const stream of [process.stdout, process.stderr]) {
-  Object.defineProperty(stream, 'isTTY', { value: true });
-  Object.defineProperty(stream, 'columns', { value: ${COLUMNS} });
+function gitCommit(dir) {
+  const git = (...args) =>
+    execFileSync('git', ['-c', 'user.name=readme', '-c', 'user.email=readme@example.invalid', '-c', 'core.autocrlf=false', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], {
+      cwd: dir,
+      env: childEnv(dir),
+    });
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'acme');
 }
-`;
 
 const write = (dir, file, text) => {
   mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
   writeFileSync(path.join(dir, file), text);
 };
-const edit = (dir, file, from, to) => {
-  const p = path.join(dir, file);
-  const text = readFileSync(p, 'utf8');
-  if (!text.includes(from)) throw new Error(`${file} no longer contains ${JSON.stringify(from)}; update the scenario in scripts/readme-assets.mjs`);
-  writeFileSync(p, text.replace(from, to));
+
+/* ------------------------------------------------------------------ the README example project */
+
+const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
+
+/** The config of the landing page shell (`cat buckets.config.json`). */
+const CONFIG = {
+  $schema: 'https://nicolascaous.github.io/slopbuckets/schema/v2.json',
+  version: '2.0',
+  ignore: ['**/*.test.ts', 'scripts/**'],
+  projects: [],
+  buckets: {
+    app: { purpose: 'Starts the server and wires the routes', files: ['src/app/**'], public: null, dependsOn: { billing: 'Routes call the billing use cases', log: 'Logs errors thrown during startup' }, packages: {} },
+    billing: { purpose: 'Issues and charges invoices', files: ['src/billing/**'], public: 'src/billing/index.ts', dependsOn: { payments: 'Charges go through the gateway' }, packages: {} },
+    log: { purpose: 'Formats and writes application logs', files: ['src/log/**'], public: 'src/log/index.ts', dependsOn: {}, packages: {} },
+    payments: { purpose: 'Talks to the payment gateway', files: ['src/payments/**'], public: 'src/payments/index.ts', dependsOn: {}, packages: {} },
+  },
 };
 
-/**
- * The alias the images show. examples/valid-readme/project uses @root, the alias of projects created before
- * `buckets init` generated a unique one. The copies get a fixed alias of the generated shape, so every run draws
- * the same images. The nested project of the screens gets its own.
- */
-const ALIAS = '@root-k3x9pm2a';
-const NESTED_ALIAS = '@root-p7vd4wqe';
+const FILES = {
+  '.gitignore': 'node_modules/\n',
+  'package.json': json({ name: 'acme', version: '1.0.0', private: true, type: 'module', devDependencies: { typescript: '^5.9.0' } }),
+  'tsconfig.json': json({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', strict: true, noEmit: true, skipLibCheck: true }, include: ['src', 'scripts'] }),
+  'buckets.config.json': json(CONFIG),
+  'src/app/main.ts': "import { createInvoice } from '../billing';\nimport { logError } from '../log';\n\ntry {\n  createInvoice('ada', 1200);\n} catch (error) {\n  logError(error);\n}\n",
+  'src/billing/index.ts': "export { createInvoice } from './invoice';\n",
+  'src/billing/invoice.ts': "// Creates an invoice and charges it.\nimport { charge } from '../payments';\n\nexport function createInvoice(customer: string, amountCents: number): string {\n  return charge(customer, amountCents);\n}\n",
+  'src/billing/invoice.test.ts': "import { createInvoice } from './invoice';\n\ncreateInvoice('test', 1);\n",
+  'src/log/index.ts': "export { logError } from './format';\n",
+  'src/log/format.ts': 'export function logError(error: unknown): void {\n  console.error(`[error] ${String(error)}`);\n}\n',
+  'src/payments/index.ts': "export { charge } from './client';\n",
+  'src/payments/client.ts': 'export function charge(customer: string, amountCents: number): string {\n  return `charged ${customer} ${amountCents}`;\n}\n',
+  'scripts/seed.ts': "import { createInvoice } from '../src/billing';\n\ncreateInvoice('seed', 100);\n",
+};
 
-/** Every file below `dir`, relative to it. */
-function filesBelow(dir, prefix = '') {
-  return readdirSync(path.join(dir, prefix), { withFileTypes: true }).flatMap((entry) => {
-    const rel = path.join(prefix, entry.name);
-    return entry.isDirectory() ? filesBelow(dir, rel) : [rel];
-  });
-}
-
-/** Copies examples/valid-readme/project to `dir` and moves it from @root to ALIAS. */
-function copyExample(dir) {
-  rmSync(dir, { recursive: true, force: true });
-  cpSync(rel('examples', 'valid-readme', 'project'), dir, { recursive: true });
-  const config = JSON.parse(readFileSync(path.join(dir, 'buckets.config.json'), 'utf8'));
-  if (config.alias !== '@root') throw new Error(`examples/valid-readme/project uses the alias ${config.alias}; update copyExample in scripts/readme-assets.mjs`);
-  write(dir, 'buckets.config.json', `${JSON.stringify({ ...config, alias: ALIAS }, null, 2)}\n`);
-  const tsconfig = JSON.parse(readFileSync(path.join(dir, 'tsconfig.json'), 'utf8'));
-  const { '@root/*': target, ...paths } = tsconfig.compilerOptions.paths;
-  tsconfig.compilerOptions.paths = { ...paths, [`${ALIAS}/*`]: target };
-  write(dir, 'tsconfig.json', `${JSON.stringify(tsconfig, null, 2)}\n`);
-  for (const file of filesBelow(dir, 'root')) {
-    const text = readFileSync(path.join(dir, file), 'utf8');
-    if (text.includes("'@root/")) writeFileSync(path.join(dir, file), text.split("'@root/").join(`'${ALIAS}/`));
-  }
-}
-
-/**
- * Each scenario starts from examples/valid-readme/project with a fresh lock (the state a human approved) and then
- * edits files the way an AI agent would.
- */
-const SCENARIOS = [
-  {
-    name: 'fail',
-    file: 'check-fail.svg',
-    exit: 1,
-    comment: '# the AI takes the logger straight from log/_ and adds a relative import',
-    apply(dir) {
-      const file = 'root/billing/invoices/_/create-invoice.ts';
-      edit(dir, file, `from '${ALIAS}/billing/dmz/.parent/invoices'`, `from '${ALIAS}/log/_/logger'`);
-      edit(dir, file, `from '${ALIAS}/billing/invoices/_/invoice'`, "from './invoice'");
-    },
-  },
-  {
-    name: 'lock',
-    file: 'check-lock.svg',
-    exit: 2,
-    comment: '# the AI adds a parameter to createInvoice and gives payments the logger',
-    apply(dir) {
-      edit(dir, 'root/billing/invoices/_/create-invoice.ts', 'amountCents: number): Invoice', 'amountCents: number, currency = "USD"): Invoice');
-      edit(dir, 'root/billing/invoices/_/create-invoice.ts', "logger.info('created invoice ' + invoice.id + ' for ' + customer);", "logger.info('created invoice ' + invoice.id + ' for ' + customer + ' in ' + currency);");
-      write(dir, 'root/billing/dmz/.parent/payments.ts', `export { logger } from '${ALIAS}/dmz/log/billing';\n`);
-      edit(dir, 'root/billing/payments/_/charge.ts', `import type { Invoice } from '${ALIAS}/billing/dmz/invoices/payments';`, `import { logger } from '${ALIAS}/billing/dmz/.parent/payments';\nimport type { Invoice } from '${ALIAS}/billing/dmz/invoices/payments';`);
-      edit(dir, 'root/billing/payments/_/charge.ts', '  return { invoiceId', "  logger.info('charging ' + invoice.id);\n  return { invoiceId");
-    },
-  },
-  {
-    name: 'pass',
-    file: 'check-pass.svg',
-    exit: 0,
-    comment: '# a human approved the state with buckets refresh',
-    apply() {},
-  },
+/** The edits of the hook session, in order. Each one is written to disk after its hook ran. */
+const SESSION = [
+  ['src/billing/refund.ts', "import { charge } from '../payments/client';\n\nexport function refund(customer: string, amountCents: number): string {\n  return charge(customer, -amountCents);\n}\n"],
+  ['src/utils/date.ts', 'export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n'],
+  [
+    'src/billing/refund.ts',
+    "import { charge } from '../payments';\nimport { logError } from '../log';\n\nexport function refund(customer: string, amountCents: number): string {\n  try {\n    return charge(customer, -amountCents);\n  } catch (error) {\n    logError(error);\n    throw error;\n  }\n}\n",
+  ],
 ];
 
-async function captureScenarios(api) {
-  const preload = path.join(tmpDir, 'readme-tty.mjs');
-  writeFileSync(preload, TTY_PRELOAD);
-  const results = [];
-  try {
-    for (const scenario of SCENARIOS) {
-      const dir = path.join(tmpDir, `readme-${scenario.name}`);
-      copyExample(dir);
-      await api.writeLock(dir, await api.computeLock(dir));
-      scenario.apply(dir);
-      const run = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, rel('cli', 'dist', 'index.js'), 'check'], {
-        cwd: dir,
-        encoding: 'utf8',
-        env: { ...process.env, FORCE_COLOR: '3', NO_COLOR: '', CLAUDE_PROJECT_DIR: dir },
-      });
-      if (run.status !== scenario.exit) {
-        throw new Error(`readme-${scenario.name}: expected exit ${scenario.exit}, got ${run.status}\n${run.stdout}\n${run.stderr}`);
-      }
-      assertScrubbed(`the output of readme-${scenario.name}`, run.stdout);
-      if (PRINT) console.log(`\n--- ${scenario.name} (exit ${run.status})\n${run.stdout}${run.stderr}`);
-      results.push({ ...scenario, output: run.stdout.replace(/\r\n/g, '\n').replace(/\n+$/, '') });
-    }
-  } finally {
-    for (const scenario of SCENARIOS) rmSync(path.join(tmpDir, `readme-${scenario.name}`), { recursive: true, force: true });
-    rmSync(preload, { force: true });
-  }
-  return results;
-}
-
-/* ------------------------------------------------------------------ screens: buckets inspect and buckets refresh --web */
-
-const SCREEN = { width: 1236, height: 820 };
-const NESTED = 'root/billing/payments/_/gateway';
-
-/**
- * The project the screens show: examples/valid-readme/project named acme, with a nested project in
- * root/billing/payments/_/gateway, a fresh lock for both, and the edits of the `lock` scenario on top. The folder
- * is called acme because the confirmation window names the project by its folder.
- */
-async function screensProject(api) {
-  const dir = path.join(tmpDir, 'readme-screens', 'acme');
+function exampleProject(name) {
+  const dir = path.join(tmpDir, `readme-${name}`, 'acme');
   rmSync(path.dirname(dir), { recursive: true, force: true });
-  copyExample(dir);
-  const json = (file, value) => write(dir, file, `${JSON.stringify(value, null, 2)}\n`);
-  const pkg = (name) => ({ name, version: '0.0.0', private: true, type: 'module', devDependencies: { typescript: '^5.9.0' } });
-  const tsconfig = JSON.parse(readFileSync(path.join(dir, 'tsconfig.json'), 'utf8'));
-  json('package.json', pkg('acme'));
-  // Every project has its own tsconfig.json, and the enclosing one leaves the nested project out, as a nested `buckets init` does.
-  json('tsconfig.json', { ...tsconfig, exclude: [NESTED] });
-  json(`${NESTED}/package.json`, pkg('payment-gateway'));
-  json(`${NESTED}/buckets.config.json`, { adapter: 'ts', root: 'root', alias: NESTED_ALIAS, layout: { default: 'deny', allow: ['root/*/*'] } });
-  json(`${NESTED}/tsconfig.json`, { ...tsconfig, compilerOptions: { ...tsconfig.compilerOptions, paths: { [`${NESTED_ALIAS}/*`]: ['root/*'] } } });
-  write(dir, `${NESTED}/root/_/index.ts`, `import { send } from '${NESTED_ALIAS}/dmz/http/.self';\n\nexport const ready = send('ping');\n`);
-  write(dir, `${NESTED}/root/http/_/send.ts`, 'export function send(body: string): number {\n  return body.length;\n}\n');
-  write(dir, `${NESTED}/root/dmz/http/.self.ts`, `export { send } from '${NESTED_ALIAS}/http/_/send';\n`);
-  await api.writeLock(path.join(dir, NESTED), await api.computeLock(path.join(dir, NESTED)));
-  await api.writeLock(dir, await api.computeLock(dir));
-  SCENARIOS.find((s) => s.name === 'lock').apply(dir);
+  for (const [file, text] of Object.entries(FILES)) write(dir, file, text);
+  gitCommit(dir);
   return dir;
 }
 
-/** A Chrome or Edge to take the screenshots with: $CHROME_PATH, or the usual install locations. */
-function findChrome() {
-  if (process.env.CHROME_PATH) return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
-  const candidates = {
-    win32: [
-      `${process.env.PROGRAMFILES}/Google/Chrome/Application/chrome.exe`,
-      `${process.env['PROGRAMFILES(X86)']}/Google/Chrome/Application/chrome.exe`,
-      `${process.env.LOCALAPPDATA}/Google/Chrome/Application/chrome.exe`,
-      `${process.env['PROGRAMFILES(X86)']}/Microsoft/Edge/Application/msedge.exe`,
-    ],
-    darwin: ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'],
-    linux: ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'],
-  }[process.platform] ?? [];
-  return candidates.find((p) => existsSync(p)) ?? null;
+function expectExit(what, run, status) {
+  if (run.status !== status) throw new Error(`${what}: expected exit ${status}, got ${run.status}\n${run.stdout}\n${run.stderr}`);
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** `buckets check` on the clean project, which must pass, the hook session, and `buckets check` after it. */
+function captureTerminals() {
+  try {
+    const clean = exampleProject('pass');
+    const pass = cli(clean, ['check']);
+    expectExit('check on the clean project', pass, 0);
 
-/** Headless Chrome driven over the DevTools protocol, with Node's own fetch and WebSocket. */
-async function openBrowser(chromePath) {
-  const port = 9300 + Math.floor(Math.random() * 600);
-  const profile = mkdtempSync(path.join(tmpdir(), 'readme-chrome-'));
-  const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: 'ignore' });
-  let page;
-  for (let i = 0; i < 75 && !page; i++) {
-    await sleep(200);
-    try {
-      page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === 'page');
-    } catch {
-      // Chrome is still starting.
-    }
-  }
-  if (!page) {
-    chrome.kill();
-    throw new Error(`${chromePath} did not open its DevTools port`);
-  }
-  const ws = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    ws.addEventListener('open', resolve);
-    ws.addEventListener('error', reject);
-  });
-  let id = 0;
-  const pending = new Map();
-  ws.addEventListener('message', (event) => {
-    const message = JSON.parse(event.data);
-    if (message.id && pending.has(message.id)) {
-      pending.get(message.id)(message);
-      pending.delete(message.id);
-    }
-  });
-  const send = (method, params = {}) =>
-    new Promise((resolve, reject) => {
-      const n = ++id;
-      pending.set(n, (m) => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result)));
-      ws.send(JSON.stringify({ id: n, method, params }));
+    const dir = exampleProject('session');
+    let context = '';
+    SESSION.forEach(([file, content], i) => {
+      const payload = {
+        session_id: 'readme-session',
+        transcript_path: '/home/dev/.claude/projects/acme/readme-session.jsonl',
+        cwd: dir,
+        permission_mode: 'default',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Write',
+        tool_input: { file_path: path.join(dir, file).replaceAll('\\', '/'), content },
+        tool_use_id: `toolu_0${i + 1}`,
+      };
+      const run = cli(dir, ['hook', 'pre-tool-use'], JSON.stringify(payload));
+      expectExit(`hook for edit ${i + 1}`, run, 0);
+      context = JSON.parse(run.stdout).hookSpecificOutput.additionalContext;
+      if (PRINT) console.log(`\n--- hook, edit ${i + 1}\n${context}`);
+      write(dir, file, content);
     });
-  await send('Page.enable');
-  await send('Emulation.setDeviceMetricsOverride', { width: SCREEN.width, height: SCREEN.height, deviceScaleFactor: 1, mobile: false });
-  // Reduced motion stops the typing and blinking effects, so every run captures the same frame.
-  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-  return {
-    /** Opens the URL, replaces every `from` in the page text with `to`, and returns a WebP screenshot. */
-    async shoot(url, replace) {
-      await send('Page.navigate', { url });
-      await sleep(2500);
-      const expression = `(() => {
-        const replace = ${JSON.stringify(replace)};
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          for (const [from, to] of replace) if (node.nodeValue.includes(from)) node.nodeValue = node.nodeValue.split(from).join(to);
-        }
-        return document.body.innerText;
-      })()`;
-      const text = (await send('Runtime.evaluate', { expression, returnByValue: true })).result.value;
-      await sleep(300);
-      const shot = await send('Page.captureScreenshot', { format: 'webp', quality: 90 });
-      return { image: Buffer.from(shot.data, 'base64'), text };
-    },
-    async close() {
-      ws.close();
-      chrome.kill();
-      await sleep(500);
-      try {
-        rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-      } catch {
-        // Chrome may hold a file a little longer; the folder is in the system temp folder.
-      }
-    },
-  };
-}
-
-/** Starts `buckets <args>` in `dir` and resolves with the child and the 127.0.0.1 URL it prints. */
-function startServer(dir, args) {
-  const child = spawn(process.execPath, [rel('cli', 'dist', 'index.js'), ...args], {
-    cwd: dir,
-    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0', SLOPBUCKETS_NO_UPDATE_CHECK: '1', CLAUDE_PROJECT_DIR: dir },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let output = '';
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => fail(new Error(`buckets ${args.join(' ')} printed no URL in 60 seconds\n${output}`)), 60_000);
-    const fail = (error) => {
-      clearTimeout(timer);
-      child.kill();
-      reject(error);
-    };
-    const read = (chunk) => {
-      output += chunk;
-      const url = /^http:\/\/127\.0\.0\.1:\d+\/\S*$/m.exec(output)?.[0];
-      if (url) {
-        clearTimeout(timer);
-        resolve({ child, url, output });
-      }
-    };
-    child.stdout.setEncoding('utf8').on('data', read);
-    child.stderr.setEncoding('utf8').on('data', read);
-    child.on('exit', (code) => fail(new Error(`buckets ${args.join(' ')} exited with ${code} before it printed a URL\n${output}`)));
-  });
+    for (const section of ['[NEW]', '[OLD]', '[RESOLVED]']) {
+      if (!context.split('\n').includes(section)) throw new Error(`the third hook call has no ${section} section; update SESSION in scripts/readme-assets.mjs\n${context}`);
+    }
+    const fail = cli(dir, ['check']);
+    expectExit('check after the hook session', fail, 1);
+    for (const run of [pass, fail]) assertScrubbed('buckets check', run.stdout);
+    if (PRINT) console.log(`\n--- check, clean\n${pass.stdout}\n--- check, after the session\n${fail.stdout}`);
+    return { fail: fail.stdout.trimEnd(), hook: context };
+  } finally {
+    for (const name of ['pass', 'session']) rmSync(path.join(tmpDir, `readme-${name}`), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
 }
 
 /** Fails when `text` names the home folder or the repository folder, which the images must not show. */
 function assertScrubbed(where, text) {
   const folders = [homedir(), repo].flatMap((p) => [p, p.replaceAll('\\', '/')]);
   const found = folders.find((p) => text.toLowerCase().includes(p.toLowerCase()));
-  if (found !== undefined) throw new Error(`${where} shows the local folder ${found}; add it to the replacements in captureScreens`);
-}
-
-/**
- * Screenshots of `buckets inspect` and of the review page of `buckets refresh --web`, plus the text of the
- * confirmation window, or null when there is no Chrome. The review server is stopped without a decision, so the
- * confirmation window never opens and the lock of the copy is never written.
- */
-async function captureScreens(api) {
-  const chromePath = findChrome();
-  if (!chromePath) {
-    console.log('No Chrome or Edge found (set CHROME_PATH), so inspect.svg and refresh-web.svg keep their current screenshots.');
-    return null;
-  }
-  const dir = await screensProject(api);
-  // The pages show the absolute folder of the copy. The images show it as ~/acme, like the terminal title.
-  const replace = [dir, dir.replaceAll('\\', '/')].map((from) => [from, '~/acme']);
-  const browser = await openBrowser(chromePath);
-  const servers = [];
-  try {
-    const inspect = await startServer(dir, ['inspect']);
-    servers.push(inspect.child);
-    const inspectShot = await browser.shoot(inspect.url, replace);
-    inspect.child.kill();
-    assertScrubbed('the inspect page', inspectShot.text);
-
-    const [state] = await api.evaluateTree(api.defaultContext(), dir);
-    if (state.state.kind !== 'review') throw new Error(`the screens project has nothing to approve (${state.state.kind})`);
-    const { review } = state.state;
-    const refresh = await startServer(dir, ['refresh', '--web']);
-    servers.push(refresh.child);
-    const refreshShot = await browser.shoot(refresh.url, replace);
-    refresh.child.kill();
-    if (!refreshShot.text.includes(review.code)) throw new Error(`the review page does not show the code ${review.code}`);
-    assertScrubbed('the review page', refreshShot.text);
-    const dialog = api.dialogRequest(review);
-    for (const [from, to] of replace) dialog.message = dialog.message.split(from).join(to);
-    assertScrubbed('the confirmation window', `${dialog.title}\n${dialog.message}`);
-    if (PRINT) console.log(`\n--- refresh --web\n${refresh.output}\n--- confirmation window\n${dialog.title}\n${dialog.message}`);
-    return { inspect: inspectShot.image, refresh: refreshShot.image, dialog, code: review.code };
-  } finally {
-    for (const child of servers) child.kill();
-    await browser.close();
-    await sleep(300);
-    rmSync(path.dirname(dir), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  }
-}
-
-/* ------------------------------------------------------------------ ANSI to styled runs */
-
-const BASIC = { 31: C.red, 32: C.phos, 33: C.amber, 36: C.cyan, 37: C.text, 92: C.phos, 97: C.phosHi };
-
-/** Splits one line of SGR-colored text into runs of { text, color, bold, dim }. */
-function parseAnsi(line) {
-  const runs = [];
-  let state = { color: null, bold: false, dim: false };
-  // eslint-disable-next-line no-control-regex
-  const re = /\u001b\[([0-9;]*)m/g;
-  let last = 0;
-  let m;
-  const push = (text) => {
-    if (text !== '') runs.push({ text, ...state });
-  };
-  while ((m = re.exec(line)) !== null) {
-    push(line.slice(last, m.index));
-    last = re.lastIndex;
-    const codes = m[1] === '' ? [0] : m[1].split(';').map(Number);
-    state = { ...state };
-    for (let i = 0; i < codes.length; i++) {
-      const code = codes[i];
-      if (code === 0) state = { color: null, bold: false, dim: false };
-      else if (code === 1) state.bold = true;
-      else if (code === 2) state.dim = true;
-      else if (code === 22) state.bold = state.dim = false;
-      else if (code === 39) state.color = null;
-      else if (code === 38 && codes[i + 1] === 2) {
-        const hex = `#${codes.slice(i + 2, i + 5).map((v) => v.toString(16).padStart(2, '0')).join('')}`;
-        state.color = hex;
-        i += 4;
-      } else if (BASIC[code]) state.color = BASIC[code];
-    }
-  }
-  push(line.slice(last));
-  return runs;
+  if (found !== undefined) throw new Error(`${where} shows the local folder ${found}`);
 }
 
 /* ------------------------------------------------------------------ terminal window SVG */
 
 const T = { font: 14, charW: 8.4, lineH: 21, padX: 22, bar: 28, padTop: 20, padBottom: 22 };
 
-const EXIT_COLOR = { 0: C.phos, 1: C.red, 2: C.amber };
+const EXIT_COLOR = { 0: C.phos, 1: C.red, 3: C.amber };
+
+/** The colors a color terminal would give a line of check or hook text, as runs of { text, color, bold }. */
+function styleLine(line) {
+  if (line.startsWith('# ')) return [{ text: line, color: C.dim }];
+  if (line.startsWith('$ ')) return [{ text: '$', color: C.amber }, { text: ' ' }, { text: line.slice(2), color: C.phosHi, bold: true }];
+  if (line === '$') return [{ text: '$', color: C.amber }];
+  if (/^buckets check: no /.test(line) || line === '[RESOLVED]') return [{ text: line, color: C.phos, bold: true }];
+  if (/^buckets( check)?: [1-9]/.test(line) || line === '[NEW]') return [{ text: line, color: C.amber, bold: true }];
+  if (/^buckets: 0 /.test(line) || line === '[OLD]') return [{ text: line, color: C.dim }];
+  const fix = /^( +fix (?:code|config):)(.*)$/.exec(line);
+  if (fix) return [{ text: fix[1], color: C.cyan }, { text: fix[2] }];
+  if (/^\S/.test(line)) return [{ text: line, color: C.phosHi }];
+  return [{ text: line }];
+}
 
 /** One line of runs as <text>, each run placed at its column so the grid holds with any monospace font. */
 function textLine(runs, y) {
@@ -492,7 +250,7 @@ function textLine(runs, y) {
         col += part.length;
         continue;
       }
-      const fill = run.dim ? C.dim : (run.color ?? C.text);
+      const fill = run.color ?? C.text;
       const attrs = [`x="${n(T.padX + col * T.charW)}"`];
       if (fill !== C.text) attrs.push(`fill="${fill}"`);
       if (run.bold) attrs.push('font-weight="700"');
@@ -504,14 +262,8 @@ function textLine(runs, y) {
   return spans.length > 0 ? `<text y="${n(y)}">${spans.join('')}</text>` : '';
 }
 
-function terminalSvg({ output, exit, comment, title, desc }, columns) {
-  const lines = [
-    [{ text: comment, color: C.dim }],
-    [{ text: '$', color: C.amber }, { text: ' ' }, { text: 'buckets check', color: C.phosHi, bold: true }],
-    ...output.split('\n').map(parseAnsi),
-    [],
-    [{ text: '$', color: C.amber }],
-  ];
+function terminalSvg({ lines: raw, exit, title, desc }, columns) {
+  const lines = [...raw, '', '$'].map(styleLine);
   const W = Math.round(T.padX * 2 + columns * T.charW);
   const bodyTop = T.bar + T.padTop;
   const H = Math.round(bodyTop + lines.length * T.lineH + T.padBottom);
@@ -557,6 +309,193 @@ ${text}
 <rect x=".5" y=".5" width="${W - 1}" height="${H - 1}" rx="7.5" fill="none" stroke="${C.line}"/>
 </svg>
 `;
+}
+
+/* ------------------------------------------------------------------ screenshots of buckets inspect */
+
+const SCREEN = { width: 1236, height: 820 };
+
+/** A Chrome or Edge to take the screenshots with: $CHROME_PATH, or the usual install locations. */
+function findChrome() {
+  if (process.env.CHROME_PATH) return existsSync(process.env.CHROME_PATH) ? process.env.CHROME_PATH : null;
+  const candidates = {
+    win32: [
+      `${process.env.PROGRAMFILES}/Google/Chrome/Application/chrome.exe`,
+      `${process.env['PROGRAMFILES(X86)']}/Google/Chrome/Application/chrome.exe`,
+      `${process.env.LOCALAPPDATA}/Google/Chrome/Application/chrome.exe`,
+      `${process.env['PROGRAMFILES(X86)']}/Microsoft/Edge/Application/msedge.exe`,
+    ],
+    darwin: ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium'],
+    linux: ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'],
+  }[process.platform] ?? [];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Headless Chrome driven over the DevTools protocol, with Node's own fetch and WebSocket. */
+async function openBrowser(chromePath) {
+  const port = 9300 + Math.floor(Math.random() * 600);
+  const profile = mkdtempSync(path.join(tmpdir(), 'readme-chrome-'));
+  const chrome = spawn(chromePath, ['--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', 'about:blank'], { stdio: 'ignore' });
+  let page;
+  for (let i = 0; i < 75 && !page; i++) {
+    await sleep(200);
+    try {
+      page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === 'page');
+    } catch {
+      // Chrome is still starting.
+    }
+  }
+  if (!page) {
+    chrome.kill();
+    throw new Error(`${chromePath} did not open its DevTools port`);
+  }
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve);
+    ws.addEventListener('error', reject);
+  });
+  let id = 0;
+  const pending = new Map();
+  const errors = [];
+  ws.addEventListener('message', (event) => {
+    const message = JSON.parse(event.data);
+    if (message.id && pending.has(message.id)) {
+      pending.get(message.id)(message);
+      pending.delete(message.id);
+    } else if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.text);
+    else if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') errors.push(message.params.args.map((a) => a.value ?? a.description).join(' '));
+  });
+  const send = (method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const k = ++id;
+      pending.set(k, (m) => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result)));
+      ws.send(JSON.stringify({ id: k, method, params }));
+    });
+  const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
+  await send('Page.enable');
+  await send('Runtime.enable');
+  return {
+    /**
+     * Opens `url` in a viewport of width by height CSS pixels at `scale`, runs `act` (JavaScript) in the page, and
+     * returns a WebP of the page, or of the box around the elements that `clip` (CSS selectors) names.
+     */
+    async shoot(url, { width, height, scale = 1, scheme = 'light', act = '', clip = null, quality = 82 }) {
+      await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile: false });
+      // Reduced motion stops the transitions, so every run captures the same frame.
+      await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: scheme }] });
+      await send('Page.navigate', { url: 'about:blank' });
+      await send('Page.navigate', { url });
+      await sleep(2500);
+      if (act) {
+        await evaluate(`(async () => { ${act} })()`);
+        await sleep(1200);
+      }
+      await evaluate('document.activeElement && document.activeElement.blur()');
+      let box;
+      if (clip) {
+        box = await evaluate(`(() => {
+          const rects = ${JSON.stringify(clip)}.map((s) => document.querySelector(s).getBoundingClientRect());
+          const x = Math.min(...rects.map((r) => r.left)), y = Math.min(...rects.map((r) => r.top));
+          return { x, y, width: Math.max(...rects.map((r) => r.right)) - x, height: Math.max(...rects.map((r) => r.bottom)) - y, scale: 1 };
+        })()`);
+      }
+      const text = await evaluate('document.body.innerText');
+      const shot = await send('Page.captureScreenshot', { format: 'webp', quality, ...(box ? { clip: box } : {}) });
+      return { image: Buffer.from(shot.data, 'base64'), text, size: box ? [Math.round(box.width), Math.round(box.height)] : [width, height] };
+    },
+    errors,
+    async close() {
+      ws.close();
+      chrome.kill();
+      await sleep(500);
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      } catch {
+        // Chrome may hold a file a little longer; the folder is in the system temp folder.
+      }
+    },
+  };
+}
+
+/** Starts `buckets inspect` in `dir` and resolves with the child and the 127.0.0.1 URL it prints. */
+function startInspect(dir) {
+  const child = spawn(process.execPath, [rel('cli', 'dist', 'index.js'), 'inspect'], { cwd: dir, env: childEnv(dir), stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => fail(new Error(`buckets inspect printed no URL in 60 seconds\n${output}`)), 60_000);
+    const fail = (error) => {
+      clearTimeout(timer);
+      child.kill();
+      reject(error);
+    };
+    const read = (chunk) => {
+      output += chunk;
+      const url = /http:\/\/127\.0\.0\.1:\d+\/\S*/.exec(output)?.[0];
+      if (url) {
+        clearTimeout(timer);
+        resolve({ child, url });
+      }
+    };
+    child.stdout.setEncoding('utf8').on('data', read);
+    child.stderr.setEncoding('utf8').on('data', read);
+    child.on('exit', (code) => fail(new Error(`buckets inspect exited with ${code} before it printed a URL\n${output}`)));
+  });
+}
+
+/** Picks an option of a <select> of the inspect page and tells the page, as a click would. */
+const pick = (id, value) => `const s = document.getElementById(${JSON.stringify(id)}); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true }));`;
+
+/** The shots of the shop: [file, hash, options]. The docs ones use the light scheme at twice the pixel density. */
+const DOCS = { width: 1200, height: 760, scale: 2, scheme: 'light' };
+const SHOP_SHOTS = [
+  ['readme', '#/graph/bucket/payments?depth=1', { ...SCREEN, scheme: 'dark', quality: 90 }],
+  ['site', '#/graph/bucket/payments?depth=1', { width: 1302, height: 840, scheme: 'dark' }],
+  ['inspect-page', '#/graph/bucket/payments?depth=1', { ...DOCS, scale: 1.5 }],
+  ['inspect-graph-focus', '#/graph/bucket/reviews?depth=2&pair=http,catalog', { ...DOCS, clip: ['#main'] }],
+  ['inspect-matrix', '#/matrix/edge/http/reviews', { ...DOCS, clip: ['#main', '#detail'] }],
+  ['inspect-pending', '#/pending', { ...DOCS, clip: ['#main'], act: pick('pending-by', 'rule') }],
+];
+
+/** The shop of scripts/stress-project.mjs, and a copy right after `buckets init`. */
+function shopProjects() {
+  const base = path.join(tmpDir, 'readme-shop');
+  rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  const shop = generate({ ...PRESETS.shop, out: path.join(base, 'big-shop') }).root;
+  const fresh = generate({ ...PRESETS.shop, out: path.join(base, 'fresh', 'big-shop') }).root;
+  rmSync(path.join(fresh, 'buckets.config.json'));
+  const init = cli(fresh, ['init']);
+  expectExit('buckets init on the shop', init, 0);
+  return { base, shop, fresh };
+}
+
+async function captureScreens() {
+  const chromePath = findChrome();
+  if (!chromePath) {
+    console.log('No Chrome or Edge found (set CHROME_PATH), so the screenshots stay as they are.');
+    return null;
+  }
+  const { base, shop, fresh } = shopProjects();
+  const browser = await openBrowser(chromePath);
+  const servers = [];
+  const shots = {};
+  try {
+    const main = await startInspect(shop);
+    servers.push(main.child);
+    for (const [name, hash, options] of SHOP_SHOTS) shots[name] = await browser.shoot(main.url + hash, options);
+    const after = await startInspect(fresh);
+    servers.push(after.child);
+    shots['inspect-files'] = await browser.shoot(after.url, { ...DOCS, clip: ['#main'], act: `location.hash = '#/files'; await new Promise((r) => setTimeout(r, 800)); ${pick('owner-filter', 'unowned')}` });
+    for (const [name, shot] of Object.entries(shots)) assertScrubbed(`the ${name} screenshot`, shot.text);
+    if (browser.errors.length > 0) throw new Error(`the inspect page logged errors:\n${browser.errors.join('\n')}`);
+    return shots;
+  } finally {
+    for (const child of servers) child.kill();
+    await browser.close();
+    await sleep(300);
+    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
 }
 
 /* ------------------------------------------------------------------ hero SVG */
@@ -892,114 +831,26 @@ ${overlay}
 `;
 }
 
-const UI_FONT = `'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif`;
-
-/** Splits text into lines of at most `max` characters, at spaces. */
-function wrapWords(text, max) {
-  const lines = [];
-  let line = '';
-  for (const word of text.split(' ')) {
-    if (line !== '' && line.length + 1 + word.length > max) {
-      lines.push(line);
-      line = word;
-    } else line = line === '' ? word : `${line} ${word}`;
-  }
-  if (line !== '') lines.push(line);
-  return lines;
-}
-
-/**
- * The confirmation window that `buckets refresh --web` opens, drawn as a plain light window of the operating
- * system: the real title and message, the code typed in the text box, and the Approve and Cancel buttons. Its
- * bottom right corner sits at (right, bottom).
- */
-function dialogSvg({ title, message }, code, right, bottom) {
-  const w = 580;
-  const pad = 18;
-  const bar = 32;
-  const lineH = 17.5;
-  const gap = 8;
-  const rows = [];
-  for (const raw of message.split('\n')) {
-    if (raw.trim() === '') {
-      rows.push(null);
-      continue;
-    }
-    const indent = raw.length - raw.trimStart().length;
-    wrapWords(raw.trim(), 84 - indent).forEach((text, i) => rows.push({ text, indent: indent + (i > 0 && indent > 0 ? 2 : 0) }));
-  }
-  const textH = rows.reduce((h, row) => h + (row ? lineH : gap), 0);
-  const boxH = 32;
-  const buttonH = 30;
-  const h = bar + pad + textH + 14 + boxH + 18 + buttonH + pad;
-  const x = right - w;
-  const y = bottom - h;
-  let ty = y + bar + pad;
-  const text = rows
-    .map((row) => {
-      if (!row) {
-        ty += gap;
-        return '';
-      }
-      ty += lineH;
-      return `<text x="${n(x + pad + row.indent * 3.4)}" y="${n(ty - 4.5)}">${esc(row.text)}</text>`;
-    })
-    .join('');
-  const boxY = y + bar + pad + textH + 14;
-  const buttonY = boxY + boxH + 18;
-  const codeX = x + pad + 10;
-  const codeW = code.length * 11;
-  const cancelX = x + w - pad - 92;
-  const approveX = cancelX - 8 - 92;
-  return `<g>
-<rect x="${n(x + 4)}" y="${n(y + 14)}" width="${w}" height="${n(h)}" rx="8" fill="#000" fill-opacity=".75" filter="url(#shadow)"/>
-<rect x="${n(x)}" y="${n(y)}" width="${w}" height="${n(h)}" rx="8" fill="#f3f3f3" stroke="#6b6b6b"/>
-<path d="M${n(x)} ${n(y + 8)}a8 8 0 0 1 8 -8h${w - 16}a8 8 0 0 1 8 8v${bar - 8}h${-w}z" fill="#ffffff"/>
-<path d="M${n(x)} ${n(y + bar)}h${w}" stroke="#e1e1e1"/>
-<g font-family="${UI_FONT}" font-size="12.5" fill="#1b1b1b">
-<text x="${n(x + 14)}" y="${n(y + 20.5)}" font-size="12">${esc(title)}</text>
-<path d="M${n(x + w - 26)} ${n(y + 11)}l10 10m0 -10l-10 10" stroke="#1b1b1b" stroke-width="1.2"/>
-${text}
-<rect x="${n(x + pad)}" y="${n(boxY)}" width="220" height="${boxH}" rx="4" fill="#ffffff" stroke="#8a8a8a"/>
-<path d="M${n(x + pad + 1)} ${n(boxY + boxH - 1)}h218" stroke="#005fb8" stroke-width="2"/>
-<text x="${n(codeX)}" y="${n(boxY + 22)}" font-family="Consolas, ui-monospace, Menlo, monospace" font-size="18" textLength="${codeW}">${esc(code)}</text>
-<path d="M${n(codeX + codeW + 3)} ${n(boxY + 7)}v18" stroke="#1b1b1b" stroke-width="1.4"/>
-<rect x="${n(approveX)}" y="${n(buttonY)}" width="92" height="${buttonH}" rx="4" fill="#005fb8"/>
-<text x="${n(approveX + 46)}" y="${n(buttonY + 19.5)}" text-anchor="middle" fill="#ffffff">Approve</text>
-<rect x="${n(cancelX)}" y="${n(buttonY)}" width="92" height="${buttonH}" rx="4" fill="#fbfbfb" stroke="#c9c9c9"/>
-<text x="${n(cancelX + 46)}" y="${n(buttonY + 19.5)}" text-anchor="middle">Cancel</text>
-</g>
-</g>`;
-}
-
 /* ------------------------------------------------------------------ main */
 
 const DESCRIPTIONS = {
   fail: {
     title: 'buckets check fails with exit code 1',
-    desc: 'The AI imported the logger from root/log/_ and used a relative import. buckets check reports import-forbidden on line 1 and import-relative on line 2 of root/billing/invoices/_/create-invoice.ts, then a dmz-orphan chain for logger, and exits with code 1.',
+    desc: 'After the agent session, buckets check lists 2 structure violations of the README example project in full: billing imports log without declaring it, in src/billing/refund.ts line 2, and src/utils/date.ts is in no bucket. Each item ends with a choose one fix line, then a fix code line and a fix config line. The exit code is 1.',
   },
-  lock: {
-    title: 'buckets check reports lock differences with exit code 2',
-    desc: 'The AI changed the signature of createInvoice and added the DMZ file root/billing/dmz/.parent/payments.ts. The rules pass, so buckets check lists the lock differences for a human to approve and exits with code 2.',
-  },
-  pass: {
-    title: 'buckets check passes with exit code 0',
-    desc: 'After a human approved the state, buckets check prints that all bucket rules pass and the state matches buckets.lock.json, and exits with code 0.',
+  hook: {
+    title: 'The pending list that the PreToolUse hook adds to the agent context',
+    desc: 'The third edit of an agent session gets 2 pending items. Under [NEW], the undeclared dependency from billing to log in full, with both purposes, the choose one fix line and the fix code and fix config lines. Under [OLD], the one-line reminder that src/utils/date.ts is in no bucket. Under [RESOLVED], the private file import of payments that this edit fixed.',
   },
   inspect: {
-    title: 'buckets inspect shows the map of the buckets',
-    desc: 'The read-only inspect page in a green CRT monitor. The map draws every bucket of acme as a box: root, billing with invoices and payments, and log. billing is amber because its contracts differ from the lock, and payments holds the nested project payment-gateway. The side panel counts the buckets, contracts, symbols and violations and links to the differences to approve. Tabs lead to the matrix, trace, projects, approvals, timeline and impact views.',
+    title: 'buckets inspect shows the bucket graph',
+    desc: 'The inspect page of a shop project with 31 buckets, in a green CRT monitor. The left column lists the buckets with their file counts and pending badges. The center shows the dependency graph in focus mode on payments: checkout and returns above it, events, http-client, log and money below. The details panel on the right shows the purpose of payments, its files, its public file with each export and the buckets that use it, and its dependencies with their reasons.',
   },
-  refresh: (code) => ({
-    title: 'buckets refresh --web asks for the confirmation code',
-    desc: `The review page of buckets refresh --web in a green CRT monitor lists 2 contract changes of acme and shows the confirmation code ${code}. In front of it, the confirmation window of the operating system lists the same changes, and the human has typed ${code} before clicking Approve.`,
-  }),
 };
 
-function save(file, svg) {
-  writeFileSync(path.join(outDir, file), svg);
-  console.log(`wrote .github/readme/${file} (${(svg.length / 1024).toFixed(1)} KB)`);
+function save(file, data) {
+  writeFileSync(file, data);
+  console.log(`wrote ${path.relative(repo, file).replaceAll('\\', '/')} (${(data.length / 1024).toFixed(1)} KB)`);
 }
 
 async function main() {
@@ -1007,21 +858,32 @@ async function main() {
   ensureCliBuilt();
   mkdirSync(tmpDir, { recursive: true });
   try {
-    const api = await loadApi();
-    const results = await captureScenarios(api);
-    const widest = Math.max(...results.flatMap((r) => [r.comment, ...r.output.split('\n')].map((l) => [...l.replace(/\u001b\[[0-9;]*m/g, '')].length)));
-    const columns = Math.max(80, widest + 1);
-    for (const result of results) save(result.file, terminalSvg({ ...result, ...DESCRIPTIONS[result.name] }, columns));
-    save('hero.svg', heroSvg());
+    const out = captureTerminals();
+    const terminals = [
+      { name: 'fail', file: 'check-fail.svg', exit: 1, lines: ['# the same project after three edits by an agent', '$ buckets check', ...out.fail.split('\n')] },
+      {
+        name: 'hook',
+        file: 'hook-warning.svg',
+        exit: 0,
+        lines: ['# third edit of the session: the agent rewrites src/billing/refund.ts', "# buckets hook pre-tool-use adds this to the agent's context:", '', ...out.hook.split('\n')],
+      },
+    ];
+    const columns = Math.max(80, ...terminals.flatMap((t) => t.lines.map((l) => [...l].length + 1)));
+    for (const t of terminals) save(path.join(outDir, t.file), terminalSvg({ ...t, ...DESCRIPTIONS[t.name] }, columns));
+    save(path.join(outDir, 'hero.svg'), heroSvg());
 
-    const screens = await captureScreens(api);
-    if (screens) {
-      save('inspect.svg', monitorSvg({ ...DESCRIPTIONS.inspect, image: screens.inspect }));
-      const overlay = dialogSvg(screens.dialog, screens.code, 22 + SCREEN.width - 40, 22 + SCREEN.height - 92);
-      save('refresh-web.svg', monitorSvg({ ...DESCRIPTIONS.refresh(screens.code), image: screens.refresh, overlay }));
+    const shots = await captureScreens();
+    if (shots) {
+      save(path.join(outDir, 'inspect.svg'), monitorSvg({ ...DESCRIPTIONS.inspect, image: shots.readme.image }));
+      save(rel('site', 'img', 'inspect-map.webp'), shots.site.image);
+      mkdirSync(docsImg, { recursive: true });
+      for (const [name, shot] of Object.entries(shots)) {
+        if (!name.startsWith('inspect-')) continue;
+        save(path.join(docsImg, `${name}.webp`), shot.image);
+        console.log(`  ${name}.webp is ${shot.size[0]} by ${shot.size[1]} CSS pixels`);
+      }
     }
   } finally {
-    rmSync(path.join(tmpDir, 'readme-api.mjs'), { force: true });
     if (existsSync(tmpDir) && readdirSync(tmpDir).length === 0) rmSync(tmpDir, { recursive: true, force: true });
   }
 }

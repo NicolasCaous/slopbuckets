@@ -1,0 +1,16 @@
+{
+  "description": "a config of a newer format version stops the check with config-newer before anything else is validated",
+  "expect": {
+    "exitCode": 3,
+    "violations": [],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": [
+        {
+          "code": "config-newer",
+          "project": "."
+        }
+      ]
+    }
+  }
+}

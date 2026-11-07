@@ -1,0 +1,100 @@
+{
+  "description": "Cline: an editor call with a private import gets the full text in contextModification, then a reminder on the next run_commands",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "cline",
+      "payload": {
+        "hookName": "tool_call",
+        "clineVersion": "3.0.73",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "taskId": "task-cline-1",
+        "sessionContext": {
+          "rootSessionId": "s-cline-1"
+        },
+        "workspaceRoots": [
+          "${PROJECT}"
+        ],
+        "agent_id": "agent-root",
+        "parent_agent_id": null,
+        "iteration": 1,
+        "tool_call": {
+          "id": "call_1",
+          "name": "editor",
+          "input": {
+            "path": "${PROJECT}/src/billing/refund.ts",
+            "new_text": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+          }
+        },
+        "preToolUse": {
+          "toolName": "editor",
+          "parameters": {
+            "path": "${PROJECT}/src/billing/refund.ts",
+            "new_text": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+          }
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "cancel": false,
+          "contextModification": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "agent": "cline",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "hookName": "tool_call",
+        "clineVersion": "3.0.73",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "taskId": "task-cline-1",
+        "sessionContext": {
+          "rootSessionId": "s-cline-1"
+        },
+        "workspaceRoots": [
+          "${PROJECT}"
+        ],
+        "agent_id": "agent-root",
+        "parent_agent_id": null,
+        "iteration": 2,
+        "tool_call": {
+          "id": "call_2",
+          "name": "run_commands",
+          "input": {
+            "commands": [
+              "npm test"
+            ]
+          }
+        },
+        "preToolUse": {
+          "toolName": "run_commands",
+          "parameters": {
+            "commands": "[\"npm test\"]"
+          }
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)",
+        "stdoutJson": {
+          "cancel": false,
+          "contextModification": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)"
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "description": "Windsurf: pre_write_code on an edit that would make the config invalid exits 2 with the interrupt text on stderr",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-write-code",
+      "agent": "windsurf",
+      "payload": {
+        "agent_action_name": "pre_write_code",
+        "trajectory_id": "traj-windsurf-1",
+        "execution_id": "exec-1",
+        "timestamp": "2026-10-24T12:00:00.000Z",
+        "model_name": "SWE-1.5",
+        "tool_info": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "edits": [
+            {
+              "old_string": "\"payments\": \"Charges go through the gateway\"",
+              "new_string": "\"payments\": \"\""
+            }
+          ]
+        }
+      },
+      "expect": {
+        "exitCode": 2,
+        "stderrIncludes": [
+          "buckets: edit not applied, buckets.config.json would be invalid.",
+          "buckets.billing.dependsOn.payments: reason is empty",
+          "fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\""
+        ],
+        "pending": []
+      }
+    }
+  ]
+}

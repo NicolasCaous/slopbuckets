@@ -1,55 +1,96 @@
-// The Crush adapter with Crush payloads: PreToolUse for bash and the file tools, deny as JSON, never allow.
-import { readFileSync } from 'node:fs';
+// The Crush adapter with Crush payloads: one PreToolUse hook for every tool, context or deny as JSON, never allow.
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { parseJson } from '../../core/json.js';
-import { installSuite, line, LOCK_DENY_REASON, guardedNames, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
-import { CRUSH_MATCHER, crushAdapter, crushTarget } from './crush.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HookDecision, HookInput } from '../../contract/hooks.js';
+import { parseJson } from '../../files/json.js';
+import { cleanupProjects, fileExists, makeProject, readFile, writeFile } from '../../testing/fixture.js';
+import { installSuite, line, runAdapter } from './adapter-test-kit.js';
+import { crushAdapter, crushRcLine, crushTarget } from './crush.js';
 
+const core = vi.hoisted(() => ({ decision: { kind: 'silent' } as HookDecision, inputs: [] as HookInput[], fail: false }));
+vi.mock('../core.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../core.js')>()),
+  hookCore: async (input: HookInput) => {
+    core.inputs.push(input);
+    if (core.fail) throw new Error('core crashed');
+    return core.decision;
+  },
+}));
+
+beforeEach(() => {
+  core.decision = { kind: 'silent' };
+  core.inputs = [];
+  core.fail = false;
+});
 afterEach(cleanupProjects);
-
-const DENY = line({ decision: 'deny', reason: LOCK_DENY_REASON });
-const SILENT = { code: 0, out: '', err: '' };
 
 function payload(dir: string, tool: string, input: Record<string, unknown>) {
   return { event: 'PreToolUse', session_id: '313909e', cwd: dir, tool_name: tool, tool_input: input };
 }
 
-describe('crush pre-tool-use', () => {
-  it('stays silent for ordinary calls, so the permission prompt still runs', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command: 'npm test' }), dir)).toEqual(SILENT);
-    expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'edit', { file_path: path.join(dir, 'root/_/main.ts'), old_string: 'a', new_string: 'b' }), dir)).toEqual(SILENT);
-    expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'view', { file_path: 'buckets.lock.json' }), dir)).toEqual(SILENT);
+async function inputFor(dir: string, tool: string, args: Record<string, unknown>, env: Record<string, string> = {}): Promise<HookInput> {
+  await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, tool, args), dir, env);
+  return core.inputs.at(-1)!;
+}
+
+describe('crush payloads', () => {
+  it('turns the file tools into pre-edit with the new text', async () => {
+    const dir = makeProject({ 'src/a.ts': 'const a = 1;\nconst b = 1;\n' }, false);
+    const file = path.join(dir, 'src/a.ts');
+    expect(await inputFor(dir, 'write', { file_path: 'src/new.ts', content: 'x\n' })).toEqual({
+      phase: 'pre-edit',
+      sessionId: '313909e',
+      agentId: null,
+      cwd: dir,
+      root: dir,
+      toolName: 'write',
+      edits: [{ path: path.join(dir, 'src/new.ts'), content: 'x\n' }],
+      isShell: false,
+      stopHookActive: false,
+    });
+    expect((await inputFor(dir, 'edit', { file_path: file, old_string: '= 1', new_string: '= 2', replace_all: true })).edits).toEqual([{ path: file, content: 'const a = 2;\nconst b = 2;\n' }]);
+    expect((await inputFor(dir, 'edit', { file_path: file, old_string: '= 1', new_string: '= $&2' })).edits).toEqual([{ path: file, content: 'const a = $&2;\nconst b = 1;\n' }]);
+    const multi = { file_path: file, edits: [{ old_string: 'a', new_string: 'x' }, { old_string: 'b', new_string: 'y' }] };
+    expect((await inputFor(dir, 'multiedit', multi)).edits).toEqual([{ path: file, content: 'const x = 1;\nconst y = 1;\n' }]);
   });
 
-  it('denies a write to the lock under any name, from every file tool', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      for (const tool of ['edit', 'multiedit', 'write']) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, tool, { file_path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-    }
-    expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'download', { url: 'https://example.com/x', file_path: 'buckets.lock.json' }), dir)).out).toBe(DENY);
+  it('sends an edit without its text when the input does not give it', async () => {
+    const dir = makeProject({ 'src/a.ts': 'a\n' }, false);
+    const file = path.join(dir, 'src/a.ts');
+    expect((await inputFor(dir, 'edit', { file_path: file, old_string: 'missing', new_string: 'x' })).edits).toEqual([{ path: file }]);
+    expect((await inputFor(dir, 'download', { url: 'https://x', file_path: file })).edits).toEqual([{ path: file }]);
+    expect((await inputFor(dir, 'lsp_replace_symbol', { file_path: file, symbol: 'a' })).edits).toEqual([{ path: file }]);
   });
 
-  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
-    const dir = violationProject();
-    for (const command of REFRESH_DENIED) expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).out).toBe(DENY);
-    for (const command of REFRESH_ALLOWED) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).toEqual(SILENT);
-    for (const command of UPDATE_DENIED) expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).out).toBe(asUpdateDeny(DENY));
-    for (const command of UPDATE_ALLOWED) expect(await runAdapter(crushAdapter, 'pre-tool-use', payload(dir, 'bash', { command }), dir)).toEqual(SILENT);
+  it('turns shell and other tools into pre-tool, and reads the project folder from CRUSH_PROJECT_DIR', async () => {
+    const dir = makeProject({}, false);
+    const shell = await inputFor(dir, 'bash', { command: 'npm test' }, { CRUSH_PROJECT_DIR: path.dirname(dir) });
+    expect(shell).toMatchObject({ phase: 'pre-tool', isShell: true, edits: [], cwd: dir, root: path.dirname(dir), toolName: 'bash' });
+    expect(await inputFor(dir, 'view', { file_path: 'a.ts' })).toMatchObject({ phase: 'pre-tool', isShell: false });
+    expect(await inputFor(dir, 'lsp_rename', { symbol: 'a', new_name: 'b' })).toMatchObject({ phase: 'pre-tool', edits: [] });
+  });
+});
+
+describe('crush answers', () => {
+  const run = async () => runAdapter(crushAdapter, 'pre-tool-use', payload(makeProject({}, false), 'write', { file_path: 'a.ts', content: 'x' }), makeProject({}, false));
+
+  it('prints context alone, deny as a decision, and nothing when silent; never allow', async () => {
+    expect(await run()).toEqual({ code: 0, out: '', err: '' });
+    core.decision = { kind: 'context', text: 'buckets: 1 pending.' };
+    expect(await run()).toEqual({ code: 0, out: line({ context: 'buckets: 1 pending.' }), err: '' });
+    core.decision = { kind: 'deny', text: 'buckets: edit not applied.' };
+    expect(await run()).toEqual({ code: 0, out: line({ decision: 'deny', reason: 'buckets: edit not applied.' }), err: '' });
   });
 
-  it('uses CRUSH_PROJECT_DIR as the session folder', async () => {
-    const dir = violationProject();
-    const sub = path.join(dir, 'root');
-    expect((await runAdapter(crushAdapter, 'pre-tool-use', payload(sub, 'write', { file_path: '../buckets.lock.json' }), sub, { CRUSH_PROJECT_DIR: dir })).out).toBe(DENY);
-  });
-
-  it('matches the tools it guards', () => {
-    const matcher = new RegExp(CRUSH_MATCHER);
-    for (const name of ['bash', 'edit', 'multiedit', 'write', 'download']) expect(matcher.test(name)).toBe(true);
-    for (const name of ['view', 'agent', 'mcp_github_create_pull_request']) expect(matcher.test(name)).toBe(false);
+  it('fails open on a broken payload and on a crash', async () => {
+    const dir = makeProject({}, false);
+    expect(await runAdapter(crushAdapter, 'pre-tool-use', 'not json', dir)).toEqual({ code: 0, out: '', err: '' });
+    expect(core.inputs.at(-1)).toMatchObject({ phase: 'pre-tool', sessionId: null });
+    core.fail = true;
+    const crashed = await run();
+    expect(crashed.code).toBe(0);
+    expect(crashed.out).toBe('');
+    expect(crashed.err).toContain('core crashed');
   });
 });
 
@@ -58,20 +99,44 @@ describe('crush install', () => {
     file: '.crush.json',
     userText: '{\n  "$schema": "https://charm.land/crush.json",\n  "hooks": {\n    // no rm -rf\n    "PreToolUse": [{ "matcher": "^bash$", "command": "./hooks/no-rm-rf.sh" }]\n  }\n}\n',
     fresh(json) {
-      expect((json.hooks as Record<string, unknown[]>).PreToolUse).toEqual([
-        { name: 'slopbuckets lock guard', matcher: CRUSH_MATCHER, command: 'buckets hook --agent crush pre-tool-use', timeout: 60 },
-      ]);
+      expect((json.hooks as Record<string, unknown[]>).PreToolUse).toEqual([{ name: 'slopbuckets', command: 'buckets hook --agent crush pre-tool-use', timeout: 60 }]);
     },
-    freshUninstallDeletes: true,
+  });
+
+  it('says that Crush relies on AGENTS.md and the git hook', () => {
+    const steps = crushAdapter.install(makeProject({}, false), { skill: null });
+    expect(steps.at(-1)).toMatchObject({ status: 'todo', text: expect.stringContaining('buckets init --git-hook') });
+  });
+
+  it('drops an older matcher, so the hook sees every tool', () => {
+    const old = { hooks: { PreToolUse: [{ name: 'slopbuckets', matcher: '^(bash|edit|multiedit|write|download)$', command: 'buckets hook --agent crush pre-tool-use', timeout: 60 }] } };
+    const dir = makeProject({ '.crush.json': JSON.stringify(old) }, false);
+    expect(crushAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: 'Updated the Crush hooks in .crush.json (PreToolUse)' });
+    expect(parseJson(readFile(dir, '.crush.json'))).toEqual({ hooks: { PreToolUse: [{ name: 'slopbuckets', command: 'buckets hook --agent crush pre-tool-use', timeout: 60 }] } });
   });
 
   it('merges into an existing crush.json instead of adding .crush.json', () => {
     const dir = makeProject({ 'crush.json': '{ "options": { "debug": true } }\n' }, false);
     expect(crushTarget(dir)).toBe('crush.json');
     expect(crushAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done', text: expect.stringContaining('crush.json') });
-    const json = parseJson(readFileSync(path.join(dir, 'crush.json'), 'utf8')) as Record<string, unknown>;
-    expect(json.options).toEqual({ debug: true });
-    crushAdapter.uninstall(dir);
-    expect(parseJson(readFileSync(path.join(dir, 'crush.json'), 'utf8'))).toEqual({ options: { debug: true } });
+    expect(parseJson(readFile(dir, 'crush.json'))).toMatchObject({ options: { debug: true } });
+    expect(fileExists(dir, '.crush.json')).toBe(false);
+  });
+
+  it('writes to a crushrc when the project has one', () => {
+    const json = { options: { debug: true }, hooks: { PreToolUse: [{ name: 'slopbuckets', matcher: '^bash$', command: 'buckets hook --agent crush pre-tool-use' }] } };
+    const dir = makeProject({ '.crushrc': 'set -e\r\nhook add PreToolUse --name lint --command ./lint.sh\r\n', 'crush.json': JSON.stringify(json) }, false);
+    expect(crushTarget(dir)).toBe('.crushrc');
+    const steps = crushAdapter.install(dir, { skill: null });
+    expect(steps[0]).toEqual({ status: 'done', text: 'Installed Crush hooks in .crushrc (PreToolUse)' });
+    expect(readFile(dir, '.crushrc')).toBe(`set -e\r\nhook add PreToolUse --name lint --command ./lint.sh\r\n${crushRcLine()}\r\n`);
+    expect(crushAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'kept', text: 'Crush hooks are already in .crushrc' });
+  });
+
+  it('writes its line into an empty crushrc', () => {
+    const dir = makeProject({}, false);
+    writeFile(dir, 'crushrc', '');
+    expect(crushAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done' });
+    expect(readFile(dir, 'crushrc')).toBe(`${crushRcLine()}\n`);
   });
 });

@@ -1,0 +1,8 @@
+{
+  "description": "check --base lists the buckets, dependencies and exports that changed since the ref, and keeps the exit code",
+  "args": ["check", "--base", "HEAD"],
+  "expect": {
+    "exitCode": 0,
+    "message": "buckets check: no structure violations.\n\nArchitecture changes since HEAD:\n  Changed the reason of the dependency of `app` on `billing` from \"Charges orders at startup\" to \"Charges each order at startup\"\n  Added the dependency of `app` on `mail`: Sends the receipt of each order\n  Added bucket `mail`: Sends the email receipts of orders\n  Added the export `send` to src/mail/index.ts, a public file of `mail`"
+  }
+}

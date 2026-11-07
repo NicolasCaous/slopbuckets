@@ -1,0 +1,32 @@
+{
+  "description": "Claude Code: an edit that renames a bucket key while a dependsOn still names the old key is denied with the rename fix",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-rename",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-rename.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "content": "{\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\n  \"version\": \"2.0\",\n  \"buckets\": {\n    \"app\": {\n      \"purpose\": \"Starts the program and wires each part\",\n      \"files\": [\n        \"src/app/**\"\n      ],\n      \"public\": null,\n      \"dependsOn\": {\n        \"billing\": \"Bills the orders of each customer\",\n        \"log\": \"Logs the startup of the app\"\n      },\n      \"packages\": {}\n    },\n    \"billing\": {\n      \"purpose\": \"Issues and charges invoices\",\n      \"files\": [\n        \"src/billing/**\"\n      ],\n      \"public\": \"src/billing/index.ts\",\n      \"dependsOn\": {\n        \"payments\": \"Charges go through the gateway\"\n      },\n      \"packages\": {}\n    },\n    \"gateway\": {\n      \"purpose\": \"Talks to the payment gateway\",\n      \"files\": [\n        \"src/payments/**\"\n      ],\n      \"public\": \"src/payments/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    },\n    \"log\": {\n      \"purpose\": \"Formats and writes application logs\",\n      \"files\": [\n        \"src/log/**\"\n      ],\n      \"public\": \"src/log/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    }\n  }\n}\n"
+        },
+        "tool_use_id": "toolu_41"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "deny",
+        "messageIncludes": [
+          "buckets: edit not applied, buckets.config.json would be invalid.",
+          "buckets.payments: removed while dependsOn still names it, and buckets.gateway is new",
+          "fix config: to rename payments to gateway, rename the key and every dependsOn entry that names payments in the same edit: buckets.billing.dependsOn"
+        ],
+        "pending": []
+      }
+    }
+  ]
+}

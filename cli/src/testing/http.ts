@@ -1,6 +1,5 @@
 // HTTP helpers for the web tests. node:http instead of fetch, because the tests set Host and Origin by hand.
 import { request } from 'node:http';
-import { TOKEN_HEADER, type WebServer } from '../web/server.js';
 
 export interface TestResponse {
   status: number;
@@ -27,17 +26,3 @@ export function httpRequest(
   });
 }
 
-/** A POST the way the page sends it: same-origin, JSON, with the server token. */
-export function pagePost(server: WebServer, path: string, body: unknown = {}, headers: Record<string, string> = {}): Promise<TestResponse> {
-  return httpRequest(server.port, {
-    method: 'POST',
-    path,
-    headers: {
-      origin: `http://127.0.0.1:${server.port}`,
-      'content-type': 'application/json',
-      [TOKEN_HEADER]: server.token,
-      ...headers,
-    },
-    body: JSON.stringify(body),
-  });
-}

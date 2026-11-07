@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { main, suggestCommand } from '../cli.js';
-import { hookCommand } from '../commands/hook.js';
 import { initCommand } from '../commands/init.js';
-import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture.js';
+import { cleanupProjects, makeProject } from '../testing/fixture.js';
 import { fakeIo, testContext } from '../testing/harness.js';
-import { renderSplash, TAGLINE } from './splash.js';
+import { renderSplash, TAGLINE } from '../splash.js';
 import { colorLevel, createStyle, PLAIN, stripAnsi, visibleWidth, wrap } from './style.js';
 
 afterEach(cleanupProjects);
@@ -69,6 +68,7 @@ describe('styled output', () => {
   it('shows the splash above the help only for `buckets` alone on a terminal', async () => {
     const tty = fakeIo({ cwd: '.', terminal: TTY });
     await main(testContext(), tty, []);
+    expect(tty.out).toMatch(ANSI);
     expect(stripAnsi(tty.out)).toContain(TAGLINE);
     expect(stripAnsi(tty.out)).toContain('Usage: buckets');
 
@@ -80,52 +80,21 @@ describe('styled output', () => {
     }
   });
 
-  it('colors check text on a terminal, and never with NO_COLOR, in a pipe or with --json', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const colored = fakeIo({ cwd: dir, terminal: TTY });
-    expect(await main(testContext(), colored, ['check'])).toBe(2);
-    expect(colored.out).toMatch(ANSI);
-
-    const noColor = fakeIo({ cwd: dir, terminal: TTY, env: { NO_COLOR: '1' } });
-    await main(testContext(), noColor, ['check']);
-    expect(noColor.out).not.toMatch(ANSI);
-
-    const piped = fakeIo({ cwd: dir });
-    await main(testContext(), piped, ['check']);
-    expect(piped.out).not.toMatch(ANSI);
-    expect(piped.out).not.toContain(TAGLINE);
-
-    const json = fakeIo({ cwd: dir, terminal: TTY, env: { FORCE_COLOR: '3' } });
-    await main(testContext(), json, ['check', '--json']);
-    expect(json.out).not.toMatch(ANSI);
-    expect(JSON.parse(json.out).exitCode).toBe(2);
-  });
-
-  it('keeps hook output plain even when color is forced', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n" });
-    const io = fakeIo({ cwd: dir, stdin: JSON.stringify({ cwd: dir }), terminal: TTY, env: { FORCE_COLOR: '3' } });
-    await hookCommand(testContext(), io, ['stop']);
-    expect(io.out).not.toMatch(ANSI);
-    expect(io.out).not.toContain(TAGLINE);
-    expect(JSON.parse(io.out).decision).toBe('block');
-  });
-
-  it('shows the splash at the start of init on a terminal and ends with one next step', async () => {
+  it('shows the splash at the start of init on a terminal', async () => {
     const dir = makeProject({ 'package.json': '{}' }, false);
     const skill = makeProject({ 'SKILL.md': '# skill\n' }, false);
     const io = fakeIo({ cwd: dir, terminal: TTY });
     expect(await initCommand(testContext(), io, ['--yes'], { skillSource: `${skill}/SKILL.md` })).toBe(0);
     const plain = stripAnsi(io.out);
-    expect(plain.indexOf(TAGLINE)).toBeLessThan(plain.indexOf('Created buckets.config.json'));
-    expect(plain).toMatch(/\n\nNext step: run buckets refresh[^\n]*\n?[^\n]*buckets\.lock\.json\.\n$/);
+    expect(plain.indexOf(TAGLINE)).toBeLessThan(plain.indexOf('Setting up slopbuckets'));
   });
 
   it('suggests a command for a typo', async () => {
     expect(suggestCommand('chek')).toBe('check');
-    expect(suggestCommand('refrsh')).toBe('refresh');
+    expect(suggestCommand('inspct')).toBe('inspect');
     expect(suggestCommand('frobnicate')).toBeUndefined();
     const io = fakeIo({ cwd: '.' });
-    expect(await main(testContext(), io, ['chekc'])).toBe(1);
+    expect(await main(testContext(), io, ['chekc'])).toBe(64);
     expect(io.err).toContain('Did you mean `buckets check`?');
   });
 });

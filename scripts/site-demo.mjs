@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Builds site/demo/index.html, the interactive demo on the website: `buckets inspect --export html` run on the large
-// generated project of scripts/stress-project.mjs (about 300 buckets, a nested project, a link, violations, lock
-// differences and three approvals in git for the timeline).
+// Builds site/demo/index.html, the interactive demo on the website: `buckets inspect --export html` run on the shop
+// of scripts/stress-project.mjs (31 buckets, the nested project packages/storefront-sdk, and one violation each of
+// dependency-undeclared, dependency-unused, import-private, export-unused and file-unowned).
 //
 //   node scripts/site-demo.mjs [--poster]
 //
@@ -9,9 +9,10 @@
 // (inside the repository, so `typescript` resolves), exports the page into site/demo/index.html and deletes the
 // project. The Pages workflow runs it before it uploads site/, so site/demo/ is not committed.
 //
-// --poster also takes a WebP screenshot of the demo with a headless Chrome or Edge ($CHROME_PATH, or the usual install
-// locations) into site/img/inspect-demo.webp, the picture the landing page shows before the demo loads. That file is
-// committed: run with --poster after a change to the look of the inspect page.
+// --poster also takes a WebP screenshot of the demo in the dark scheme, like the landing page, with a headless Chrome
+// or Edge ($CHROME_PATH, or the usual install locations) into site/img/inspect-demo.webp, the picture the landing page
+// shows before the demo loads. That file is committed: run with --poster after a change to the look of the inspect
+// page.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -39,7 +40,7 @@ function newestMtime(dir) {
 function ensureCliBuilt() {
   const dist = rel('cli', 'dist', 'index.js');
   const sources = Math.max(newestMtime(rel('cli', 'src')), newestMtime(rel('adapters', 'ts', 'src')));
-  if (existsSync(dist) && existsSync(rel('cli', 'dist', 'inspect-static.js')) && statSync(dist).mtimeMs >= sources) return;
+  if (existsSync(dist) && existsSync(rel('cli', 'dist', 'inspect-page.js')) && statSync(dist).mtimeMs >= sources) return;
   console.log('cli/dist is missing or older than the sources, building it');
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build', '-w', 'cli'], { cwd: repo, stdio: 'inherit', shell: process.platform === 'win32' });
 }
@@ -100,7 +101,7 @@ async function screenshot(chromePath, url) {
       });
     await send('Page.enable');
     await send('Emulation.setDeviceMetricsOverride', { width: POSTER.width, height: POSTER.height, deviceScaleFactor: 1, mobile: false });
-    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }, { name: 'prefers-color-scheme', value: 'dark' }] });
     await send('Page.navigate', { url });
     await sleep(3000);
     const shot = await send('Page.captureScreenshot', { format: 'webp', quality: 82 });

@@ -1,0 +1,16 @@
+{
+  "description": "a packages entry, npm package or node: built-in, that no file of the bucket imports is package-unused",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "package-unused",
+        "file": "buckets.config.json"
+      },
+      {
+        "rule": "package-unused",
+        "file": "buckets.config.json"
+      }
+    ]
+  }
+}

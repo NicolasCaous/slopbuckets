@@ -1,0 +1,9 @@
+{
+  "description": "a relative import that names no file is import-unresolved, and it holds back the dependency-unused and export-unused it could explain",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      { "rule": "import-unresolved", "file": "src/app/main.ts", "line": 1 }
+    ]
+  }
+}

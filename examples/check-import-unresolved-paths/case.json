@@ -1,0 +1,13 @@
+{
+  "description": "an import that matches a tsconfig paths pattern and names no file is import-unresolved with the pattern",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "messageIncludes": [
+      "@billing/*",
+      "src/app/main.ts:1"
+    ]
+  }
+}

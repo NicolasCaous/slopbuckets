@@ -1,17 +1,20 @@
 ---
 title: Amp
-description: The plugin that buckets init writes in .amp/plugins/ for Amp, built on Amp's plugin API.
+description: The plugin that buckets init writes in .amp/plugins/ for Amp, built on Amp's plugin API, and the allow it has to return.
 ---
 
 # Amp
 
-This page covers Amp from ampcode.com. Amp has no shell hooks and no approval prompts. It loads TypeScript plugins, and a plugin is the only place that can refuse a tool call, so slopbuckets installs one.
+This page covers Amp from ampcode.com. Amp has no shell hooks. It loads TypeScript plugins, and slopbuckets installs one.
 
-| Protection | Support | How |
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | The `tool.call` handler returns `reject-and-continue` with the reason, and the agent continues without the tool |
-| Feedback after edits | yes | The `tool.result` handler appends the `buckets check --file` report to the tool output |
-| Block the end of a turn | yes | The `agent.end` handler continues the agent once with the report, with `maxContinuations: 1` |
+| Warning on edit | after the edit | the `tool.call` handler computes the pending list and the `tool.result` handler appends it to the tool output |
+| Pending list on other tools | after the tool | the same, for every other tool |
+| Interrupt on an invalid config | yes | the `tool.call` handler returns `reject-and-continue` with the reason |
+| Interrupt at the end | yes | the `agent.end` handler continues the agent once with the report |
+| Subagents | unverified | the same handler on a thread with a parent checks the subagent, but no doc says that a subagent fires `agent.end` |
+| Compaction | no | Amp has no compaction event |
 
 ## Install
 
@@ -21,50 +24,44 @@ buckets init --agent amp
 
 It writes:
 
-- `.amp/plugins/slopbuckets.ts`, the plugin. If you already have a file with that name, `init` leaves it alone and writes `.amp/plugins/slopbuckets-hooks.ts` instead.
-- the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`, which Amp reads.
+- `.amp/plugins/slopbuckets.ts`, the plugin. If you already have a file with that name, `init` leaves it alone and writes `.amp/plugins/slopbuckets-hooks.ts` instead. Running `init` again rewrites the plugin in place, a 1.x one included, under whichever of the two names it has. The plugin carries the line `slopbuckets:managed-plugin`, which is how `init` tells it from your own file.
+- the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`, which Amp reads
 
-Amp loads every `.ts` file in `.amp/plugins/` with Bun when it runs in the project folder, without a prompt. After `init`, restart Amp or run `plugins: reload` from the command palette (`Ctrl+O`). `amp plugins list` shows the plugin and the events it handles.
-
-The plugin starts the `buckets` command for each guarded tool call, so the machine needs it:
-
-- a project install, `npm i -D slopbuckets`, which the plugin finds in `node_modules` of the project or a folder above it
-- or a global install, `npm i -g slopbuckets`
-- or the environment variable `SLOPBUCKETS_BIN` set to the path of the `buckets` command or of its `dist/index.js`
-
-The plugin starts the CLI with the `node` on `PATH`. On Windows, a global npm install puts a `buckets.cmd` shim on `PATH`. The plugin runs the real `index.js` next to the shim with `node`, and goes through `cmd.exe` only when it cannot find it.
+Amp loads the plugins in `.amp/plugins/` with Bun, following its plugin activation settings, in interactive sessions and in `amp --execute` runs. After `init`, restart Amp or run `plugins: reload`. `amp plugins list` shows the plugin.
 
 ## How it works
 
-The plugin holds no rules and does not depend on Amp's tool names. For each tool call it asks Amp's helpers what the call does: `amp.helpers.filesModifiedByToolCall` lists the files it writes, and `amp.helpers.shellCommandFromToolCall` returns the shell command and its folder. A call that does neither, such as a read, runs without a call to the CLI. For the others, the plugin runs `buckets hook --agent amp <event>`, writes one JSON object on stdin with the files or the command and the thread id, and reads one JSON line back.
+The plugin holds no rules. For each event it starts `buckets hook --agent amp <event>` with a JSON object on stdin, such as `{"cwd", "sessionId", "tool", "args", "paths"}`, and reads one JSON line back: `{"kind": "silent"}`, `{"kind": "context", "text": "..."}`, `{"kind": "deny", "text": "..."}` or `{"kind": "block", "text": "..."}`. It looks for the CLI in `SLOPBUCKETS_BIN`, then in `node_modules/slopbuckets` of the project or a folder above it, then as `buckets` on the PATH, and runs a JavaScript entry with the `node` on the PATH. A call that takes longer than 10 seconds for a tool or 60 seconds for a stop counts as a failure: the tool runs, and the plugin warns once per session on stderr and with `ctx.ui.notify`. A missing CLI gets the same kind of warning once, with how to install it. The thread id is the session id.
 
-Before the tool runs, `tool.call` asks for `pre-tool-use`. When the answer is `{"decision": "deny", "reason": "..."}`, the handler returns `{ action: "reject-and-continue", message }`. Amp does not run the tool, shows the reason, and the model picks another way. That covers a write to any `buckets.lock.json` or `buckets.config.json`, a shell command that names one, `buckets refresh` with anything but exactly `--web`, and `buckets update` without `--check` or `--json`. `buckets refresh --web > refresh.log 2>&1 &` passes.
+- `tool.call` fires before each tool, and Amp has no matcher. Amp does not document its tool names or input fields, so the plugin asks Amp's helpers: `amp.helpers.shellCommandFromToolCall` for the command of a shell call, which marks the session as one that may have changed files, and `amp.helpers.filesModifiedByToolCall` for the files any other call modifies. The plugin sends every call as the `pre-tool` event, and the CLI runs the `pre-edit` phase when the call modifies files. For one file, it takes the new text from the raw input when it holds `content`, or an old and new string pair such as `old_str` and `new_str`, applied to the file on disk. An empty old string, or several files, leave the content unknown, and the CLI shows the current pending list instead. Patch text in the input is applied file by file.
+- Amp's result type has no context field, so the plugin keeps the text by `toolUseID`. `tool.result` with `status: "done"` appends the kept text to the output before Amp sends it to the model. When the edit makes `buckets.config.json` worse, `tool.call` returns `{ action: "reject-and-continue", message }` with the reason. Every other call returns `{ action: "allow" }`.
+- `agent.end` with `status: "done"` runs the `stop` event, or `subagent-stop` when `ctx.thread.parentThreadID()` names a parent. The CLI checks only when the thread changed files or still has pending violations. With violations, the plugin returns `{ action: "continue", userMessage, maxContinuations: 1 }`, with the report after `[slopbuckets] `. Amp has no flag for a continuation, so the plugin keeps its own per-thread flag, which resets when a user message starts the agent and stays set for its own message.
 
-After a tool that modified files finishes with status `done`, `tool.result` asks for `post-tool-use`. When a file has problems, the handler returns the output with the report added: after a text output, as one more text part of a list, or as a `slopbuckets` field of an object output.
-
-When the agent finishes a turn with status `done`, `agent.end` asks for `stop`, which runs the full `buckets check`. When the check fails, the handler returns `{ action: "continue", userMessage, maxContinuations: 1 }`. Amp sends the report as the next user message, which starts with `[slopbuckets]`, and the agent answers it. The plugin also keeps a flag per thread: after one continuation, it lets the turn end, and only a message from you, not one that starts with `[slopbuckets]`, clears the flag.
+A steering message with `ctx.thread.appendUserMessage(..., { steer: true })` may deliver the warning earlier, as a visible user message. The plugin does not use it until a test shows the timing.
 
 ## Limits
 
-- Amp's plugin API is young, and Amp marks parts of it as experimental. A change in the events, the helpers or the result shapes can break the plugin until slopbuckets updates it.
-- The guard is as good as Amp's helpers. A tool whose file writes `filesModifiedByToolCall` does not report, such as a tool from another plugin or an MCP server, is not checked.
-- The end-of-turn check runs only for a turn that ends with status `done`, not after an error or a cancel. There is no separate check when a subagent ends; the check at the end of the main turn covers its work.
-- The plugin fails open, like every slopbuckets integration. When the `buckets` command is missing, fails or prints something that is not JSON, the plugin allows the call, adds no feedback and does not continue the agent. It warns once per thread on stderr and with `ctx.ui.notify`.
-- Each call has a timeout: 10 seconds before a tool, 30 seconds after an edit and 60 seconds for the end-of-turn check. A call that times out counts as a failure and the tool runs.
+- `tool.call` must return a result, and its result type has no neutral value: the choices are `allow`, `reject-and-continue`, `modify`, `synthesize` and `error`. So the plugin returns `allow` for every call it does not deny. Amp does not ask for approval before tools by default, so this skips no prompt there. If you use a permission plugin, such as one that rejects some shell commands or shows a confirm dialog, check that it still works with slopbuckets installed: Amp does not document how the answers of several plugins combine, so the `allow` of slopbuckets might override its reject.
+- Amp ignores `continue` after 5 plugin continuations in a row. The plugin asks for 1.
+- Reading the new content from the raw input relies on tool input fields that Amp does not document, and no test in a live session has checked them.
+- Subagent threads probably fire `agent.end` too. No doc states it for the built-in subagent.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Start Amp in the project folder and check that `amp plugins list` shows `slopbuckets`.
-2. Ask it to "write `{}` to buckets.lock.json". The edit should be rejected with the reason from slopbuckets, which names the lock and `buckets refresh --web`.
-3. Ask it to add `import { x } from './x';` to a file under the root bucket folder. The output of the edit should carry the `buckets check --file` report.
-4. In a project whose check fails, for example before the first `buckets refresh`, ask a short question. After the answer, one `[slopbuckets]` message with the report should follow, and no second one.
+In a project where `billing` and `payments` are buckets and the public file of `payments` is `src/payments/index.ts`:
 
-You can also run a hook by hand from the project folder:
+1. Restart Amp in the project and check that `amp plugins list` shows the plugin.
+2. Ask it to add `import { charge } from '../payments/client';` to `src/billing/invoice.ts`. The tool output should end with the pending list and `billing -> payments: private file`.
+3. Let it end the turn without a fix. Amp should continue once with `buckets: 1 structure violation remains.`
+
+By hand, from the project folder, send what the plugin sends: write a file with the violation, send the call that created it with the path Amp's helper names, then the stop of the same thread:
 
 ```sh
-echo '{"paths":["buckets.lock.json"]}' | buckets hook --agent amp pre-tool-use
+printf "import { charge } from '../payments/client';\n" > src/billing/refund.ts
+echo '{"cwd":"'"$PWD"'","sessionId":"test","tool":"create_file","args":{"path":"'"$PWD"'/src/billing/refund.ts","content":"import { charge } from \"../payments/client\";\n"},"paths":["'"$PWD"'/src/billing/refund.ts"]}' | buckets hook --agent amp pre-tool
+echo '{"cwd":"'"$PWD"'","sessionId":"test"}' | buckets hook --agent amp stop
 ```
 
-It prints `{"decision":"deny","reason":"..."}`.
+The first command prints `{"kind":"context","text":"buckets: 1 pending. ..."}`. The second prints `{"kind":"block","text":"buckets: 1 structure violation remains. ..."}`. A stop without the tool call before it prints `{"kind":"silent"}`. Delete `src/billing/refund.ts` and `.buckets/sessions/test.json` afterwards.

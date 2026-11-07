@@ -1,34 +1,49 @@
 // The instructions `buckets init` installs for every harness: a managed block in AGENTS.md, which most harnesses read,
 // and the skill in .agents/skills/slopbuckets/SKILL.md, which Codex, Cursor, GitHub Copilot, OpenCode, Pi and Amp read.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { message } from '../output/index.js';
 import type { InstallStep } from './adapter.js';
+import { writeProjectFile } from './project-file.js';
 
 export const BLOCK_START = '<!-- slopbuckets:start -->';
 export const BLOCK_END = '<!-- slopbuckets:end -->';
 export const AGENTS_FILE = 'AGENTS.md';
 export const SHARED_SKILL = path.join('.agents', 'skills', 'slopbuckets', 'SKILL.md');
+/** Every copy of the skill that `buckets init` writes, relative to the project with `/`: Claude Code's and the shared one. */
+export const SKILL_COPIES = ['.claude/skills/slopbuckets/SKILL.md', '.agents/skills/slopbuckets/SKILL.md'];
+/** The frontmatter key, under `metadata`, that records the CLI version that copied the skill. */
+const VERSION_KEY = 'slopbuckets-version';
 
 const DOCS_URL = 'https://nicolascaous.github.io/slopbuckets/';
 
-/** The managed block, markers included, without a trailing newline. It stays short: the skill and the docs hold the detail. */
-export const AGENTS_BLOCK = [
-  BLOCK_START,
-  '## slopbuckets',
-  '',
-  `This project uses slopbuckets. \`buckets.config.json\` names the root bucket folder, the import alias, the \`access\` rules between buckets and the \`layout\` of bucket folders. Read \`.agents/skills/slopbuckets/SKILL.md\` before you edit files under the root bucket folder or add an import between folders. Docs: ${DOCS_URL}`,
-  '',
-  '- A bucket holds only `_/`, `dmz/` and child buckets. Put code in `_/`. Any other folder in a bucket is a child bucket, a new bucket needs human approval, and `layout` in the config may forbid it.',
-  '- Import internal code through the alias, never with a relative path.',
-  "- Code reaches another bucket only through DMZ files, which hold nothing but `export { x } from '<alias>/...'` and `export type { T } from '<alias>/...'`.",
-  '- Never write any `buckets.lock.json` or `buckets.config.json`, nested ones included, under any name, and never run `buckets refresh` without exactly the `--web` flag. A human owns both files. Read them with a file reading tool, not a shell command.',
-  '- Never run `buckets update` without `--check` or `--json`. A human updates the CLI. When a notice says a newer slopbuckets version is available, tell the human the version it shows.',
-  '- When `access-denied` or `access-ambiguous` blocks a dependency you need, stop and ask the human. Give the exact `access` line you propose, the list it goes in (`allow` or `deny`), and why.',
-  '- When `layout-denied` or `layout-ambiguous` reports a bucket folder, move its code into the `_/` of its parent bucket, remove it, or stop and ask the human for the exact `layout` line you propose, such as `root/billing/invoices/pdf` in `layout.allow`.',
-  '- Run `buckets check` before you finish. With exit code 1, fix what it reports. With exit code 2, run `buckets refresh --web` in the background, send the human the link it prints with a summary of what changed and why, and wait for it to finish. With exit code 3, stop and show the message to the human.',
-  '- `buckets inspect --json` prints the buckets, contracts and imports of the project.',
-  BLOCK_END,
-].join('\n');
+/**
+ * What an agent or a human types to run slopbuckets, for a command that the hooks run: `npx buckets` for the copy in
+ * node_modules, which is not on PATH, the command itself otherwise, such as `buckets` or `node ./cli/dist/index.js`.
+ */
+export function typedCommand(command: string): string {
+  return /\bnode_modules[\\/]/.test(command) ? 'npx buckets' : command;
+}
+
+/** The managed block for the command that runs slopbuckets, markers included, without a trailing newline. */
+export function agentsBlock(command = 'buckets'): string {
+  const check = `${typedCommand(command)} check`;
+  return [
+    BLOCK_START,
+    '## slopbuckets',
+    '',
+    '- `buckets.config.json` holds the architecture of this project: the buckets, the job of each one, its public file, and which buckets it depends on and why.',
+    '- slopbuckets hooks warn you when the code and `buckets.config.json` disagree, and stay silent while they match.',
+    '- Fixing the code and editing `buckets.config.json` are both valid. Pick the one that fits the task. The skill says how.',
+    `- Before you finish, run \`${check}\` unless you know a slopbuckets stop hook runs it, and fix the code or the config until it exits 0. If it exits 3, fix the problem if it is part of your task, otherwise show it to the human.`,
+    '',
+    `Read \`.agents/skills/slopbuckets/SKILL.md\` before you add files, imports or buckets. Docs: ${DOCS_URL}`,
+    BLOCK_END,
+  ].join('\n');
+}
+
+/** The managed block of a global install. */
+export const AGENTS_BLOCK = agentsBlock();
 
 const BLOCK = new RegExp(`${escapeRegex(BLOCK_START)}[\\s\\S]*?${escapeRegex(BLOCK_END)}`, 'g');
 
@@ -67,25 +82,61 @@ export function upsertBlock(text: string, block: string = AGENTS_BLOCK): { text:
   return { text: out };
 }
 
-/** The text without the managed block and the newline after it. */
-export function removeBlock(text: string): string {
-  return text.replace(new RegExp(`${BLOCK.source}(?:\\r?\\n)?`, 'g'), '');
+/** The index of the line that closes the frontmatter, or -1 when the text has none. */
+function frontmatterEnd(lines: readonly string[]): number {
+  return lines[0] === '---' ? lines.indexOf('---', 1) : -1;
 }
 
-/** Writes the AGENTS.md block and the shared skill. `skill` is null when init could not find the skill in the package. */
-export function installInstructions(projectDir: string, skill: string | null): InstallStep[] {
+/**
+ * The skill text with the CLI version in its frontmatter, as `slopbuckets-version` under `metadata`, the map the
+ * Agent Skills format keeps for extra keys. A text without frontmatter stays as it is.
+ */
+export function stampSkill(skill: string, version: string): string {
+  const eol = skill.includes('\r\n') ? '\r\n' : '\n';
+  const lines = skill.split(eol);
+  const end = frontmatterEnd(lines);
+  if (end < 0) return skill;
+  const line = `  ${VERSION_KEY}: "${version}"`;
+  const at = lines.findIndex((l, i) => i < end && l.trimStart().startsWith(`${VERSION_KEY}:`));
+  const metadata = lines.findIndex((l, i) => i < end && /^metadata:\s*$/.test(l));
+  if (at > 0) lines[at] = line;
+  else if (metadata > 0) lines.splice(metadata + 1, 0, line);
+  else lines.splice(end, 0, 'metadata:', line);
+  return lines.join(eol);
+}
+
+/** The CLI version in the frontmatter of a skill copy, or null when it has none. */
+export function skillVersion(skill: string): string | null {
+  const lines = skill.split(/\r?\n/);
+  for (const line of lines.slice(1, Math.max(frontmatterEnd(lines), 1))) {
+    const match = /^\s+slopbuckets-version:\s*"?([^"\s]+)"?\s*$/.exec(line);
+    if (match !== null) return match[1]!;
+  }
+  return null;
+}
+
+/** The skill copies that exist in `projectDir`, with the version each one records. */
+export function skillCopies(projectDir: string): { file: string; version: string | null }[] {
+  return SKILL_COPIES.filter((file) => existsSync(path.join(projectDir, file))).map((file) => ({ file, version: skillVersion(readFileSync(path.join(projectDir, file), 'utf8')) }));
+}
+
+/**
+ * Writes the AGENTS.md block and the shared skill. `skill` is null when init could not find the skill in the package.
+ * `command` is the command the hooks run, which the block turns into the check command the agent types.
+ */
+export function installInstructions(projectDir: string, skill: string | null, command = 'buckets'): InstallStep[] {
   const steps: InstallStep[] = [];
   const agentsFile = path.join(projectDir, AGENTS_FILE);
   try {
     const exists = existsSync(agentsFile);
     const current = exists ? readFileSync(agentsFile, 'utf8') : '';
-    const result = upsertBlock(current);
+    const result = upsertBlock(current, agentsBlock(command));
     if (result.problem !== undefined) {
       steps.push({ status: 'todo', text: `Did not change AGENTS.md, because ${result.problem}. Fix the markers and run \`buckets init\` again.` });
     } else if (result.text === current) {
       steps.push({ status: 'kept', text: 'The slopbuckets rules in AGENTS.md are up to date' });
     } else {
-      writeFileSync(agentsFile, result.text, 'utf8');
+      writeProjectFile(projectDir, agentsFile, result.text);
       const had = current.includes(BLOCK_START);
       steps.push({
         status: 'done',
@@ -93,7 +144,7 @@ export function installInstructions(projectDir: string, skill: string | null): I
       });
     }
   } catch (error) {
-    steps.push({ status: 'failed', text: `Could not write AGENTS.md: ${error instanceof Error ? error.message : String(error)}` });
+    steps.push({ status: 'failed', text: `Could not write AGENTS.md: ${message(error)}` });
   }
 
   if (skill === null) {
@@ -102,41 +153,15 @@ export function installInstructions(projectDir: string, skill: string | null): I
   }
   const skillFile = path.join(projectDir, SHARED_SKILL);
   if (!existsSync(skillFile) || readFileSync(skillFile, 'utf8') !== skill) {
-    mkdirSync(path.dirname(skillFile), { recursive: true });
-    writeFileSync(skillFile, skill, 'utf8');
+    try {
+      writeProjectFile(projectDir, skillFile, skill);
+    } catch (error) {
+      steps.push({ status: 'failed', text: `Could not write .agents/skills/slopbuckets/SKILL.md: ${message(error)}` });
+      return steps;
+    }
     steps.push({ status: 'done', text: 'Installed the skill for other agents in .agents/skills/slopbuckets/SKILL.md' });
   } else {
     steps.push({ status: 'kept', text: 'The skill in .agents/skills/slopbuckets/SKILL.md is up to date' });
-  }
-  return steps;
-}
-
-/** Removes the AGENTS.md block (and AGENTS.md, when nothing else is left in it) and the shared skill. */
-export function uninstallInstructions(projectDir: string): InstallStep[] {
-  const steps: InstallStep[] = [];
-  const agentsFile = path.join(projectDir, AGENTS_FILE);
-  if (existsSync(agentsFile)) {
-    const current = readFileSync(agentsFile, 'utf8');
-    const next = removeBlock(current);
-    if (next !== current) {
-      if (next.trim() === '') {
-        rmSync(agentsFile, { force: true });
-        steps.push({ status: 'done', text: 'Removed AGENTS.md, which held only the slopbuckets rules' });
-      } else {
-        writeFileSync(agentsFile, next, 'utf8');
-        steps.push({ status: 'done', text: 'Removed the slopbuckets rules from AGENTS.md' });
-      }
-    }
-  }
-  const skillFile = path.join(projectDir, SHARED_SKILL);
-  if (existsSync(skillFile)) {
-    rmSync(skillFile, { force: true });
-    try {
-      if (readdirSync(path.dirname(skillFile)).length === 0) rmdirSync(path.dirname(skillFile));
-    } catch {
-      // A folder that cannot be listed or removed stays.
-    }
-    steps.push({ status: 'done', text: 'Removed the skill from .agents/skills/slopbuckets/SKILL.md' });
   }
   return steps;
 }

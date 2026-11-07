@@ -1,0 +1,88 @@
+{
+  "description": "Claude Code: a violation in a nested project starts with the project folder in the full form, the reminder and the stop text",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-nested",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-nested.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/packages/sdk/scripts/build.ts",
+          "content": "import { run } from '../src/run';\n\nrun('build');\n"
+        },
+        "tool_use_id": "toolu_29"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+          }
+        },
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "packages/sdk/scripts/build.ts": "import { run } from '../src/run';\n\nrun('build');\n"
+      },
+      "payload": {
+        "session_id": "s-claude-nested",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-nested.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/packages/sdk/src/run.ts"
+        },
+        "tool_use_id": "toolu_30"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\npackages/sdk: scripts/build.ts: in no bucket",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\npackages/sdk: scripts/build.ts: in no bucket"
+          }
+        },
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-nested",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-nested.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 structure violation remains. Fix the code or edit buckets.config.json. Either is valid.\n\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 1 structure violation remains. Fix the code or edit buckets.config.json. Either is valid.\n\npackages/sdk: scripts/build.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+        }
+      }
+    }
+  ]
+}

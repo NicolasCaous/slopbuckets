@@ -1,0 +1,8 @@
+﻿{
+  "root": "src",
+  "buckets": {
+    "billing": {
+      "access": []
+    }
+  }
+}

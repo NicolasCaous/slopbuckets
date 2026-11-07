@@ -1,0 +1,25 @@
+{
+  "description": "an unknown top-level key, such as the 1.x layout, gives config-invalid",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "project": ".",
+          "problem": {
+            "kind": "unknown-field",
+            "at": [],
+            "field": "layout"
+          }
+        }
+      ]
+    }
+  }
+}

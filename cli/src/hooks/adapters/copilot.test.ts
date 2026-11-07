@@ -1,163 +1,132 @@
-// The GitHub Copilot adapter with Copilot CLI payloads: camelCase fields and toolArgs as a JSON string (or the bare
-// patch text for apply_patch).
+// The GitHub Copilot adapter with Copilot CLI payloads: preToolUse with toolArgs as a JSON string, agentStop and
+// subagentStop.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupProjects, fileExists, makeProject, readFile } from '../../testing/fixture.js';
-import {
-  cleanProject,
-  feedbackFor,
-  installSuite,
-  line,
-  LOCK_DENY_REASON,
-  guardedNames,
-  newSessionId,
-  patch,
-  REFRESH_ALLOWED,
-  REFRESH_DENIED,
-  runAdapter,
-  stopReportFor,
-  violationProject,
-  asUpdateDeny,
-  UPDATE_ALLOWED,
-  UPDATE_DENIED,
-} from './adapter-test-kit.js';
+import { cleanupProjects, makeProject, readFile } from '../../testing/fixture.js';
+import { failOpenPowerShell, failOpenSh } from './json-install.js';
+import { installSuite, line, newSessionId, patch, runAdapter } from './adapter-test-kit.js';
 import { copilotAdapter } from './copilot.js';
+import { crashingCore, decisionCases, fakeCore, restoreCoreAfterEach, TEXT } from './json-test-kit.js';
 
 afterEach(cleanupProjects);
+restoreCoreAfterEach();
 
-const DENY = line({ permissionDecision: 'deny', permissionDecisionReason: LOCK_DENY_REASON });
-
-function payload(dir: string, extra: Record<string, unknown>) {
-  return { sessionId: newSessionId(), timestamp: 1791115200000, cwd: dir, ...extra };
+function payload(dir: string, extra: Record<string, unknown>, sessionId = 'cp-1') {
+  return { sessionId, timestamp: 1767225600000, cwd: dir, ...extra };
 }
 
 const tool = (dir: string, toolName: string, args: unknown) => payload(dir, { toolName, toolArgs: typeof args === 'string' ? args : JSON.stringify(args) });
+const project = () => makeProject({ 'src/a.ts': 'export const a = 1;\n' });
 
-describe('copilot pre-tool-use', () => {
-  it('allows ordinary calls with no output', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'bash', { command: 'npm test', description: 'tests' }), dir)).toEqual({ code: 0, out: '', err: '' });
-    expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'create', { path: path.join(dir, 'root/_/x.ts'), file_text: 'x' }), dir)).toEqual({ code: 0, out: '', err: '' });
-    expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'view', { path: path.join(dir, 'buckets.lock.json') }), dir)).toEqual({ code: 0, out: '', err: '' });
+describe('copilot phases', () => {
+  it('maps create, str_replace_editor and a bare apply_patch to pre-edit with the new text', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'create', { path: 'src/b.ts', file_text: 'b' }), dir);
+    await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'str_replace_editor', { command: 'str_replace', path: 'src/a.ts', old_str: '1', new_str: '2' }), dir);
+    await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', patch(['*** Add File: src/c.ts', '+c'])), dir);
+    expect(calls.map((c) => [c.phase, c.toolName, c.edits])).toEqual([
+      ['pre-edit', 'create', [{ path: path.join(dir, 'src', 'b.ts'), content: 'b' }]],
+      ['pre-edit', 'str_replace_editor', [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 2;\n' }]],
+      ['pre-edit', 'apply_patch', [{ path: path.join(dir, 'src', 'c.ts'), content: 'c\n' }]],
+    ]);
   });
 
-  it('denies create, edit and str_replace_editor on the lock under any name, with toolArgs as a string or an object', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'create', { path: name, file_text: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-      expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, old_str: 'a', new_str: 'b' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-      expect((await runAdapter(copilotAdapter, 'pre-tool-use', payload(dir, { toolName: 'edit', toolArgs: { file_path: name } }), dir)).out).toBe(as(DENY));
-      expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'str_replace_editor', { command: 'create', path: name, file_text: '{}' }), dir)).out).toBe(as(DENY));
-    }
+  it('maps bash and powershell to a shell pre-tool, view to a pre-tool, and keeps the agent id of a subagent', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'bash', { command: 'npm test', description: 'test' }), dir);
+    await runAdapter(copilotAdapter, 'pre-tool-use', { ...tool(dir, 'powershell', { command: 'dir' }), agentId: 'sub-2', agentType: 'explore' }, dir);
+    await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'str_replace_editor', { command: 'view', path: 'src/a.ts' }), dir);
+    expect(calls.map((c) => [c.phase, c.isShell, c.agentId])).toEqual([
+      ['pre-tool', true, null],
+      ['pre-tool', true, 'sub-2'],
+      ['pre-tool', false, null],
+    ]);
   });
 
-  it('denies apply_patch on the lock, with the patch as bare text, as a JSON string or under "input"', async () => {
-    const dir = violationProject();
-    const text = patch(['*** Update File: root/_/main.ts', '@@', '-a', '+b', `*** Add File: ${path.join(dir, 'buckets.lock.json')}`, '+{}']);
-    expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', text), dir)).toEqual({ code: 0, out: DENY, err: '' });
-    expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', JSON.stringify(text)), dir)).out).toBe(DENY);
-    expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', { input: text }), dir)).out).toBe(DENY);
-    const ok = patch(['*** Update File: root/_/main.ts', '@@', '-a', '+b']);
-    expect((await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, 'apply_patch', ok), dir)).out).toBe('');
-  });
-
-  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web in bash and powershell', async () => {
-    const dir = violationProject();
-    for (const shell of ['bash', 'powershell']) {
-      for (const command of REFRESH_DENIED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      for (const command of REFRESH_ALLOWED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: '', err: '' });
-      for (const command of UPDATE_DENIED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
-      for (const command of UPDATE_ALLOWED) expect(await runAdapter(copilotAdapter, 'pre-tool-use', tool(dir, shell, { command }), dir)).toEqual({ code: 0, out: '', err: '' });
-    }
-  });
-});
-
-describe('copilot post-tool-use', () => {
-  it('reports the violations of an edited file in additionalContext', async () => {
-    const dir = violationProject();
-    const feedback = await feedbackFor(dir, 'root/_/main.ts');
-    const edit = { ...tool(dir, 'edit', { path: path.join(dir, 'root', '_', 'main.ts'), old_str: 'a', new_str: 'b' }), toolResult: { resultType: 'success', textResultForLlm: 'ok' } };
-    expect(await runAdapter(copilotAdapter, 'post-tool-use', edit, dir)).toEqual({ code: 0, out: line({ additionalContext: feedback }), err: '' });
-    const clean = tool(dir, 'create', { path: 'root/log/_/logger.ts', file_text: 'x' });
-    expect(await runAdapter(copilotAdapter, 'post-tool-use', clean, dir)).toEqual({ code: 0, out: '', err: '' });
-  });
-});
-
-describe('copilot agent-stop and subagent-stop', () => {
-  it('blocks the agent once and lets it finish when stop_hook_active is set', async () => {
-    const dir = violationProject();
-    const report = await stopReportFor(dir);
-    const first = payload(dir, { stop_hook_active: false, stopReason: 'end_turn' });
-    expect(await runAdapter(copilotAdapter, 'agent-stop', first, dir)).toEqual({ code: 0, out: line({ decision: 'block', reason: report }), err: '' });
-    expect(await runAdapter(copilotAdapter, 'agent-stop', { ...first, stop_hook_active: true }, dir)).toEqual({ code: 0, out: '', err: '' });
-  });
-
-  it('tracks each subagent, which has no stop_hook_active, and blocks it only once in a row', async () => {
-    const dir = violationProject();
-    const report = await stopReportFor(dir, true);
+  it('maps agentStop with stop_hook_active, and blocks a subagentStop once per agent by mark', async () => {
+    const dir = project();
+    const calls = fakeCore((input) => (input.stopHookActive ? { kind: 'silent' } : { kind: 'block', text: TEXT }));
+    await runAdapter(copilotAdapter, 'agent-stop', payload(dir, { stopReason: 'end_turn', stop_hook_active: true }), dir);
     const session = newSessionId();
-    const sub = (agentId: string) => ({ sessionId: session, timestamp: 1791115200000, cwd: dir, agentId, agentName: 'explore' });
-    const block = { code: 0, out: line({ decision: 'block', reason: report }), err: '' };
-    expect(await runAdapter(copilotAdapter, 'subagent-stop', sub('a1'), dir)).toEqual(block);
-    expect(await runAdapter(copilotAdapter, 'subagent-stop', sub('a2'), dir)).toEqual(block);
-    expect(await runAdapter(copilotAdapter, 'subagent-stop', sub('a1'), dir)).toEqual({ code: 0, out: '', err: '' });
-    expect(await runAdapter(copilotAdapter, 'subagent-stop', sub('a2'), dir)).toEqual({ code: 0, out: '', err: '' });
+    const sub = payload(dir, { agentId: 'sub-3', agentType: 'explore', parentAgentId: 'root' }, session);
+    const first = await runAdapter(copilotAdapter, 'subagent-stop', sub, dir);
+    const second = await runAdapter(copilotAdapter, 'subagent-stop', sub, dir);
+    const other = await runAdapter(copilotAdapter, 'subagent-stop', { ...sub, agentId: 'sub-4' }, dir);
+    expect(calls.map((c) => [c.phase, c.stopHookActive, c.agentId])).toEqual([
+      ['stop', true, null],
+      ['subagent-stop', false, 'sub-3'],
+      ['subagent-stop', true, 'sub-3'],
+      ['subagent-stop', false, 'sub-4'],
+    ]);
+    expect([first.out, second.out, other.out]).toEqual([line({ decision: 'block', reason: TEXT }), '', line({ decision: 'block', reason: TEXT })]);
+  });
+});
+
+describe('copilot answers', () => {
+  const block = line({ decision: 'block', reason: TEXT });
+  decisionCases(copilotAdapter, 'pre-tool-use', (dir) => tool(dir, 'create', { path: 'src/c.ts', file_text: 'c' }), project, {
+    context: { code: 0, out: line({ additionalContext: TEXT }) },
+    deny: { code: 0, out: line({ permissionDecision: 'deny', permissionDecisionReason: TEXT }) },
+  });
+  decisionCases(copilotAdapter, 'pre-tool-use', (dir) => tool(dir, 'bash', { command: 'ls' }), project, { context: { code: 0, out: line({ additionalContext: TEXT }) } });
+  decisionCases(copilotAdapter, 'agent-stop', (dir) => payload(dir, { stop_hook_active: false }), project, { block: { code: 0, out: block } });
+  decisionCases(copilotAdapter, 'subagent-stop', (dir) => payload(dir, { agentId: newSessionId() }), project, { block: { code: 0, out: block } });
+});
+
+describe('copilot fails open', () => {
+  it('exits with 0 and prints nothing when the core crashes, so preToolUse never denies by error', async () => {
+    const dir = project();
+    crashingCore();
+    for (const event of copilotAdapter.events) {
+      const result = await runAdapter(copilotAdapter, event, tool(dir, 'create', { path: 'x.ts', file_text: '' }), dir);
+      expect(result).toMatchObject({ code: 0, out: '' });
+    }
   });
 
-  it('says nothing for a clean project', async () => {
-    const dir = await cleanProject();
-    expect(await runAdapter(copilotAdapter, 'agent-stop', payload(dir, { stop_hook_active: false }), dir)).toEqual({ code: 0, out: '', err: '' });
+  it('runs every command inside the guard that skips it when buckets is missing', () => {
+    const dir = makeProject({}, false);
+    copilotAdapter.install(dir, { skill: null });
+    const json = JSON.parse(readFile(dir, '.github/hooks/slopbuckets.json'));
+    expect(json.hooks.preToolUse).toEqual([
+      { type: 'command', bash: failOpenSh('buckets hook --agent copilot pre-tool-use'), powershell: failOpenPowerShell('buckets hook --agent copilot pre-tool-use'), timeoutSec: 60 },
+    ]);
   });
 });
 
 describe('copilot install', () => {
-  const plain = (event: string) => `buckets hook --agent copilot ${event}`;
-  const bash = (event: string) => `if command -v buckets >/dev/null 2>&1; then ${plain(event)}; fi`;
-  const powershell = (event: string) => `if (Get-Command buckets -ErrorAction SilentlyContinue) { ${plain(event)} }`;
   installSuite(copilotAdapter, {
     file: '.github/hooks/slopbuckets.json',
-    userText: JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', bash: './scripts/hello.sh', powershell: './scripts/hello.ps1' }] } }, null, 2),
-    freshUninstallDeletes: true,
+    userText: JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: 'command', bash: 'echo hi', powershell: 'echo hi' }] } }, null, 2),
     fresh(json) {
-      expect(json).toEqual({
-        version: 1,
-        hooks: {
-          preToolUse: [{ type: 'command', bash: bash('pre-tool-use'), powershell: powershell('pre-tool-use'), timeoutSec: 30, matcher: 'edit|create|apply_patch|str_replace_editor|bash|powershell' }],
-          postToolUse: [{ type: 'command', bash: bash('post-tool-use'), powershell: powershell('post-tool-use'), timeoutSec: 300, matcher: 'edit|create|apply_patch|str_replace_editor' }],
-          agentStop: [{ type: 'command', bash: bash('agent-stop'), powershell: powershell('agent-stop'), timeoutSec: 600 }],
-          subagentStop: [{ type: 'command', bash: bash('subagent-stop'), powershell: powershell('subagent-stop'), timeoutSec: 600 }],
-        },
-      });
+      expect(json.version).toBe(1);
+      expect(Object.keys(json.hooks as object)).toEqual(['preToolUse', 'agentStop', 'subagentStop']);
     },
   });
 
-  it('replaces hooks written before the fail-open guard, and keeps the user hooks', () => {
-    const older = {
+  it('migrates a 1.x install: drops postToolUse and the preToolUse matcher', () => {
+    const v1hook = (name: string, extra: Record<string, unknown>) => ({
+      type: 'command',
+      bash: failOpenSh(`buckets hook --agent copilot ${name}`),
+      powershell: failOpenPowerShell(`buckets hook --agent copilot ${name}`),
+      ...extra,
+    });
+    const v1 = {
       version: 1,
       hooks: {
-        sessionStart: [{ type: 'command', bash: './scripts/hello.sh', powershell: './scripts/hello.ps1' }],
-        preToolUse: [{ type: 'command', bash: plain('pre-tool-use'), powershell: plain('pre-tool-use'), timeoutSec: 30, matcher: 'edit|create|apply_patch|str_replace_editor|bash|powershell' }],
-        agentStop: [{ type: 'command', bash: plain('agent-stop'), powershell: plain('agent-stop'), timeoutSec: 600 }],
+        preToolUse: [v1hook('pre-tool-use', { timeoutSec: 30, matcher: 'edit|create|apply_patch|str_replace_editor|bash|powershell' })],
+        postToolUse: [v1hook('post-tool-use', { timeoutSec: 300, matcher: 'edit|create|apply_patch|str_replace_editor' })],
+        agentStop: [v1hook('agent-stop', { timeoutSec: 600 })],
+        subagentStop: [v1hook('subagent-stop', { timeoutSec: 600 })],
       },
     };
-    const dir = makeProject({ '.github/hooks/slopbuckets.json': `${JSON.stringify(older, null, 2)}\n` }, false);
-    expect(copilotAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done' });
-    const json = JSON.parse(readFile(dir, '.github/hooks/slopbuckets.json')) as { hooks: Record<string, { bash: string; powershell: string }[]> };
-    expect(json.hooks.sessionStart).toEqual(older.hooks.sessionStart);
-    for (const event of ['preToolUse', 'postToolUse', 'agentStop', 'subagentStop']) {
-      expect(json.hooks[event]).toHaveLength(1);
-      expect(json.hooks[event]![0]!.bash).toMatch(/^if command -v buckets /);
-      expect(json.hooks[event]![0]!.powershell).toMatch(/^if \(Get-Command buckets /);
-    }
+    const dir = makeProject({ '.github/hooks/slopbuckets.json': JSON.stringify(v1, null, 2) }, false);
+    expect(copilotAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: 'Updated the GitHub Copilot hooks in .github/hooks/slopbuckets.json (preToolUse, postToolUse)' });
+    const json = JSON.parse(readFile(dir, '.github/hooks/slopbuckets.json'));
+    expect(json.hooks.postToolUse).toBeUndefined();
+    expect(json.hooks.preToolUse[0].matcher).toBeUndefined();
+    expect(json.hooks.agentStop).toEqual(v1.hooks.agentStop);
     expect(copilotAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'kept' });
-  });
-
-  it('leaves other hook files in .github/hooks alone', () => {
-    const dir = makeProject({ '.github/hooks/team.json': '{"version":1,"hooks":{}}\n' }, false);
-    copilotAdapter.install(dir, { skill: null });
-    expect(readFile(dir, '.github/hooks/team.json')).toBe('{"version":1,"hooks":{}}\n');
-    copilotAdapter.uninstall(dir);
-    expect(readFile(dir, '.github/hooks/team.json')).toBe('{"version":1,"hooks":{}}\n');
-    expect(fileExists(dir, '.github/hooks/slopbuckets.json')).toBe(false);
   });
 });

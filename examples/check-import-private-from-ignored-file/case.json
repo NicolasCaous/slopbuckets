@@ -1,0 +1,7 @@
+{
+  "description": "an ignored file may import a private file of any bucket",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

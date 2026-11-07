@@ -1,0 +1,7 @@
+{
+  "description": "an import relative to the tsconfig baseUrl resolves to the file of a bucket",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

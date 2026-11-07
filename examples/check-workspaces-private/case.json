@@ -1,0 +1,25 @@
+{
+  "description": "an import of a private file through a workspace package export gives import-private",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "packages/app/src/main.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "imports": [
+            {
+              "target": "packages/billing/src/charge.ts"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

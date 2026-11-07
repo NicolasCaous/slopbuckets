@@ -1,15 +1,20 @@
 ---
 title: Continue
-description: Why slopbuckets installs no hooks for Continue, and what holds the rules there.
+description: How buckets init sets up Continue, whose CLI loads hooks but never runs them.
 ---
 
 # Continue
 
-| Protection | Support | How |
+This page covers the Continue IDE extensions and the `cn` CLI.
+
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | no | slopbuckets installs no hooks for Continue |
-| Feedback after edits | no | slopbuckets installs no hooks for Continue |
-| Block the end of a turn | no | slopbuckets installs no hooks for Continue |
+| Warning on edit | no | the CLI loads hooks but never runs them, and the IDE extensions have no hooks |
+| Pending list on other tools | no | same |
+| Interrupt on an invalid config | no | same |
+| Interrupt at the end | no | same |
+| Subagents | no | same |
+| Compaction | no | same |
 
 ## Install
 
@@ -22,24 +27,22 @@ It writes only the shared instructions:
 - the slopbuckets block in `AGENTS.md`
 - the skill in `.agents/skills/slopbuckets/SKILL.md`
 
-Continue reads project rules from `.continue/rules/`. If your version does not load `AGENTS.md` on its own, add a rule file such as `.continue/rules/slopbuckets.md` that says "Follow the slopbuckets rules in AGENTS.md before you edit files under the root bucket folder."
+It writes no hook, and it reminds you to run `buckets init --git-hook` so every commit is checked. `buckets init --agent auto` picks Continue when the project has a `.continue` folder or a `.continuerc.json` file.
 
 ## How it works
 
-The `AGENTS.md` block tells the agent the bucket rules, to leave every `buckets.lock.json` and `buckets.config.json` alone, to never run plain `buckets refresh` or `buckets update` without `--check` or `--json`, and to run `buckets check` before it finishes. Nothing in Continue enforces these.
+The `cn` CLI reads Claude Code style hooks from six files, `.claude/settings.json` among them, and has helpers to fire them. As of October 2026, no code in the CLI calls those helpers, so no hook runs. The IDE extensions have no hook system.
 
-The Continue CLI loads hooks from `.claude/settings.json`, the file where `buckets init --agent claude` writes the Claude Code hooks. Its code does not appear to ever run them, so slopbuckets does not count on them. If you also use Claude Code in the project, those hooks stay in place for Claude Code.
+The block in `AGENTS.md` tells the agent that the architecture lives in `buckets.config.json` and that it runs `buckets check` before it finishes. Nothing checks that it did.
 
 ## Limits
 
-- Nothing stops Continue from writing the lock or the config, or from running `buckets refresh`.
-- Nothing reports problems after an edit or runs `buckets check` at the end of a turn.
-- The Continue CLI does not appear to run the hooks it loads. This was read from its code and not checked in a live session.
-- Nothing here depends on the `buckets` command. The git hook fails open, like every slopbuckets integration. On a machine without the CLI, it prints a warning and lets the commit through.
+- No warning on edit and no check at the end of a turn.
+- If Continue starts firing hooks, the slopbuckets Claude Code hooks in `.claude/settings.json` would run under `cn`. Its stop helper always sends `stop_hook_active: true`, so the stop hook would never block. A future adapter would need a Continue branch.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Open the project with Continue and ask "what does AGENTS.md say about buckets.lock.json?". The answer should quote the slopbuckets rule.
-2. Run `buckets init --git-hook`, make a commit with a relative import under the root bucket folder, and check that the commit fails with the `buckets check` report.
+1. Ask Continue "what are the slopbuckets rules for this project?". The answer should follow the `AGENTS.md` block.
+2. Break a rule, for example with an import of a file of another bucket that is not its public file, and run `git commit`. The commit should fail with the `buckets check` report.

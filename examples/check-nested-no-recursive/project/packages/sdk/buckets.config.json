@@ -1,0 +1,26 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "buckets": {
+    "client": {
+      "purpose": "Calls the server for SDK users",
+      "files": [
+        "src/client/**"
+      ],
+      "public": null,
+      "dependsOn": {
+        "core": "Opens the connection to the server"
+      },
+      "packages": {}
+    },
+    "core": {
+      "purpose": "Holds the connection logic",
+      "files": [
+        "src/core/**"
+      ],
+      "public": "src/core/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    }
+  }
+}

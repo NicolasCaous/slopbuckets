@@ -1,0 +1,14 @@
+{
+  "description": "an import relative to the tsconfig baseUrl whose first segment is a project folder and names no file is import-unresolved, not an undeclared package named after the folder",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      { "rule": "import-unresolved", "file": "src/app/main.ts", "line": 2 }
+    ],
+    "stdoutJson": {
+      "violations": [
+        { "rule": "import-unresolved", "specifier": "src/promotions/index", "kind": "paths", "pattern": null }
+      ]
+    }
+  }
+}

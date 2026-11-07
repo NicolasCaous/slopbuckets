@@ -1,0 +1,7 @@
+{
+  "description": "an import of a folder resolves to its index.ts, here the public file",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

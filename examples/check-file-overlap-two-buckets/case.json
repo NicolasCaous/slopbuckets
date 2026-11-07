@@ -1,0 +1,29 @@
+{
+  "description": "a file that the globs of two buckets match gives file-overlap",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-overlap",
+        "file": "src/billing/stripe/charge.ts"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "file-overlap",
+          "owners": [
+            {
+              "bucket": "billing",
+              "glob": "src/billing/**"
+            },
+            {
+              "bucket": "stripe",
+              "glob": "src/billing/stripe/**"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

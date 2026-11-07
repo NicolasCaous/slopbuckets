@@ -1,48 +1,30 @@
-// The Cursor adapter with Cursor payloads: preToolUse for Write and Delete, beforeShellExecution, postToolUse, stop and
-// subagentStop.
+// The Cursor adapter with Cursor payloads: preToolUse denies only and otherwise answers {}, postToolUse carries the
+// pending list (the post-tool fallback), stop and subagentStop block once by loop_count.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject, readFile } from '../../testing/fixture.js';
-import {
-  cleanProject,
-  feedbackFor,
-  installSuite,
-  line,
-  LOCK_DENY_REASON,
-  guardedNames,
-  newSessionId,
-  REFRESH_ALLOWED,
-  REFRESH_DENIED,
-  runAdapter,
-  stopReportFor,
-  violationProject,
-  asUpdateDeny,
-  UPDATE_ALLOWED,
-  UPDATE_DENIED,
-} from './adapter-test-kit.js';
+import { normalizeHarnessPath } from '../input.js';
+import { installSuite, line, runAdapter } from './adapter-test-kit.js';
 import { cursorAdapter } from './cursor.js';
+import { crashingCore, decisionCases, fakeCore, restoreCoreAfterEach, TEXT } from './json-test-kit.js';
 
 afterEach(cleanupProjects);
+restoreCoreAfterEach();
 
-const ALLOW = line({ permission: 'allow' });
-const DENY = line({
-  permission: 'deny',
-  agent_message: LOCK_DENY_REASON,
-  user_message: 'slopbuckets blocked this call: only a human may change buckets.lock.json or buckets.config.json, run `buckets refresh` or install a CLI update with `buckets update`.',
-});
+const NEUTRAL = line({});
 
 /** Cursor writes a Windows workspace root as /c:/Users/...; the adapter must undo that. */
 function root(dir: string): string {
   return /^[A-Za-z]:/.test(dir) ? `/${dir.replace(/\\/g, '/').replace(/^([A-Z]):/, (_, d: string) => `${d.toLowerCase()}:`)}` : dir;
 }
 
-function payload(dir: string, event: string, extra: Record<string, unknown>, conversation = newSessionId()) {
+function payload(dir: string, event: string, extra: Record<string, unknown>) {
   return {
-    conversation_id: conversation,
-    generation_id: newSessionId(),
+    conversation_id: 'conv-1',
+    generation_id: 'gen-1',
     model: 'claude-4.5-sonnet',
     hook_event_name: event,
-    cursor_version: '2.4.7',
+    cursor_version: '3.21.16',
     workspace_roots: [root(dir)],
     user_email: null,
     transcript_path: null,
@@ -50,85 +32,74 @@ function payload(dir: string, event: string, extra: Record<string, unknown>, con
   };
 }
 
-const write = (dir: string, file: string) => payload(dir, 'preToolUse', { tool_name: 'Write', tool_input: { file_path: file, content: '{}' }, tool_use_id: 'tool_1', cwd: dir });
-const shell = (dir: string, command: string) => payload(dir, 'beforeShellExecution', { command, cwd: dir });
+const pre = (dir: string, tool: string, input: Record<string, unknown>) => payload(dir, 'preToolUse', { tool_name: tool, tool_input: input, tool_use_id: 'tool_1', cwd: dir });
+const post = (dir: string, tool: string, input: Record<string, unknown>) => payload(dir, 'postToolUse', { tool_name: tool, tool_input: input, tool_output: 'ok', tool_use_id: 'tool_1', cwd: dir });
+const project = () => makeProject({ 'src/a.ts': 'export const a = 1;\n' });
 
-describe('cursor pre-tool-use and before-shell-execution', () => {
-  it('answers allow explicitly for ordinary writes, reads and commands', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(cursorAdapter, 'pre-tool-use', write(dir, path.join(dir, 'root', '_', 'main.ts')), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    const read = payload(dir, 'preToolUse', { tool_name: 'Read', tool_input: { file_path: path.join(dir, 'buckets.lock.json') }, cwd: dir });
-    expect(await runAdapter(cursorAdapter, 'pre-tool-use', read, dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, 'npm test'), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
+describe('cursor phases', () => {
+  it('preToolUse simulates a Write or Delete without a session', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(cursorAdapter, 'pre-tool-use', pre(dir, 'Write', { file_path: path.join(dir, 'src/b.ts'), content: 'b' }), dir);
+    await runAdapter(cursorAdapter, 'pre-tool-use', pre(dir, 'Delete', { file_path: path.join(dir, 'src/a.ts') }), dir);
+    expect(calls.map((c) => [c.phase, c.sessionId, c.edits])).toEqual([
+      ['pre-edit', null, [{ path: path.join(dir, 'src', 'b.ts'), content: 'b' }]],
+      ['pre-edit', null, [{ path: path.join(dir, 'src', 'a.ts'), content: null }]],
+    ]);
   });
 
-  it('denies a write or delete of the lock under any name, with workspace roots in the /c:/ form', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      expect(await runAdapter(cursorAdapter, 'pre-tool-use', write(dir, name), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-      const del = payload(dir, 'preToolUse', { tool_name: 'Delete', tool_input: { file_path: name }, cwd: dir });
-      expect(await runAdapter(cursorAdapter, 'pre-tool-use', del, dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-    }
-    // Without cwd, relative paths resolve from the workspace root.
-    const bare = payload(dir, 'preToolUse', { tool_name: 'Write', tool_input: { path: 'buckets.lock.json' } });
-    expect((await runAdapter(cursorAdapter, 'pre-tool-use', bare, dir)).out).toBe(DENY);
+  it('postToolUse runs a pre-edit of the file on disk, or a pre-tool, with the session and the workspace root', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(cursorAdapter, 'post-tool-use', post(dir, 'Write', { file_path: path.join(dir, 'src/a.ts'), content: 'x' }), dir);
+    await runAdapter(cursorAdapter, 'post-tool-use', post(dir, 'Shell', { command: 'npm test', working_directory: dir }), dir);
+    await runAdapter(cursorAdapter, 'post-tool-use', post(dir, 'Read', { file_path: 'src/a.ts' }), dir);
+    expect(calls.map((c) => [c.phase, c.sessionId, c.root, c.edits, c.isShell])).toEqual([
+      ['pre-edit', 'conv-1', normalizeHarnessPath(root(dir)), [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 1;\n' }], false],
+      ['pre-tool', 'conv-1', normalizeHarnessPath(root(dir)), [], true],
+      ['pre-tool', 'conv-1', normalizeHarnessPath(root(dir)), [], false],
+    ]);
   });
 
-  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web, in both events', async () => {
-    const dir = violationProject();
-    for (const command of REFRESH_DENIED) {
-      expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: DENY, err: '' });
-      const asTool = payload(dir, 'preToolUse', { tool_name: 'Shell', tool_input: { command }, cwd: dir });
-      expect((await runAdapter(cursorAdapter, 'pre-tool-use', asTool, dir)).out).toBe(DENY);
-    }
-    for (const command of REFRESH_ALLOWED) expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    for (const command of UPDATE_DENIED) {
-      expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
-      const asTool = payload(dir, 'preToolUse', { tool_name: 'Shell', tool_input: { command }, cwd: dir });
-      expect((await runAdapter(cursorAdapter, 'pre-tool-use', asTool, dir)).out).toBe(asUpdateDeny(DENY));
-    }
-    for (const command of UPDATE_ALLOWED) expect(await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, command), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    expect((await runAdapter(cursorAdapter, 'before-shell-execution', shell(dir, 'cat buckets.lock.json'), dir)).out).toBe(DENY);
-  });
-
-  it('answers allow on a broken payload', async () => {
-    const dir = makeProject({});
-    expect(await runAdapter(cursorAdapter, 'before-shell-execution', '{', dir)).toEqual({ code: 0, out: ALLOW, err: '' });
+  it('stop and subagentStop pass loop_count as stop_hook_active, and skip aborted or unfinished work', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(cursorAdapter, 'stop', payload(dir, 'stop', { status: 'completed', loop_count: 0 }), dir);
+    await runAdapter(cursorAdapter, 'stop', payload(dir, 'stop', { status: 'completed', loop_count: 1 }), dir);
+    await runAdapter(cursorAdapter, 'stop', payload(dir, 'stop', { status: 'aborted', loop_count: 0 }), dir);
+    await runAdapter(cursorAdapter, 'subagent-stop', payload(dir, 'subagentStop', { subagent_type: 'explore', status: 'completed', task: 't', loop_count: 0 }), dir);
+    await runAdapter(cursorAdapter, 'subagent-stop', payload(dir, 'subagentStop', { subagent_type: 'explore', status: 'error', task: 't', loop_count: 0 }), dir);
+    expect(calls.map((c) => [c.phase, c.stopHookActive])).toEqual([
+      ['stop', false],
+      ['stop', true],
+      ['subagent-stop', false],
+    ]);
   });
 });
 
-describe('cursor post-tool-use', () => {
-  it('reports the violations of a written file in additional_context', async () => {
-    const dir = violationProject();
-    const post = (file: string) => payload(dir, 'postToolUse', { tool_name: 'Write', tool_input: { file_path: file, content: 'x' }, tool_output: '{"ok":true}', cwd: dir });
-    const feedback = await feedbackFor(dir, 'root/_/main.ts');
-    expect(await runAdapter(cursorAdapter, 'post-tool-use', post(path.join(dir, 'root', '_', 'main.ts')), dir)).toEqual({ code: 0, out: line({ additional_context: feedback }), err: '' });
-    expect(await runAdapter(cursorAdapter, 'post-tool-use', post(path.join(dir, 'root', 'log', '_', 'logger.ts')), dir)).toEqual({ code: 0, out: '', err: '' });
-  });
+describe('cursor answers', () => {
+  const write = (dir: string) => pre(dir, 'Write', { file_path: 'src/c.ts', content: 'c' });
+  const deny = line({ permission: 'deny', agent_message: TEXT, user_message: 'slopbuckets denied this edit because buckets.config.json would become invalid. The agent got the details.' });
+  decisionCases(cursorAdapter, 'pre-tool-use', write, project, { silent: { code: 0, out: NEUTRAL }, context: { code: 0, out: NEUTRAL }, deny: { code: 0, out: deny }, block: { code: 0, out: NEUTRAL }, note: { code: 0, out: NEUTRAL } });
+  decisionCases(cursorAdapter, 'pre-tool-use', (dir) => pre(dir, 'Read', { file_path: 'x' }), project, { silent: { code: 0, out: NEUTRAL }, context: { code: 0, out: NEUTRAL }, deny: { code: 0, out: NEUTRAL }, block: { code: 0, out: NEUTRAL }, note: { code: 0, out: NEUTRAL } });
+  const context = line({ additional_context: TEXT });
+  decisionCases(cursorAdapter, 'post-tool-use', (dir) => post(dir, 'Write', { file_path: 'src/a.ts' }), project, { context: { code: 0, out: context } });
+  decisionCases(cursorAdapter, 'post-tool-use', (dir) => post(dir, 'Shell', { command: 'ls' }), project, { context: { code: 0, out: context } });
+  const followup = line({ followup_message: TEXT });
+  decisionCases(cursorAdapter, 'stop', (dir) => payload(dir, 'stop', { status: 'completed', loop_count: 0 }), project, { block: { code: 0, out: followup } });
+  decisionCases(cursorAdapter, 'subagent-stop', (dir) => payload(dir, 'subagentStop', { status: 'completed', loop_count: 0 }), project, { block: { code: 0, out: followup } });
 });
 
-describe('cursor stop and subagent-stop', () => {
-  it('sends the report as a follow-up once per turn (loop_count 0) and never on a later loop', async () => {
-    const dir = violationProject();
-    const report = await stopReportFor(dir);
-    const first = payload(dir, 'stop', { status: 'completed', loop_count: 0 });
-    expect(await runAdapter(cursorAdapter, 'stop', first, dir)).toEqual({ code: 0, out: line({ followup_message: report }), err: '' });
-    expect(await runAdapter(cursorAdapter, 'stop', { ...first, loop_count: 1 }, dir)).toEqual({ code: 0, out: '', err: '' });
-    expect(await runAdapter(cursorAdapter, 'stop', { ...first, status: 'aborted' }, dir)).toEqual({ code: 0, out: '', err: '' });
-  });
-
-  it('without loop_count, blocks a subagent once and lets it finish on the next stop', async () => {
-    const dir = violationProject();
-    const report = await stopReportFor(dir, true);
-    const sub = payload(dir, 'subagentStop', { subagent_type: 'explore', status: 'completed' });
-    expect(await runAdapter(cursorAdapter, 'subagent-stop', sub, dir)).toEqual({ code: 0, out: line({ followup_message: report }), err: '' });
-    expect(await runAdapter(cursorAdapter, 'subagent-stop', sub, dir)).toEqual({ code: 0, out: '', err: '' });
-    expect((await runAdapter(cursorAdapter, 'subagent-stop', sub, dir)).out).not.toBe('');
-  });
-
-  it('says nothing for a clean project', async () => {
-    const dir = await cleanProject();
-    expect(await runAdapter(cursorAdapter, 'stop', payload(dir, 'stop', { status: 'completed', loop_count: 0 }), dir)).toEqual({ code: 0, out: '', err: '' });
+describe('cursor fails open', () => {
+  it('answers {} on preToolUse and nothing elsewhere when the core crashes or the payload is broken', async () => {
+    const dir = project();
+    crashingCore();
+    expect(await runAdapter(cursorAdapter, 'pre-tool-use', pre(dir, 'Write', { file_path: 'x.ts', content: '' }), dir)).toMatchObject({ code: 0, out: NEUTRAL });
+    for (const event of ['post-tool-use', 'stop', 'subagent-stop']) {
+      expect(await runAdapter(cursorAdapter, event, post(dir, 'Write', { file_path: 'x.ts' }), dir)).toMatchObject({ code: 0, out: '' });
+    }
+    fakeCore();
+    expect(await runAdapter(cursorAdapter, 'pre-tool-use', '{', dir)).toEqual({ code: 0, out: NEUTRAL, err: '' });
   });
 });
 
@@ -136,23 +107,21 @@ describe('cursor install', () => {
   installSuite(cursorAdapter, {
     file: '.cursor/hooks.json',
     userText: JSON.stringify({ version: 1, hooks: { afterFileEdit: [{ command: './hooks/format.sh' }], stop: [{ command: 'say done' }] } }, null, 2),
-    freshUninstallDeletes: true,
     fresh(json) {
       expect(json).toEqual({
         version: 1,
         hooks: {
-          preToolUse: [{ command: 'buckets hook --agent cursor pre-tool-use', matcher: 'Write|Delete', timeout: 30 }],
-          beforeShellExecution: [{ command: 'buckets hook --agent cursor before-shell-execution', timeout: 30 }],
-          postToolUse: [{ command: 'buckets hook --agent cursor post-tool-use', matcher: 'Write', timeout: 300 }],
+          preToolUse: [{ command: 'buckets hook --agent cursor pre-tool-use', matcher: 'Write|Delete', timeout: 60 }],
+          postToolUse: [{ command: 'buckets hook --agent cursor post-tool-use', timeout: 60 }],
           stop: [{ command: 'buckets hook --agent cursor stop', loop_limit: 1, timeout: 600 }],
-          subagentStop: [{ command: 'buckets hook --agent cursor subagent-stop', timeout: 600 }],
+          subagentStop: [{ command: 'buckets hook --agent cursor subagent-stop', loop_limit: 1, timeout: 600 }],
         },
       });
     },
   });
 
-  it('removes failClosed from its own entries left by an older version, and only from those', () => {
-    const old = {
+  it('migrates a 1.x install: drops beforeShellExecution, failClosed and the postToolUse matcher, keeps user hooks', () => {
+    const v1 = {
       version: 1,
       hooks: {
         preToolUse: [
@@ -165,14 +134,17 @@ describe('cursor install', () => {
         subagentStop: [{ command: 'buckets hook --agent cursor subagent-stop', timeout: 600 }],
       },
     };
-    const dir = makeProject({ '.cursor/hooks.json': JSON.stringify(old, null, 2) }, false);
-    expect(cursorAdapter.install(dir, { skill: null })).toEqual([{ status: 'done', text: 'Updated the Cursor hooks in .cursor/hooks.json (preToolUse, beforeShellExecution)' }]);
+    const dir = makeProject({ '.cursor/hooks.json': JSON.stringify(v1, null, 2) }, false);
+    expect(cursorAdapter.install(dir, { skill: null })).toEqual([
+      { status: 'done', text: 'Updated the Cursor hooks in .cursor/hooks.json (preToolUse, beforeShellExecution, postToolUse, subagentStop)' },
+    ]);
     const json = JSON.parse(readFile(dir, '.cursor/hooks.json'));
+    expect(json.hooks.beforeShellExecution).toBeUndefined();
     expect(json.hooks.preToolUse).toEqual([
       { command: './guard.sh', failClosed: true },
-      { command: 'buckets hook --agent cursor pre-tool-use', matcher: 'Write|Delete', timeout: 30 },
+      { command: 'buckets hook --agent cursor pre-tool-use', matcher: 'Write|Delete', timeout: 60 },
     ]);
-    expect(json.hooks.beforeShellExecution).toEqual([{ command: 'buckets hook --agent cursor before-shell-execution', timeout: 30 }]);
+    expect(json.hooks.subagentStop).toEqual([{ command: 'buckets hook --agent cursor subagent-stop', loop_limit: 1, timeout: 600 }]);
     expect(cursorAdapter.install(dir, { skill: null })).toEqual([{ status: 'kept', text: 'Cursor hooks are already in .cursor/hooks.json' }]);
   });
 });

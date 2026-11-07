@@ -1,0 +1,37 @@
+{
+  "description": "a folder of 5 or more unowned files gives one file-unowned for the folder, a smaller one gives one per file",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-unowned",
+        "file": "src/legacy/**"
+      },
+      {
+        "rule": "file-unowned",
+        "file": "src/misc/one.ts"
+      },
+      {
+        "rule": "file-unowned",
+        "file": "src/misc/two.ts"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "file-unowned",
+          "folder": "src/legacy/**",
+          "count": 5
+        },
+        {
+          "rule": "file-unowned",
+          "file": "src/misc/one.ts"
+        },
+        {
+          "rule": "file-unowned",
+          "file": "src/misc/two.ts"
+        }
+      ]
+    }
+  }
+}

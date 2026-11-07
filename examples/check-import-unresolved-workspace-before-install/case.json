@@ -1,0 +1,16 @@
+{
+  "description": "before the install links the workspaces, an import of a workspace package is import-unresolved, not a missing npm package",
+  "delete": [
+    "node_modules"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-unresolved",
+        "file": "packages/app/src/main.ts",
+        "line": 1
+      }
+    ]
+  }
+}

@@ -1,7 +1,6 @@
 // `buckets init --agent`, the AGENTS.md block and the shared skill, through the init command.
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
-import { claudeAdapter } from '../hooks/adapters/claude.js';
 import { findAdapter, harnesses } from '../hooks/registry.js';
 import { BLOCK_START } from '../hooks/instructions.js';
 import { cleanupProjects, fileExists, makeProject, readFile } from '../testing/fixture.js';
@@ -18,7 +17,7 @@ function setup(files: Record<string, string> = {}) {
 
 async function init(dir: string, skill: string, args: string[]) {
   const io = fakeIo({ cwd: dir });
-  const code = await initCommand(testContext(), io, ['--yes', ...args], { skillSource: skill, random: () => 0 });
+  const code = await initCommand(testContext(), io, ['--yes', ...args], { skillSource: skill });
   return { code, out: io.out, err: io.err };
 }
 
@@ -32,7 +31,7 @@ describe('buckets init and agents', () => {
       expect(readFile(dir, '.claude/skills/slopbuckets/SKILL.md')).toBe('# skill\n');
       expect(readFile(dir, '.agents/skills/slopbuckets/SKILL.md')).toBe('# skill\n');
       expect(readFile(dir, 'AGENTS.md')).toContain(BLOCK_START);
-      expect(result.out).toContain('Installed Claude Code hooks in .claude/settings.json (PreToolUse, PostToolUse, Stop, SubagentStop)');
+      expect(result.out).toContain('Installed Claude Code hooks in .claude/settings.json (PreToolUse, Stop, SubagentStop, PostCompact)');
       expect(result.out).toContain('Created AGENTS.md');
     }
   });
@@ -72,7 +71,7 @@ describe('buckets init and agents', () => {
     const { dir, skill } = setup();
     const result = await init(dir, skill, ['--agent', 'auto']);
     expect(result.code).toBe(0);
-    expect(result.out).toContain('Found no agent folder here');
+    expect(result.out).toContain('Found no agent folder or file here');
     expect(fileExists(dir, '.claude')).toBe(false);
     expect(fileExists(dir, '.agents/skills/slopbuckets/SKILL.md')).toBe(true);
   });
@@ -80,14 +79,18 @@ describe('buckets init and agents', () => {
   it('refuses an unknown agent or a missing value before writing anything', async () => {
     const { dir, skill } = setup();
     const unknown = await init(dir, skill, ['--agent', 'claude,vim']);
-    expect(unknown.code).toBe(1);
+    expect(unknown.code).toBe(64);
     expect(unknown.err).toContain('unknown agent "vim"');
     expect(unknown.err).toContain('Nothing was written');
     expect(fileExists(dir, 'buckets.config.json')).toBe(false);
     const missing = await init(dir, skill, ['--agent']);
-    expect(missing.code).toBe(1);
+    expect(missing.code).toBe(64);
     expect(missing.err).toContain('--agent needs a value');
-    expect((await init(dir, skill, ['--agent', '--git-hook'])).code).toBe(1);
+    const ambiguous = await init(dir, skill, ['--agent', '--git-hook']);
+    expect(ambiguous.code).toBe(64);
+    expect(ambiguous.err).toContain('--agent needs a value');
+    expect((await init(dir, skill, ['--agent='])).code).toBe(64);
+    expect(fileExists(dir, 'buckets.config.json')).toBe(false);
   });
 
   it('with --git-hook installs the pre-commit hook in the repository and says where', async () => {
@@ -104,15 +107,5 @@ describe('buckets init and agents', () => {
     const result = await init(dir, skill, ['--no-git-hook']);
     expect(result.code).toBe(0);
     expect(result.out).not.toContain('pre-commit');
-  });
-
-  it('uninstalls the Claude Code hooks and skill but keeps user hooks', async () => {
-    const { dir, skill } = setup({ '.claude/settings.json': JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }) });
-    await init(dir, skill, []);
-    const steps = claudeAdapter.uninstall(dir);
-    expect(steps.map((s) => s.status)).toEqual(['done', 'done']);
-    expect(JSON.parse(readFile(dir, '.claude/settings.json'))).toEqual({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } });
-    expect(fileExists(dir, '.claude/skills/slopbuckets/SKILL.md')).toBe(false);
-    expect(claudeAdapter.uninstall(dir)).toEqual([{ status: 'kept', text: '.claude/settings.json has no slopbuckets hooks' }]);
   });
 });

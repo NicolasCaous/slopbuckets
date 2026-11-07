@@ -1,0 +1,7 @@
+{
+  "description": "files that .gitignore excludes are not considered, so they need no bucket",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

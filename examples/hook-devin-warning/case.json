@@ -1,0 +1,82 @@
+{
+  "description": "Devin: PreToolUse stays silent, PostToolUse of the write shows the full text, PostToolUse of the next read shows the reminder",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "devin",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "s-devin-1",
+        "tool_name": "write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "content": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        },
+        "prompt_id": "p-1"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "post-tool-use",
+      "agent": "devin",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "session_id": "s-devin-1",
+        "tool_name": "write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "content": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        },
+        "prompt_id": "p-1"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead"
+          }
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "post-tool-use",
+      "agent": "devin",
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "session_id": "s-devin-1",
+        "tool_name": "read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts"
+        },
+        "prompt_id": "p-1"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nbilling -> payments: private file (src/billing/refund.ts:1)"
+          }
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "description": "a config without buckets gives one file-unowned for the whole project, with the folders to start from",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "messageIncludes": [
+      "src/app/**",
+      "src/billing/**"
+    ]
+  }
+}

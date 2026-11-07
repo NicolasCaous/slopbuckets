@@ -1,0 +1,7 @@
+{
+  "description": "a bucket with external is exempt from export-unused",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

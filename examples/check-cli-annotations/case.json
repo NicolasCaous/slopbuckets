@@ -1,0 +1,9 @@
+{
+  "description": "check --format github prints an ::error annotation per violation on stderr and the usual text on stdout",
+  "args": ["check", "--format", "github"],
+  "expect": {
+    "exitCode": 1,
+    "messageIncludes": "buckets check: 1 structure violation.",
+    "stderrIncludes": "src/app/main.ts,line=1,title=slopbuckets dependency-undeclared::"
+  }
+}

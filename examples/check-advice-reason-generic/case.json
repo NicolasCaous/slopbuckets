@@ -1,0 +1,13 @@
+{
+  "description": "a reason that only names the bucket with a generic verb gets reason-generic advice, which does not fail the check",
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "advice": [
+      {
+        "advice": "reason-generic",
+        "at": "buckets.app.dependsOn.billing"
+      }
+    ]
+  }
+}

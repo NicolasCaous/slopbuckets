@@ -1,0 +1,37 @@
+{
+  "description": "Claude Code: an Edit with replace_all renames every occurrence, so the import no longer uses the export of payments",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-replace-all",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-replace-all.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/invoice.ts",
+          "old_string": "charge",
+          "new_string": "capture",
+          "replace_all": true
+        },
+        "tool_use_id": "toolu_25"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\npayments: export charge is not imported by any bucket (src/payments/index.ts:1)\n  choose one fix:\n  fix code: remove charge from src/payments/index.ts, or import it where a bucket needs it\n  fix config: if code outside this project uses it, add \"external\": \"<one-line reason>\" to buckets.payments",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\npayments: export charge is not imported by any bucket (src/payments/index.ts:1)\n  choose one fix:\n  fix code: remove charge from src/payments/index.ts, or import it where a bucket needs it\n  fix config: if code outside this project uses it, add \"external\": \"<one-line reason>\" to buckets.payments"
+          }
+        },
+        "pending": [
+          "export-unused"
+        ]
+      }
+    }
+  ]
+}

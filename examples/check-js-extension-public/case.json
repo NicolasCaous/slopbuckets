@@ -1,0 +1,7 @@
+{
+  "description": "an import with a .js extension resolves to the .ts file",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "a nested buckets.config.json missing from projects gives project-undeclared",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "project-undeclared",
+        "file": "packages/sdk/buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "project-undeclared",
+          "folder": "packages/sdk"
+        }
+      ]
+    }
+  }
+}

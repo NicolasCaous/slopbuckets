@@ -1,0 +1,42 @@
+digraph buckets {
+  rankdir=TB;
+  node [shape=box];
+  subgraph cluster_p0 {
+    label="root project";
+    p0_b0 [label="api (6 files)", tooltip="public: src/api/index.ts"];
+    p0_b1 [label="app (6 files)", tooltip="closed, no public file"];
+    p0_b2 [label="auth (6 files)", tooltip="public: src/auth/index.ts"];
+    p0_b3 [label="billing (6 files)", tooltip="public: src/billing/index.ts"];
+    p0_b4 [label="db (6 files)", tooltip="public: src/db/index.ts"];
+    p0_b5 [label="log (6 files)", tooltip="public: src/log/index.ts"];
+    p0_b6 [label="mail (6 files)", tooltip="public: src/mail/index.ts"];
+    p0_b7 [label="payments (6 files)", tooltip="public: src/payments/index.ts"];
+  }
+  subgraph cluster_p1 {
+    label="packages/sdk";
+    p1_b0 [label="client (4 files)", tooltip="public: src/client/index.ts"];
+    p1_b1 [label="transport (4 files)", tooltip="public: src/transport/index.ts"];
+    p1_b2 [label="types (4 files)", tooltip="public: src/types/index.ts"];
+  }
+  p0_b0 -> p0_b2 [label="Sends events through it"];
+  p0_b0 -> p0_b3 [label="Reports failures to it"];
+  p0_b0 -> p0_b5 [label="Calls it to validate input"];
+  p0_b1 -> p0_b0 [label="Reads its records"];
+  p0_b1 -> p0_b2 [label="Sends events through it"];
+  p0_b1 -> p0_b5 [label="Needs its types"];
+  p0_b1 -> p0_b7 [label="Reports failures to it"];
+  p0_b2 -> p0_b4 [label="Reads its records"];
+  p0_b2 -> p0_b5 [label="Calls it to validate input"];
+  p0_b2 -> p0_b6 [label="Sends events through it (no import)", style=dashed];
+  p0_b3 -> p0_b2 [label="not declared", style=dotted, color="#d1242f", fontcolor="#d1242f"];
+  p0_b3 -> p0_b5 [label="Needs its types"];
+  p0_b4 -> p0_b1 [label="not declared", style=dotted, color="#d1242f", fontcolor="#d1242f"];
+  p0_b4 -> p0_b5 [label="Reads its records"];
+  p0_b6 -> p0_b4 [label="Needs its types"];
+  p0_b6 -> p0_b5 [label="Calls it to validate input"];
+  p0_b7 -> p0_b2 [label="Needs its types"];
+  p0_b7 -> p0_b6 [label="Calls it to validate input"];
+  p1_b0 -> p1_b1 [label="Needs its types"];
+  p1_b0 -> p1_b2 [label="Reports failures to it"];
+  p1_b1 -> p1_b2 [label="Sends events through it (no import)", style=dashed];
+}

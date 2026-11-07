@@ -1,0 +1,10 @@
+{
+  "description": "buckets fmt writes the canonical form once, and buckets fmt --check then passes",
+  "setup": [["fmt"]],
+  "args": ["fmt", "--check"],
+  "expect": {
+    "exitCode": 0,
+    "stdoutEmpty": true,
+    "idempotent": true
+  }
+}

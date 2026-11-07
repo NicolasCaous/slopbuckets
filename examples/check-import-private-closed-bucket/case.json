@@ -1,0 +1,21 @@
+{
+  "description": "any import of a bucket with public null gives import-private",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "src/app/main.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "public": []
+        }
+      ]
+    }
+  }
+}

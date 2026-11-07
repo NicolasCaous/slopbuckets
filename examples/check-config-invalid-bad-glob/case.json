@@ -1,0 +1,30 @@
+{
+  "description": "a glob with an invalid [...] class gives config-invalid, not a crash",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "project": ".",
+          "problem": {
+            "kind": "invalid",
+            "at": [
+              "buckets",
+              "billing",
+              "files",
+              1
+            ],
+            "expected": "a glob whose [z-a] is a valid character class"
+          }
+        }
+      ]
+    }
+  }
+}

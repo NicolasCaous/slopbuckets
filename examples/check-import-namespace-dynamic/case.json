@@ -1,0 +1,23 @@
+{
+  "description": "import() of another bucket without destructuring gives import-namespace",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-namespace",
+        "file": "src/app/lazy.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-namespace",
+          "from": "app",
+          "to": "billing",
+          "form": "dynamic"
+        }
+      ]
+    }
+  }
+}

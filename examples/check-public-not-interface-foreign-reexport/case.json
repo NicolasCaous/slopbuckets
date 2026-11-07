@@ -1,0 +1,23 @@
+{
+  "description": "a public file that re-exports from another bucket gives public-not-interface",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-not-interface",
+        "file": "src/billing/index.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "public-not-interface",
+          "kind": "foreign-reexport",
+          "source": "src/log/index.ts",
+          "sourceBucket": "log"
+        }
+      ]
+    }
+  }
+}

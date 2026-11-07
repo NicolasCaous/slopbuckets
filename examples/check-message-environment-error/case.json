@@ -1,0 +1,13 @@
+{
+  "description": "the text output of an environment error names its code",
+  "args": [
+    "check"
+  ],
+  "delete": [
+    "buckets.config.json"
+  ],
+  "expect": {
+    "exitCode": 3,
+    "messageIncludes": "cannot check (no-config): "
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "description": "an import type of an undeclared bucket also gives dependency-undeclared",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dependency-undeclared",
+        "file": "src/app/main.ts",
+        "line": 1
+      }
+    ]
+  }
+}

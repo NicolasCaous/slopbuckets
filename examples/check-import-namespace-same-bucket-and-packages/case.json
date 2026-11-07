@@ -1,0 +1,7 @@
+{
+  "description": "import * as x from a declared package or from the same bucket gives no violation",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

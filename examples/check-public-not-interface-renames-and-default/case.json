@@ -1,0 +1,7 @@
+{
+  "description": "named re-exports with as, to default and export type are a valid interface, and every name counts as used",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

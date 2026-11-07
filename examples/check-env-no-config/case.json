@@ -1,0 +1,19 @@
+{
+  "description": "without buckets.config.json the check exits with 3 (no-config)",
+  "delete": [
+    "buckets.config.json"
+  ],
+  "expect": {
+    "exitCode": 3,
+    "violations": [],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": [
+        {
+          "code": "no-config",
+          "project": "."
+        }
+      ]
+    }
+  }
+}

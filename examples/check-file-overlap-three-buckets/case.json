@@ -1,0 +1,30 @@
+{
+  "description": "a file in three buckets gives one file-overlap with three owners, the broadest glob first",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-overlap",
+        "file": "src/billing/stripe/cards.ts"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "file-overlap",
+          "owners": [
+            {
+              "bucket": "billing"
+            },
+            {
+              "bucket": "stripe"
+            },
+            {
+              "bucket": "cards"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

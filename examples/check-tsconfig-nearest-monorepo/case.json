@@ -1,0 +1,13 @@
+{
+  "description": "each app resolves its ~/* alias with its own nearest tsconfig.json, and the root needs no tsconfig.json of its own",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-unresolved",
+        "file": "apps/web/src/main.ts",
+        "line": 2
+      }
+    ]
+  }
+}

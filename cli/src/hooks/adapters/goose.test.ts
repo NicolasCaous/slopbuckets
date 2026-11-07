@@ -1,107 +1,97 @@
-// The Goose adapter with Goose payloads: PreToolUse for shell, write and edit, and Stop without stop_hook_active.
-import { existsSync, readFileSync } from 'node:fs';
+// The Goose adapter with Goose payloads: PreToolUse runs the core on edits and shell commands and can only deny, Stop
+// blocks once per session by mark. Install writes a plugin.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import { cleanProject, installSuite, line, LOCK_DENY_REASON, guardedNames, newSessionId, REFRESH_ALLOWED, REFRESH_DENIED, runAdapter, stopReportFor, violationProject, asUpdateDeny, UPDATE_ALLOWED, UPDATE_DENIED } from './adapter-test-kit.js';
+import { cleanupProjects, makeProject, readFile } from '../../testing/fixture.js';
+import { normalizeHarnessPath } from '../input.js';
+import { installSuite, line, newSessionId, runAdapter } from './adapter-test-kit.js';
 import { GOOSE_HOOKS_FILE, GOOSE_MANIFEST, GOOSE_MATCHER, gooseAdapter } from './goose.js';
+import { crashingCore, decisionCases, fakeCore, restoreCoreAfterEach, TEXT } from './json-test-kit.js';
 
 afterEach(cleanupProjects);
+restoreCoreAfterEach();
 
-/** Exit 0 with nothing on stdout is an allow for Goose. */
-const ALLOW = '';
-const DENY = line({ decision: 'block', reason: LOCK_DENY_REASON });
-
-function tool(dir: string, name: string, input: Record<string, unknown>, session = newSessionId()) {
-  return { event: 'PreToolUse', session_id: session, matcher_context: name, tool_name: name, tool_input: input, working_dir: dir, tool_call_id: 'call-1' };
+function payload(dir: string, event: string, extra: Record<string, unknown>, session = 'gs-1') {
+  return { event, session_id: session, working_dir: dir, ...extra };
 }
 
-const stopPayload = (dir: string, session: string) => ({ event: 'Stop', session_id: session, last_assistant_message: 'Done. I updated the file.', working_dir: dir });
+const pre = (dir: string, tool: string, input: Record<string, unknown>) => payload(dir, 'PreToolUse', { matcher_context: tool, tool_call_id: 'c1', tool_name: tool, tool_input: input });
+const project = () => makeProject({ 'src/a.ts': 'export const a = 1;\n' });
 
-describe('goose pre-tool-use', () => {
-  it('stays silent for ordinary calls, which Goose reads as allow', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command: 'rg TODO' }), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
-    expect(await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'write', { path: 'root/_/main.ts', content: 'x' }), dir)).toEqual({ code: 0, out: ALLOW, err: '' });
+describe('goose phases', () => {
+  it('maps write and edit (with or without the extension prefix) to pre-edit, shell to a shell pre-tool, with the session', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(gooseAdapter, 'pre-tool-use', pre(dir, 'write', { path: path.join(dir, 'src/b.ts'), content: 'b' }), dir);
+    await runAdapter(gooseAdapter, 'pre-tool-use', pre(dir, 'developer__edit', { path: path.join(dir, 'src/a.ts'), before: '1', after: '2' }), dir);
+    await runAdapter(gooseAdapter, 'pre-tool-use', pre(dir, 'developer__shell', { command: 'npm test' }), dir);
+    expect(calls.map((c) => [c.phase, c.sessionId, c.root, c.edits, c.isShell])).toEqual([
+      ['pre-edit', 'gs-1', normalizeHarnessPath(dir), [{ path: path.join(dir, 'src', 'b.ts'), content: 'b' }], false],
+      ['pre-edit', 'gs-1', normalizeHarnessPath(dir), [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 2;\n' }], false],
+      ['pre-tool', 'gs-1', normalizeHarnessPath(dir), [], true],
+    ]);
   });
 
-  it('blocks a write or edit of the lock under any name', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      expect(await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'write', { path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'edit', { path: name, before: 'a', after: 'b' }), dir)).out).toBe(as(DENY));
-      expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'str_replace', path: name }), dir)).out).toBe(as(DENY));
-    }
-    expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'developer__text_editor', { command: 'view', path: 'buckets.lock.json' }), dir)).out).toBe(ALLOW);
-  });
-
-  it('blocks plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
-    const dir = violationProject();
-    for (const command of REFRESH_DENIED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command }), dir)).out).toBe(DENY);
-    for (const command of REFRESH_ALLOWED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command, timeout_secs: 600 }), dir)).out).toBe(ALLOW);
-    for (const command of UPDATE_DENIED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command }), dir)).out).toBe(asUpdateDeny(DENY));
-    for (const command of UPDATE_ALLOWED) expect((await runAdapter(gooseAdapter, 'pre-tool-use', tool(dir, 'shell', { command, timeout_secs: 600 }), dir)).out).toBe(ALLOW);
-  });
-
-  it('matches only the tools it guards', () => {
-    const matcher = new RegExp(GOOSE_MATCHER);
-    for (const name of ['shell', 'write', 'edit', 'developer__shell', 'developer__text_editor']) expect(matcher.test(name)).toBe(true);
-    for (const name of ['tree', 'read_image', 'todo__todo_write', 'shellcheck']) expect(matcher.test(name)).toBe(false);
+  it('Stop blocks once per session by mark, and a subagent session has its own mark', async () => {
+    const dir = project();
+    const calls = fakeCore((input) => (input.stopHookActive ? { kind: 'silent' } : { kind: 'block', text: TEXT }));
+    const session = newSessionId();
+    const stop = (id: string) => payload(dir, 'Stop', { last_assistant_message: 'done' }, id);
+    const block = line({ decision: 'block', reason: TEXT });
+    expect((await runAdapter(gooseAdapter, 'stop', stop(session), dir)).out).toBe(block);
+    expect((await runAdapter(gooseAdapter, 'stop', stop(newSessionId()), dir)).out).toBe(block);
+    expect((await runAdapter(gooseAdapter, 'stop', stop(session), dir)).out).toBe('');
+    expect(calls.map((c) => c.stopHookActive)).toEqual([false, false, true]);
   });
 });
 
-describe('goose stop', () => {
-  it('blocks once with the check report, then lets the agent finish', async () => {
-    const dir = violationProject();
-    const session = newSessionId();
-    const report = await stopReportFor(dir);
-    expect(await runAdapter(gooseAdapter, 'stop', stopPayload(dir, session), dir)).toEqual({ code: 0, out: line({ decision: 'block', reason: report }), err: '' });
-    expect(await runAdapter(gooseAdapter, 'stop', stopPayload(dir, session), dir)).toEqual({ code: 0, out: '', err: '' });
-    expect((await runAdapter(gooseAdapter, 'stop', stopPayload(dir, session), dir)).out).toBe(line({ decision: 'block', reason: report }));
-  });
+describe('goose answers', () => {
+  const block = line({ decision: 'block', reason: TEXT });
+  decisionCases(gooseAdapter, 'pre-tool-use', (dir) => pre(dir, 'write', { path: 'src/c.ts', content: 'c' }), project, { deny: { code: 0, out: block } });
+  decisionCases(gooseAdapter, 'pre-tool-use', (dir) => pre(dir, 'shell', { command: 'ls' }), project, {});
+  decisionCases(gooseAdapter, 'stop', (dir) => payload(dir, 'Stop', {}, newSessionId()), project, { block: { code: 0, out: block } });
+});
 
-  it('lets a clean project finish', async () => {
-    const dir = await cleanProject();
-    expect(await runAdapter(gooseAdapter, 'stop', stopPayload(dir, newSessionId()), dir)).toEqual({ code: 0, out: '', err: '' });
+describe('goose fails open', () => {
+  it('exits with 0 and prints nothing when the core crashes', async () => {
+    const dir = project();
+    crashingCore();
+    for (const event of gooseAdapter.events) {
+      expect(await runAdapter(gooseAdapter, event, pre(dir, 'write', { path: 'x.ts', content: '' }), dir)).toMatchObject({ code: 0, out: '' });
+    }
   });
 });
 
 describe('goose install', () => {
   installSuite(gooseAdapter, {
     file: GOOSE_HOOKS_FILE,
-    userText: '{\n  "hooks": {\n    // logs every shell call\n    "PostToolUse": [{ "matcher": "shell", "hooks": [{ "type": "command", "command": "./log.sh" }] }]\n  }\n}\n',
+    userText: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'command', command: './audit.sh' }] }] } }, null, 2),
     fresh(json) {
-      const hooks = json.hooks as Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]>;
-      expect(hooks.PreToolUse).toEqual([{ matcher: GOOSE_MATCHER, hooks: [{ type: 'command', command: 'buckets hook --agent goose pre-tool-use', timeout: 60 }] }]);
-      expect(JSON.stringify(json)).not.toContain('on_failure');
-      expect(hooks.Stop).toEqual([{ hooks: [{ type: 'command', command: 'buckets hook --agent goose stop', timeout: 300 }] }]);
+      expect(json).toEqual({
+        hooks: {
+          PreToolUse: [{ matcher: GOOSE_MATCHER, hooks: [{ type: 'command', command: 'buckets hook --agent goose pre-tool-use', timeout: 60 }] }],
+          Stop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent goose stop', timeout: 600 }] }],
+        },
+      });
     },
-    freshUninstallDeletes: true,
   });
 
-  it('updates an older install that failed closed, and keeps the user hooks next to it', () => {
-    const old = {
+  it('writes the plugin manifest', () => {
+    const dir = makeProject({}, false);
+    expect(gooseAdapter.install(dir, { skill: null }).map((s) => s.status)).toEqual(['done', 'done', 'todo']);
+    expect(JSON.parse(readFile(dir, GOOSE_MANIFEST)).name).toBe('slopbuckets');
+  });
+
+  it('migrates a 1.x install: drops on_failure, sets the stop timeout', () => {
+    const v1 = {
       hooks: {
-        PreToolUse: [
-          { matcher: GOOSE_MATCHER, hooks: [{ type: 'command', command: 'buckets hook --agent goose pre-tool-use', timeout: 60, on_failure: 'block' }] },
-          { matcher: 'shell', hooks: [{ type: 'command', command: './audit.sh', on_failure: 'block' }] },
-        ],
+        PreToolUse: [{ matcher: '(?:^|__)(?:shell|write|edit|text_editor)$', hooks: [{ type: 'command', command: 'buckets hook --agent goose pre-tool-use', timeout: 60, on_failure: 'block' }] }],
         Stop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent goose stop', timeout: 300 }] }],
       },
     };
-    const dir = makeProject({ [GOOSE_HOOKS_FILE]: `${JSON.stringify(old, null, 2)}\n` }, false);
-    expect(gooseAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: `Updated the Goose hooks in ${GOOSE_HOOKS_FILE} (PreToolUse)` });
-    const json = JSON.parse(readFileSync(path.join(dir, GOOSE_HOOKS_FILE), 'utf8')) as typeof old;
-    expect(json.hooks.PreToolUse[0]!.hooks[0]).toEqual({ type: 'command', command: 'buckets hook --agent goose pre-tool-use', timeout: 60 });
-    expect(json.hooks.PreToolUse[1]).toEqual(old.hooks.PreToolUse[1]);
+    const dir = makeProject({ [GOOSE_HOOKS_FILE]: JSON.stringify(v1, null, 2) }, false);
+    expect(gooseAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: `Updated the Goose hooks in ${GOOSE_HOOKS_FILE} (PreToolUse, Stop)` });
+    expect(readFile(dir, GOOSE_HOOKS_FILE)).not.toContain('on_failure');
     expect(gooseAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'kept' });
-  });
-
-  it('writes the plugin manifest and removes the whole plugin on uninstall', () => {
-    const dir = makeProject({}, false);
-    gooseAdapter.install(dir, { skill: null });
-    expect(JSON.parse(readFileSync(path.join(dir, GOOSE_MANIFEST), 'utf8'))).toMatchObject({ name: 'slopbuckets' });
-    gooseAdapter.uninstall(dir);
-    expect(existsSync(path.join(dir, '.agents/plugins/slopbuckets'))).toBe(false);
   });
 });

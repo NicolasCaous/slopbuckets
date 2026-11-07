@@ -1,0 +1,22 @@
+{
+  "description": "a default re-export that no other bucket imports gives export-unused for default",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "export-unused",
+        "file": "src/billing/index.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "export-unused",
+          "bucket": "billing",
+          "name": "default"
+        }
+      ]
+    }
+  }
+}

@@ -1,43 +1,101 @@
-// Loads the project's own `typescript` package and reads its tsconfig.json.
-// The adapter never bundles typescript: every value comes from the project at runtime,
-// and this file only imports its types.
+// Loads TypeScript and reads the project's tsconfig.json.
+// The adapter uses the project's own `typescript` package when it is TypeScript 5 or 6 with the JavaScript API, so
+// imports resolve as the project's tsc resolves them. Otherwise it uses the TypeScript 6 that slopbuckets depends on:
+// for TypeScript 7, which has no JavaScript API, for TypeScript 4 and older, for a project without typescript and for
+// a typescript that does not load. The CLI bundle keeps typescript external, and this file only imports its types.
 
 import { existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import type * as TS from 'typescript';
 import { AdapterEnvironmentError } from './errors.js';
+import { toPosix } from './paths.js';
 
 export type TypeScript = typeof TS;
 
-const loaded = new Map<string, TypeScript>();
+/** The TypeScript the adapter uses for a project. */
+export interface LoadedTypeScript {
+  ts: TypeScript;
+  /**
+   * The package.json of the project's typescript (where it would be when the project has none) and of the one used.
+   * Their hashes go into the resolution inputs, so installing, upgrading or removing typescript resolves again.
+   */
+  files: string[];
+}
 
-/** Loads `typescript` as the project would resolve it, starting from `projectDir`. */
-export function loadTypeScript(projectDir: string): TypeScript {
-  let projectRequire = createRequire(path.join(path.resolve(projectDir), 'package.json'));
-  let resolved: string;
+/** The functions and objects of the JavaScript API that the adapter calls. */
+const API = ['readConfigFile', 'parseJsonConfigFileContent', 'flattenDiagnosticMessageText', 'createModuleResolutionCache', 'resolveModuleName'];
+
+const loaded = new Map<string, TypeScript | null>();
+
+/** The module at `file` when it has the JavaScript API, else null. Throws nothing. */
+function load(req: NodeJS.Require, file: string): TypeScript | null {
+  let ts = loaded.get(file);
+  if (ts !== undefined) return ts;
   try {
+    const m = req(file) as Record<string, unknown> | null;
+    const ok = typeof m === 'object' && m !== null && API.every((name) => typeof m[name] === 'function') && typeof m.sys === 'object' && typeof m.ModuleKind === 'object';
+    ts = ok ? (m as unknown as TypeScript) : null;
+  } catch {
+    ts = null; // a broken package, or an ES module that require cannot load
+  }
+  loaded.set(file, ts);
+  return ts;
+}
+
+/** The package.json of the typescript package whose entry file is `main`. */
+function packageJsonOf(main: string): string {
+  const marker = `${path.sep}node_modules${path.sep}typescript${path.sep}`;
+  const i = main.lastIndexOf(marker);
+  return i < 0 ? path.join(path.dirname(main), 'package.json') : `${main.slice(0, i + marker.length)}package.json`;
+}
+
+/** Where `require('typescript')` lands from `projectDir`, with the require to load it, or null. */
+function resolveFromProject(projectDir: string): { req: NodeJS.Require; file: string } | null {
+  try {
+    const req = createRequire(path.join(projectDir, 'package.json'));
     try {
-      resolved = projectRequire.resolve('typescript');
+      return { req, file: req.resolve('typescript') };
     } catch (error) {
       // Node reads the project's package.json while resolving. When that file is broken, look up
       // node_modules from the project folder without it; analyze reports the broken file.
       if ((error as NodeJS.ErrnoException).code !== 'ERR_INVALID_PACKAGE_CONFIG') throw error;
-      projectRequire = createRequire(import.meta.url);
-      resolved = projectRequire.resolve('typescript', { paths: [path.resolve(projectDir)] });
+      const own = createRequire(import.meta.url);
+      return { req: own, file: own.resolve('typescript', { paths: [projectDir] }) };
     }
   } catch {
+    return null;
+  }
+}
+
+/** The major versions of a project's typescript that the adapter uses. */
+const PROJECT_MAJORS = ['5', '6'];
+
+/** The project's typescript when it is TypeScript 5 or 6 with the JavaScript API, else the TypeScript 6 of slopbuckets. */
+export function loadTypeScript(projectDir: string): LoadedTypeScript {
+  const dir = path.resolve(projectDir);
+  const project = resolveFromProject(dir);
+  const files = [project === null ? path.join(dir, 'node_modules', 'typescript', 'package.json') : packageJsonOf(project.file)];
+  const ts = project === null ? null : load(project.req, project.file);
+  if (ts !== null && typeof ts.version === 'string' && PROJECT_MAJORS.includes(ts.version.split('.')[0]!)) return { ts, files };
+
+  // Resolved from the installed slopbuckets package (or, in this repository, from the adapter's folder).
+  const own = createRequire(import.meta.url);
+  let ownFile: string | undefined;
+  try {
+    ownFile = own.resolve('typescript');
+  } catch {
+    // reported below
+  }
+  const fallback = ownFile === undefined ? null : load(own, ownFile);
+  if (fallback === null) {
     throw new AdapterEnvironmentError(
       'no-typescript',
-      `adapter-ts: the project at ${projectDir} has no "typescript" package. Install it with "npm install --save-dev typescript".`,
+      `adapter-ts: no TypeScript with a JavaScript API loads for the project at ${projectDir}. The project's own "typescript" is missing, does not load or has no JavaScript API (TypeScript 7 has none), and the TypeScript 6 that slopbuckets depends on did not load either. Reinstall slopbuckets, or install TypeScript 6 in the project with "npm install --save-dev typescript@6".`,
     );
   }
-  let ts = loaded.get(resolved);
-  if (ts === undefined) {
-    ts = projectRequire(resolved) as TypeScript;
-    loaded.set(resolved, ts);
-  }
-  return ts;
+  files.push(packageJsonOf(ownFile!));
+  return { ts: fallback, files };
 }
 
 export function tsconfigPath(projectDir: string): string {
@@ -45,7 +103,7 @@ export function tsconfigPath(projectDir: string): string {
   if (!existsSync(file)) {
     throw new AdapterEnvironmentError(
       'no-tsconfig',
-      `adapter-ts: ${file} does not exist. Every slopbuckets project needs a tsconfig.json in its own folder, and so does a nested project, because slopbuckets never uses the tsconfig.json of an enclosing project. Create a tsconfig.json in ${projectDir}, then run \`buckets init\` there to add the alias and noUnusedLocals.`,
+      `adapter-ts: ${file} does not exist. Every slopbuckets project needs a tsconfig.json in its own folder, and so does a nested project, because slopbuckets never uses the tsconfig.json of an enclosing project. Create a tsconfig.json in ${projectDir}.`,
     );
   }
   return file;
@@ -154,7 +212,7 @@ export function readProjectConfig(ts: TypeScript, projectDir: string, root: stri
   const fallback = parseConfig(ts, projectDir, main, read.config, readFile).config;
   return {
     ...fallback,
-    unchosen: `tsconfig.json is a solution-style config whose references (${names}) hold the compiler settings, and none of them includes ${toPosix(root)}/ or is named like an app config (tsconfig.app.json). Add ${toPosix(root)}/ to the "include" of the referenced config that compiles the app, then run \`buckets init\` again so that it edits that file`,
+    unchosen: `tsconfig.json is a solution-style config whose references (${names}) hold the compiler settings, and none of them includes ${toPosix(root)}/ or is named like an app config (tsconfig.app.json). Add ${toPosix(root)}/ to the "include" of the referenced config that compiles the app`,
   };
 }
 
@@ -254,10 +312,6 @@ export function excludeMatches(spec: string, basePath: string, file: string, cas
     if (i < segments.length - 1) source += '/';
   });
   return new RegExp(`^${source}(?:/|$)`, caseSensitive ? '' : 'i').test(file);
-}
-
-function toPosix(p: string): string {
-  return p.split(path.sep).join('/');
 }
 
 export function flatten(ts: TypeScript, message: string | TS.DiagnosticMessageChain): string {

@@ -1,0 +1,7 @@
+{
+  "description": "import('x').then(({ a }) => ...) and const { a } = await import('x') name what they use: no import-namespace, and no export-unused",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

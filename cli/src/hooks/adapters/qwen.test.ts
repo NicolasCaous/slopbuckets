@@ -1,120 +1,111 @@
-// The Qwen Code adapter with Qwen payloads: write_file, edit and run_shell_command (and their Claude aliases), Stop
-// and SubagentStop. A deny exits with 2 and writes the reason on stderr as well as the JSON.
+// The Qwen Code adapter with Qwen payloads: PreToolUse for write_file, edit and run_shell_command, Stop, SubagentStop
+// and PostCompact.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanupProjects, makeProject } from '../../testing/fixture.js';
-import {
-  cleanProject,
-  feedbackFor,
-  installSuite,
-  line,
-  LOCK_DENY_REASON,
-  guardedNames,
-  newSessionId,
-  REFRESH_ALLOWED,
-  REFRESH_DENIED,
-  runAdapter,
-  stopReportFor,
-  violationProject,
-  asUpdateDeny,
-  UPDATE_ALLOWED,
-  UPDATE_DENIED,
-} from './adapter-test-kit.js';
+import { cleanupProjects, makeProject, readFile } from '../../testing/fixture.js';
+import { normalizeHarnessPath } from '../input.js';
+import { installSuite, line, runAdapter } from './adapter-test-kit.js';
+import { crashingCore, decisionCases, fakeCore, restoreCoreAfterEach, TEXT } from './json-test-kit.js';
 import { qwenAdapter } from './qwen.js';
 
 afterEach(cleanupProjects);
-
-const DENIED = {
-  code: 2,
-  out: line({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: LOCK_DENY_REASON } }),
-  err: `${LOCK_DENY_REASON}\n`,
-};
-const SILENT = { code: 0, out: '', err: '' };
+restoreCoreAfterEach();
 
 function payload(dir: string, event: string, extra: Record<string, unknown>) {
-  return { session_id: newSessionId(), transcript_path: path.join(dir, '.qwen', 'chat.jsonl'), cwd: dir, hook_event_name: event, permission_mode: 'default', ...extra };
+  return { session_id: 'q-1', transcript_path: path.join(dir, 't.jsonl'), cwd: dir, hook_event_name: event, timestamp: '2026-10-24T10:00:00Z', ...extra };
 }
 
-const tool = (dir: string, event: string, name: string, input: Record<string, unknown>) => payload(dir, event, { tool_name: name, tool_input: input });
+const tool = (dir: string, name: string, input: Record<string, unknown>) =>
+  payload(dir, 'PreToolUse', { tool_name: name, tool_input: input, tool_use_id: 'call_1', permission_mode: 'default' });
+const project = () => makeProject({ 'src/a.ts': 'export const a = 1;\n' });
 
-describe('qwen pre-tool-use', () => {
-  it('allows ordinary calls with no output', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'run_shell_command', { command: 'npm test', is_background: false }), dir)).toEqual(SILENT);
-    expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', 'write_file', { file_path: path.join(dir, 'root/_/x.ts'), content: 'x' }), dir)).toEqual(SILENT);
+describe('qwen phases', () => {
+  it('maps write_file and edit to pre-edit with the new text, run_shell_command to a shell pre-tool', async () => {
+    const dir = project();
+    const env = { QWEN_PROJECT_DIR: dir };
+    const calls = fakeCore();
+    await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'write_file', { file_path: path.join(dir, 'src/b.ts'), content: 'b' }), dir, env);
+    await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'edit', { file_path: path.join(dir, 'src/a.ts'), old_string: '1', new_string: '2', replace_all: false }), dir, env);
+    await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'run_shell_command', { command: 'npm test' }), dir, env);
+    await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'read_file', { absolute_path: path.join(dir, 'src/a.ts') }), dir, env);
+    expect(calls.map((c) => [c.phase, c.toolName, c.edits, c.isShell, c.root])).toEqual([
+      ['pre-edit', 'write_file', [{ path: path.join(dir, 'src', 'b.ts'), content: 'b' }], false, normalizeHarnessPath(dir)],
+      ['pre-edit', 'edit', [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 2;\n' }], false, normalizeHarnessPath(dir)],
+      ['pre-tool', 'run_shell_command', [], true, normalizeHarnessPath(dir)],
+      ['pre-tool', 'read_file', [], false, normalizeHarnessPath(dir)],
+    ]);
   });
 
-  it('denies write_file, edit and the Write alias on the lock under any name', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      for (const tool_name of ['write_file', 'edit', 'Write']) {
-        expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', tool_name, { file_path: name, content: '{}', old_string: 'a', new_string: 'b' }), dir)).toEqual(as(DENIED));
-      }
-    }
-  });
-
-  it('takes the session folder from QWEN_PROJECT_DIR', async () => {
-    const dir = violationProject();
-    const input = tool(dir, 'PreToolUse', 'write_file', { file_path: 'buckets.lock.json', content: '{}' });
-    delete (input as Record<string, unknown>).cwd;
-    expect((await runAdapter(qwenAdapter, 'pre-tool-use', input, makeProject({}, false), { QWEN_PROJECT_DIR: dir })).code).toBe(2);
-  });
-
-  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
-    const dir = violationProject();
-    for (const name of ['run_shell_command', 'Bash']) {
-      for (const command of REFRESH_DENIED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(DENIED);
-      for (const command of REFRESH_ALLOWED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(SILENT);
-      for (const command of UPDATE_DENIED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(asUpdateDeny(DENIED));
-      for (const command of UPDATE_ALLOWED) expect(await runAdapter(qwenAdapter, 'pre-tool-use', tool(dir, 'PreToolUse', name, { command }), dir)).toEqual(SILENT);
-    }
-  });
-});
-
-describe('qwen post-tool-use', () => {
-  it('reports the violations of an edited file in additionalContext', async () => {
-    const dir = violationProject();
-    const feedback = await feedbackFor(dir, 'root/_/main.ts');
-    const edit = tool(dir, 'PostToolUse', 'edit', { file_path: path.join(dir, 'root', '_', 'main.ts'), old_string: 'a', new_string: 'b' });
-    const out = line({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: feedback } });
-    expect(await runAdapter(qwenAdapter, 'post-tool-use', { ...edit, tool_response: { llmContent: 'ok' }, tool_use_id: 'toolu_1' }, dir)).toEqual({ code: 0, out, err: '' });
-    expect(await runAdapter(qwenAdapter, 'post-tool-use', tool(dir, 'PostToolUse', 'write_file', { file_path: 'root/log/_/logger.ts' }), dir)).toEqual(SILENT);
+  it('passes the agent id inside a subagent, stop_hook_active, and PostCompact', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(qwenAdapter, 'pre-tool-use', { ...tool(dir, 'run_shell_command', { command: 'ls' }), agent_id: 'sub-1', agent_type: 'explore' }, dir);
+    await runAdapter(qwenAdapter, 'stop', payload(dir, 'Stop', { stop_hook_active: true, last_assistant_message: 'done' }), dir);
+    await runAdapter(qwenAdapter, 'subagent-stop', payload(dir, 'SubagentStop', { stop_hook_active: false, agent_id: 'sub-1', agent_type: 'explore', agent_transcript_path: 'x' }), dir);
+    await runAdapter(qwenAdapter, 'post-compact', payload(dir, 'PostCompact', { trigger: 'auto', compact_summary: 's' }), dir);
+    expect(calls.map((c) => [c.phase, c.agentId, c.stopHookActive])).toEqual([
+      ['pre-tool', 'sub-1', false],
+      ['stop', null, true],
+      ['subagent-stop', 'sub-1', false],
+      ['post-compact', null, false],
+    ]);
   });
 });
 
-describe('qwen stop and subagent-stop', () => {
-  it('blocks once and lets the agent finish when stop_hook_active is set', async () => {
-    const dir = violationProject();
-    for (const [event, name] of [
-      ['stop', 'Stop'],
-      ['subagent-stop', 'SubagentStop'],
-    ] as const) {
-      const first = payload(dir, name, { stop_hook_active: false });
-      expect(await runAdapter(qwenAdapter, event, first, dir)).toEqual({ code: 0, out: line({ decision: 'block', reason: await stopReportFor(dir, event === 'subagent-stop') }), err: '' });
-      expect(await runAdapter(qwenAdapter, event, { ...first, stop_hook_active: true }, dir)).toEqual(SILENT);
-    }
-  });
+describe('qwen answers', () => {
+  const context = line({ hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: TEXT } });
+  const deny = line({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: TEXT } });
+  const block = line({ decision: 'block', reason: TEXT });
+  decisionCases(qwenAdapter, 'pre-tool-use', (dir) => tool(dir, 'write_file', { file_path: 'src/c.ts', content: 'c' }), project, { context: { code: 0, out: context }, deny: { code: 0, out: deny } });
+  decisionCases(qwenAdapter, 'pre-tool-use', (dir) => tool(dir, 'run_shell_command', { command: 'ls' }), project, { context: { code: 0, out: context } });
+  decisionCases(qwenAdapter, 'stop', (dir) => payload(dir, 'Stop', { stop_hook_active: false }), project, { block: { code: 0, out: block } });
+  decisionCases(qwenAdapter, 'subagent-stop', (dir) => payload(dir, 'SubagentStop', { stop_hook_active: false, agent_id: 'a' }), project, { block: { code: 0, out: block } });
+  decisionCases(qwenAdapter, 'post-compact', (dir) => payload(dir, 'PostCompact', { trigger: 'manual' }), project, {});
+});
 
-  it('says nothing for a clean project', async () => {
-    const dir = await cleanProject();
-    expect(await runAdapter(qwenAdapter, 'stop', payload(dir, 'Stop', { stop_hook_active: false }), dir)).toEqual(SILENT);
+describe('qwen fails open', () => {
+  it('exits with 0 and prints nothing when the core crashes', async () => {
+    const dir = project();
+    crashingCore();
+    for (const event of qwenAdapter.events) {
+      const result = await runAdapter(qwenAdapter, event, tool(dir, 'write_file', { file_path: 'x.ts', content: '' }), dir);
+      expect(result).toMatchObject({ code: 0, out: '' });
+    }
   });
 });
 
 describe('qwen install', () => {
   installSuite(qwenAdapter, {
     file: '.qwen/settings.json',
-    userText: ['{', '  // personal', '  "model": { "name": "qwen3-coder-plus" },', '  "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "notify-send done" }] }] }', '}', ''].join('\n'),
-    freshUninstallDeletes: true,
+    userText: ['{', '  // project settings', '  "model": { "name": "qwen3-coder" },', '  "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "say done" }] }] }', '}', ''].join('\n'),
     fresh(json) {
       expect(json).toEqual({
         hooks: {
-          PreToolUse: [{ matcher: 'write_file|edit|replace|run_shell_command', hooks: [{ type: 'command', command: 'buckets hook --agent qwen pre-tool-use' }] }],
-          PostToolUse: [{ matcher: 'write_file|edit|replace', hooks: [{ type: 'command', command: 'buckets hook --agent qwen post-tool-use' }] }],
-          Stop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen stop' }] }],
-          SubagentStop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen subagent-stop' }] }],
+          PreToolUse: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen pre-tool-use', timeout: 60 }] }],
+          Stop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen stop', timeout: 600 }] }],
+          SubagentStop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen subagent-stop', timeout: 600 }] }],
+          PostCompact: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen post-compact', timeout: 30 }] }],
         },
       });
     },
+  });
+
+  it('migrates a 1.x install and keeps the other settings', () => {
+    const v1 = {
+      model: { name: 'qwen3-coder' },
+      hooks: {
+        PreToolUse: [{ matcher: 'write_file|edit|replace|run_shell_command', hooks: [{ type: 'command', command: 'buckets hook --agent qwen pre-tool-use' }] }],
+        PostToolUse: [{ matcher: 'write_file|edit|replace', hooks: [{ type: 'command', command: 'buckets hook --agent qwen post-tool-use' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen stop' }] }],
+        SubagentStop: [{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen subagent-stop' }] }],
+      },
+    };
+    const dir = makeProject({ '.qwen/settings.json': JSON.stringify(v1, null, 2) }, false);
+    expect(qwenAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done' });
+    const json = JSON.parse(readFile(dir, '.qwen/settings.json'));
+    expect(json.model).toEqual({ name: 'qwen3-coder' });
+    expect(json.hooks.PostToolUse).toBeUndefined();
+    expect(json.hooks.Stop).toEqual([{ hooks: [{ type: 'command', command: 'buckets hook --agent qwen stop', timeout: 600 }] }]);
+    expect(qwenAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'kept' });
   });
 });

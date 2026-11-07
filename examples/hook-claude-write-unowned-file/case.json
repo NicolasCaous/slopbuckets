@@ -1,0 +1,67 @@
+{
+  "description": "Claude Code: a Write that creates a file outside every bucket warns with file-unowned and lets the write run",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-unowned",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-unowned.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/utils/date.ts",
+          "content": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+        },
+        "tool_use_id": "toolu_26"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+          }
+        },
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-unowned",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-unowned.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/utils/date.ts"
+        },
+        "tool_use_id": "toolu_27"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nsrc/utils/date.ts: in no bucket",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[OLD]\nsrc/utils/date.ts: in no bucket"
+          }
+        },
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    }
+  ]
+}

@@ -1,15 +1,18 @@
 ---
 title: Gemini CLI
-description: The hooks that buckets init writes in .gemini/settings.json for Gemini CLI, and the folder trust they need.
+description: The hooks that buckets init writes in .gemini/settings.json for Gemini CLI, and why the warning arrives after the tool.
 ---
 
 # Gemini CLI
 
-| Protection | Support | How |
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `BeforeTool` denies `write_file` and `replace` on a lock or a config and a `run_shell_command` that names one or runs plain `buckets refresh` or an installing `buckets update`, also with `--yolo` |
-| Feedback after edits | yes | `AfterTool` adds the `buckets check --file` report to the model's context after each edit |
-| Block the end of a turn | yes | `AfterAgent` makes the agent retry once with the `buckets check` report |
+| Warning on edit | after the edit | `AfterTool` returns the pending list in `additionalContext` |
+| Pending list on other tools | after the tool | the same `AfterTool` hook, with the matcher `.*`, returns the current pending list |
+| Interrupt on an invalid config | yes | `BeforeTool` on `write_file` and `replace` answers `decision: "deny"` |
+| Interrupt at the end | yes | `AfterAgent` answers `decision: "deny"` once |
+| Subagents | no | Gemini has no subagent stop event |
+| Compaction | no | Gemini has only `PreCompress`, which runs before the compression |
 
 ## Install
 
@@ -19,42 +22,44 @@ buckets init --agent gemini
 
 It writes:
 
-- the `hooks` key of `.gemini/settings.json`, with a `BeforeTool`, an `AfterTool` and an `AfterAgent` hook. Each one runs `buckets hook --agent gemini <event>`. Settings you already have stay as they are, comments included, and `init` adds only the missing entries.
-- `"context": { "fileName": ["AGENTS.md", "GEMINI.md"] }` in the same file, when you have not set `context.fileName`. Gemini CLI reads only `GEMINI.md` by default, and this makes it read the slopbuckets block in `AGENTS.md` too. If you set `context.fileName` yourself without `AGENTS.md`, `init` leaves it alone and asks you to add `AGENTS.md`.
+- the `hooks` key of `.gemini/settings.json` with three hooks: `BeforeTool` with the matcher `write_file|replace`, `AfterTool` with the matcher `.*`, and `AfterAgent` with no matcher. Each one runs `buckets hook --agent gemini <event>; exit 0`, with the events `before-tool`, `after-tool` and `after-agent`, a `name` that starts with `slopbuckets-`, and a timeout in milliseconds: 60,000 for the tool hooks and 600,000 for `AfterAgent`. If the file already exists, `init` keeps your settings and adds only the missing entries. It also replaces the 1.x entries.
+- `context.fileName` in the same file, set to `["AGENTS.md", "GEMINI.md"]` when the key is missing, so Gemini reads the slopbuckets block. When the key is set and does not list `AGENTS.md`, `init` leaves it alone and tells you to add `AGENTS.md` to it.
 - the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`
 
-Gemini CLI ignores project settings in a folder you have not trusted. When it asks whether you trust the project folder, trust it, or the hooks do not run.
-
-To remove the hooks, delete the three slopbuckets entries under `hooks`. `context.fileName` can stay, since Gemini CLI then reads both files.
+Gemini ignores project settings in a folder you have not trusted, and it fingerprints project hooks: the first time it sees a new or changed hook, it asks before it runs it. `init` reminds you to trust the folder and the slopbuckets hooks when Gemini asks.
 
 ## How it works
 
-Hook timeouts in Gemini CLI are in milliseconds. `init` gives the guard 30 seconds and the checks 5 and 10 minutes.
+Gemini sends each event to the hook as JSON on stdin, with `tool_name` and `tool_input` in snake_case. The hook uses `GEMINI_PROJECT_DIR` as the project folder when Gemini sets it.
 
-- `BeforeTool`, with the matcher `write_file|replace|run_shell_command`. When `file_path` is any `buckets.lock.json` or `buckets.config.json`, also as a Windows path, with a stream suffix or with a trailing dot, or when the command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook prints `{"decision": "deny", "reason": "<reason>"}`. The model sees a tool error with the reason and goes on. Every other call gets no output.
-- `AfterTool`, with the matcher `write_file|replace`. The hook runs `buckets check --file` on the edited file and returns the report in `hookSpecificOutput.additionalContext`. It does not answer `decision: "deny"` there, because that would replace the tool result.
-- `AfterAgent`. The hook runs `buckets check` with nested projects. When it fails, it prints `{"decision": "deny", "reason": "<report>"}`, and Gemini CLI makes the agent retry with the report. The retry carries `stop_hook_active: true`, and the hook lets it through, so it blocks once.
+- `BeforeTool` with the matcher `write_file|replace` sees the edit before it runs. `write_file` carries `file_path` and the whole new `content`. `replace` carries `file_path`, `old_string` and `new_string`. Gemini reads no context from `BeforeTool`, so the hook uses it only to refuse an edit that makes `buckets.config.json` worse, with `{"decision": "deny", "reason": "..."}` and exit code 0. On any other call it prints nothing. This hook keeps no memory, so nothing counts as shown before `AfterTool` shows it.
+- `AfterTool` runs for every tool and delivers the warning. For `write_file` and `replace`, the hook reads the file as it is on disk now and checks it as an edit. For every other tool, it shows the current pending list, and `run_shell_command` also marks the session as one that may have changed files. With pending violations, the hook prints `{"hookSpecificOutput": {"hookEventName": "AfterTool", "additionalContext": "<pending list>"}}`, and Gemini appends it to the tool result inside `<hook_context>`. The hook never prints `decision` on `AfterTool`, because a deny there replaces the tool result.
+- `AfterAgent` runs the `stop` phase, only when the session changed files or still has pending violations. With violations, the hook prints `{"decision": "deny", "reason": "<every violation in full>"}`, and Gemini sends the reason back as a new prompt. The retry carries `stop_hook_active: true`, and the hook lets it through. Gemini has no cap of its own besides its limit of 100 turns.
 
 ## Limits
 
-- Hooks are on by default since Gemini CLI v0.26.0.
-- The hooks run only in a trusted folder.
-- Gemini CLI has no event for the end of a subagent's work, so only the main agent's turn is checked.
-- Gemini CLI may read output that is not JSON, with an exit code other than 0 or 1, as a deny. The hook always exits with 0 and prints JSON or nothing.
-- The hooks fail open, like every slopbuckets integration. When the `buckets` command is missing, or a hook crashes or times out, Gemini CLI lets the call through and no check runs.
+- After a project install, the hook command names the copy relative to the project folder: `node ./node_modules/slopbuckets/dist/index.js`. Gemini sets `GEMINI_PROJECT_DIR`, but it runs hooks with PowerShell on Windows and with bash elsewhere, and no one way to write the variable works in both. If Gemini runs a hook from another folder than the project folder, for example the folder the agent moved to with `cd`, the command does not find the copy and the hook does nothing.
+- `decision: "allow"` on `BeforeTool` does not skip Gemini's approval. The hook prints nothing on a call it does not refuse.
+- When stdout is empty, Gemini reads stderr, and plain text with an exit code other than 0 or 1 becomes a deny. On bash, a missing `buckets` command exits 127 and would deny every matched call and make `AfterAgent` retry. Every installed command ends with `; exit 0`, which works in bash and in PowerShell, so the hook exits 0 when `buckets` is missing.
+- Tool hooks fire inside subagents, but `AfterAgent` fires only for the main loop, so a subagent's end is not checked. This is read from the source, not tested.
+- On Windows, Gemini runs hook commands with PowerShell, and on other systems with `bash -c`.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Start `gemini` in the project and trust the folder when it asks.
-2. Ask it to "run buckets refresh". The tool call should fail with the slopbuckets reason.
-3. Ask it to add `import { x } from './x';` to a file under the root bucket folder. After the edit, Gemini should see the `buckets check --file` report and fix the import.
+In a project where `billing` and `payments` are buckets and the public file of `payments` is `src/payments/index.ts`:
 
-By hand, from the project folder:
+1. Open Gemini CLI in the project, trust the folder and accept the hooks when it asks.
+2. Ask it to add `import { charge } from '../payments/client';` to `src/billing/invoice.ts`. The tool result should end with the pending list and `billing -> payments: private file`.
+3. Let it end the turn without a fix. `AfterAgent` should send it back once with `buckets: 1 structure violation remains.`
+
+By hand, from the project folder, write a file with the violation, send the `AfterTool` of the `write_file` that made it, then the `AfterAgent` of the same session:
 
 ```sh
-echo '{"cwd":"'"$PWD"'","hook_event_name":"BeforeTool","tool_name":"run_shell_command","tool_input":{"command":"buckets refresh"}}' | buckets hook --agent gemini before-tool
+printf "import { charge } from '../payments/client';\n" > src/billing/refund.ts
+echo '{"session_id":"test","cwd":"'"$PWD"'","hook_event_name":"AfterTool","tool_name":"write_file","tool_input":{"file_path":"'"$PWD"'/src/billing/refund.ts","content":"import { charge } from \"../payments/client\";\n"}}' | buckets hook --agent gemini after-tool
+echo '{"session_id":"test","cwd":"'"$PWD"'","hook_event_name":"AfterAgent","stop_hook_active":false}' | buckets hook --agent gemini after-agent
 ```
 
-It prints `{"decision":"deny",...}`.
+The first command prints `{"hookSpecificOutput":{"hookEventName":"AfterTool","additionalContext":"buckets: 1 pending. ..."}}`. The second prints `{"decision":"deny","reason":"buckets: 1 structure violation remains. ..."}`. An `AfterAgent` without the tool call before it prints nothing. Delete `src/billing/refund.ts` and `.buckets/sessions/test.json` afterwards.

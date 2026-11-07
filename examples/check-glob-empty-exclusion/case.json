@@ -1,0 +1,22 @@
+{
+  "description": "a ! glob that excludes nothing gives glob-empty",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "glob-empty",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "glob-empty",
+          "field": "files",
+          "bucket": "billing",
+          "glob": "!src/billing/legacy/**"
+        }
+      ]
+    }
+  }
+}

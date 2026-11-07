@@ -1,0 +1,22 @@
+{
+  "description": "a dependsOn entry that no import uses gives dependency-unused",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dependency-unused",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "dependency-unused",
+          "from": "app",
+          "to": "log",
+          "reason": "Logs the startup of the app"
+        }
+      ]
+    }
+  }
+}

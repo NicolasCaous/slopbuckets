@@ -1,0 +1,13 @@
+{
+  "description": "a re-export from an undeclared bucket in a private file gives dependency-undeclared",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dependency-undeclared",
+        "file": "src/app/billing.ts",
+        "line": 1
+      }
+    ]
+  }
+}

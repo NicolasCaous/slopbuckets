@@ -1,0 +1,22 @@
+{
+  "description": "an ignore glob that matches nothing gives glob-empty",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "glob-empty",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "glob-empty",
+          "field": "ignore",
+          "bucket": null,
+          "glob": "scripts/**"
+        }
+      ]
+    }
+  }
+}

@@ -1,30 +1,30 @@
 // The harnesses slopbuckets knows, and the hook adapters it has for them. To add an adapter, write
 // ./adapters/<name>.ts that exports a HookAdapter (see ./adapter.ts and ./adapters/claude.ts), import it here and add it
 // to `adapters` below. Its entry in KNOWN then gains hooks: `buckets hook --agent <name> <event>` dispatches to it and
-// `buckets init --agent <name>` installs it. Use ../core/jsonc.ts to merge into JSON files that may hold comments.
+// `buckets init --agent <name>` installs it. Use ../files/jsonc.ts to merge into JSON files that may hold comments.
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { HarnessInfo, HookAdapter } from './adapter.js';
-import { claudeAdapter } from './adapters/claude.js';
+import { aiderAdapter } from './adapters/aider.js';
 import { ampAdapter } from './adapters/amp.js';
+import { auggieAdapter } from './adapters/auggie.js';
+import { claudeAdapter } from './adapters/claude.js';
+import { clineAdapter } from './adapters/cline.js';
+import { codexAdapter } from './adapters/codex.js';
+import { continueAdapter } from './adapters/continue.js';
+import { copilotAdapter } from './adapters/copilot.js';
+import { crushAdapter } from './adapters/crush.js';
+import { cursorAdapter } from './adapters/cursor.js';
+import { devinAdapter } from './adapters/devin.js';
+import { factoryAdapter } from './adapters/factory.js';
+import { geminiAdapter } from './adapters/gemini.js';
+import { gooseAdapter } from './adapters/goose.js';
+import { kiroAdapter } from './adapters/kiro.js';
 import { opencodeAdapter } from './adapters/opencode.js';
 import { piAdapter } from './adapters/pi.js';
-import { codexAdapter } from './adapters/codex.js';
-import { cursorAdapter } from './adapters/cursor.js';
-import { geminiAdapter } from './adapters/gemini.js';
-import { copilotAdapter } from './adapters/copilot.js';
-import { factoryAdapter } from './adapters/factory.js';
 import { qwenAdapter } from './adapters/qwen.js';
-import { auggieAdapter } from './adapters/auggie.js';
-import { devinAdapter } from './adapters/devin.js';
-import { clineAdapter } from './adapters/cline.js';
 import { windsurfAdapter } from './adapters/windsurf.js';
-import { kiroAdapter } from './adapters/kiro.js';
-import { gooseAdapter } from './adapters/goose.js';
-import { crushAdapter } from './adapters/crush.js';
 import { zedAdapter } from './adapters/zed.js';
-import { aiderAdapter } from './adapters/aider.js';
-import { continueAdapter } from './adapters/continue.js';
 
 /** The adapters with hooks. Claude Code is the default of `buckets hook <event>` and of `buckets init`. */
 const adapters: HookAdapter[] = [
@@ -50,20 +50,6 @@ const adapters: HookAdapter[] = [
   continueAdapter,
 ];
 export const ADAPTERS: readonly HookAdapter[] = adapters;
-
-/** Adds an adapter at run time, such as a test double, replacing one of the same name. Returns a function that removes it. */
-export function registerAdapter(adapter: HookAdapter): () => void {
-  const index = adapters.findIndex((a) => a.name === adapter.name);
-  const previous = index === -1 ? undefined : adapters[index];
-  if (index === -1) adapters.push(adapter);
-  else adapters[index] = adapter;
-  return () => {
-    const at = adapters.indexOf(adapter);
-    if (at === -1) return;
-    if (previous === undefined) adapters.splice(at, 1);
-    else adapters[at] = previous;
-  };
-}
 
 export const DEFAULT_AGENT = 'claude';
 

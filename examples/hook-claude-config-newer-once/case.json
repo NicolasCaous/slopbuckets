@@ -1,0 +1,73 @@
+{
+  "description": "Claude Code: a config of a newer slopbuckets shows the config-newer error once as context, and never denies an edit or blocks the stop",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-newer",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-newer.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/refund.ts",
+          "content": "export function refund(amount: number): number {\n  return -amount;\n}\n"
+        },
+        "tool_use_id": "toolu_49"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "messageIncludes": [
+          "buckets: cannot check (config-newer): buckets.config.json has version \"2.9\", which needs slopbuckets 2.9 or later",
+          "Run buckets update"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-newer",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-newer.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "content": "{\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\n  \"version\": \"2.9\",\n  \"buckets\": {\n    \"app\": {\n      \"purpose\": \"Starts the program and wires each part\",\n      \"files\": [\n        \"src/app/**\"\n      ],\n      \"public\": null,\n      \"dependsOn\": {\n        \"billing\": \"Bills the orders of each customer\",\n        \"log\": \"Logs the startup of the app\"\n      },\n      \"packages\": {}\n    },\n    \"billing\": {\n      \"purpose\": \"Issues and charges invoices\",\n      \"files\": [\n        \"src/billing/**\"\n      ],\n      \"public\": \"src/billing/index.ts\",\n      \"dependsOn\": {\n        \"payments\": \"Charges go through the gateway\"\n      },\n      \"packages\": {}\n    },\n    \"payments\": {\n      \"purpose\": \"Talks to the payment gateway\",\n      \"files\": [\n        \"src/payments/**\"\n      ],\n      \"public\": \"src/payments/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    },\n    \"log\": {\n      \"purpose\": \"Formats and writes application logs\",\n      \"files\": [\n        \"src/log/**\"\n      ],\n      \"public\": \"src/log/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {},\n      \"owners\": [\n        \"@platform\"\n      ]\n    }\n  }\n}\n"
+        },
+        "tool_use_id": "toolu_50"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "silent",
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "files": {
+        "src/billing/refund.ts": "export function refund(amount: number): number {\n  return -amount;\n}\n",
+        "buckets.config.json": "{\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\n  \"version\": \"2.9\",\n  \"buckets\": {\n    \"app\": {\n      \"purpose\": \"Starts the program and wires each part\",\n      \"files\": [\n        \"src/app/**\"\n      ],\n      \"public\": null,\n      \"dependsOn\": {\n        \"billing\": \"Bills the orders of each customer\",\n        \"log\": \"Logs the startup of the app\"\n      },\n      \"packages\": {}\n    },\n    \"billing\": {\n      \"purpose\": \"Issues and charges invoices\",\n      \"files\": [\n        \"src/billing/**\"\n      ],\n      \"public\": \"src/billing/index.ts\",\n      \"dependsOn\": {\n        \"payments\": \"Charges go through the gateway\"\n      },\n      \"packages\": {}\n    },\n    \"payments\": {\n      \"purpose\": \"Talks to the payment gateway\",\n      \"files\": [\n        \"src/payments/**\"\n      ],\n      \"public\": \"src/payments/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    },\n    \"log\": {\n      \"purpose\": \"Formats and writes application logs\",\n      \"files\": [\n        \"src/log/**\"\n      ],\n      \"public\": \"src/log/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {},\n      \"owners\": [\n        \"@platform\"\n      ]\n    }\n  }\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-config-newer",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-newer.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

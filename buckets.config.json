@@ -1,0 +1,15 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": [
+    "examples/**",
+    "scripts/**",
+    "vitest.config.ts"
+  ],
+  "projects": [
+    "adapters/ts",
+    "cli",
+    "docs"
+  ],
+  "buckets": {}
+}

@@ -1,55 +1,55 @@
 // The Goose adapter. Goose loads plugin hooks from `<project>/.agents/plugins/<name>/hooks/hooks.json`, in Claude
-// Code's group shape, and runs each command with `sh -c`. The payload has `event`, `session_id`, `tool_name`,
-// `tool_input` and `working_dir`. PreToolUse blocks with `{"decision": "block", "reason": "..."}`. Stop accepts the
-// same block, which Goose turns into a message that keeps the agent working. Every hook fails open: Goose's default
-// `on_failure: "allow"` lets the call through when the hook cannot run, such as on a machine without the CLI, and CI
-// holds the rules there. There is no hook after an edit that talks to the model, and the Stop payload has no
-// `stop_hook_active`, so a mark in the temp folder makes the stop hook block at most once in a row.
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+// Code's group shape, and runs each command with `sh -c`. The payload has `session_id`, `tool_name`, `tool_input` and
+// `working_dir`. The tools are write (`path`, `content`), edit (`path`, `before`, `after`) and shell, with or without
+// an extension prefix such as `developer__`.
+//
+// Goose reads no context from any hook, before or after a tool, so the pending list cannot reach the model. The
+// PreToolUse hook still runs the core: on an edit it denies one that would make buckets.config.json invalid, with
+// `{"decision": "block"}`, and on a shell command it marks the session, so the stop check knows files may have
+// changed. Stop blocks with `{"decision": "block"}`, which Goose turns into a message that keeps the agent working. The
+// Stop payload has no stop_hook_active, so a mark per session blocks once. A subagent most likely fires the same Stop
+// with its own session id, so the mark covers it too. Goose has no compaction event.
+//
+// Exit 0 with nothing on stdout lets the call run. A hook that fails, such as on a machine without the CLI, allows the
+// call under Goose's default `on_failure: "allow"`, and a failing Stop hook always lets the turn end.
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { HookAdapter, InstallStep } from '../adapter.js';
+import type { Io } from '../../context/index.js';
+import type { JsonRecord } from '../../files/index.js';
+import { message } from '../../output/index.js';
+import { defineAdapter, type HookHandler, type InstallOptions, type InstallStep } from '../adapter.js';
 import { normalizeHarnessPath, str } from '../input.js';
-import { groupEntries, installHookFile, jsonLine, runHook, snakeToolCall, uninstallHookFile, type HookFile, type RunConfig, type ToolKind } from './hook-kit.js';
+import { removeEmptyFolders, removeProjectFile, writeProjectFile } from '../project-file.js';
+import { DEFAULT_COMMAND, groupEntries, installHooks, type JsonHookFile, uninstallHooks } from './json-install.js';
+import { beforeTool, decide, decideStopByMark, eventInput, jsonLine, kindOf, snakeCall, type ToolKind, type Where, whereOf } from './json-run.js';
 
 const AGENT = 'goose';
 const TITLE = 'Goose';
-export const GOOSE_EVENTS = ['pre-tool-use', 'stop'] as const;
 
-/** Goose's built-in tools, and the names of the older developer extension. */
-const TOOLS: Record<string, ToolKind> = {
-  shell: 'shell',
-  write: 'write',
-  edit: 'write',
-  developer__shell: 'shell',
-  developer__text_editor: 'write',
-  text_editor: 'write',
-  tree: 'other',
-  read_image: 'other',
-};
+/** Goose's built-in tools, and text_editor of the older developer extension. */
+const TOOLS: Record<string, ToolKind> = { shell: 'shell', write: 'write', edit: 'write', text_editor: 'write', tree: 'other', read_image: 'other' };
 
-/** A regular expression over the tool name: the tools above, with or without an extension prefix. */
+/** A regular expression over the tool name: the tools that write or run commands, with or without an extension prefix. */
 export const GOOSE_MATCHER = '(?:^|__)(?:shell|write|edit|text_editor)$';
 
-const config: RunConfig = {
-  agent: AGENT,
-  phases: { 'pre-tool-use': 'pre-tool', stop: 'stop' },
-  scope(input, io) {
-    const dir = str(input.working_dir);
-    const root = dir === undefined ? io.cwd : normalizeHarnessPath(dir);
-    const sessionId = str(input.session_id);
-    return { projectDir: root, cwd: root, ...(sessionId === undefined ? {} : { sessionId }) };
-  },
-  // Exit 0 with nothing on stdout is an allow for Goose, so the allow path prints nothing.
-  call: (input) => snakeToolCall(input, TOOLS),
-  deny(io, reason) {
-    io.stdout(jsonLine({ decision: 'block', reason }));
-    return 0;
-  },
-  feedback() {},
-  block(io, text) {
-    io.stdout(jsonLine({ decision: 'block', reason: text }));
-  },
-  stopActive: () => undefined,
+function where(payload: JsonRecord, io: Io): Where {
+  const dir = str(payload.working_dir);
+  return whereOf(payload, io, dir === undefined ? undefined : normalizeHarnessPath(dir));
+}
+
+const preToolUse: HookHandler = async (ctx, io, payload) => {
+  // Goose names extension tools `<extension>__<tool>`; the kind comes from the part after the last `__`.
+  const call = snakeCall(payload, TOOLS);
+  const decision = await decide(ctx, beforeTool(where(payload, io), { ...call, kind: kindOf(call.name.replace(/^.*__/, ''), TOOLS) }));
+  if (decision.kind === 'deny') io.stdout(jsonLine({ decision: 'block', reason: decision.text }));
+  return 0;
+};
+
+const stop: HookHandler = async (ctx, io, payload) => {
+  const at = where(payload, io);
+  const decision = await decideStopByMark(ctx, eventInput(at, 'stop'), `${AGENT}:stop:${at.sessionId ?? at.cwd}`);
+  if (decision.kind === 'block') io.stdout(jsonLine({ decision: 'block', reason: decision.text }));
+  return 0;
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -61,37 +61,36 @@ export const GOOSE_MANIFEST = `${GOOSE_PLUGIN_DIR}/plugin.json`;
 
 const MANIFEST = {
   name: 'slopbuckets',
-  version: '1.0.0',
-  description: 'Keeps the agent from writing buckets.lock.json or running buckets refresh, and runs buckets check before a turn ends. Written by `buckets init --agent goose`.',
+  version: '2.0.0',
+  description: 'The slopbuckets hooks. Written by `buckets init --agent goose`.',
 };
 
-export const GOOSE_HOOKS: HookFile = {
-  agent: AGENT,
-  title: TITLE,
-  file: GOOSE_HOOKS_FILE,
-  container: ['hooks'],
-  layout: 'groups',
-  owned: true,
-  // Older installs set `on_failure: "block"` on the PreToolUse hook. Install removes it, so the hook fails open.
-  staleKeys: ['on_failure'],
-  entries: groupEntries(AGENT, [
-    { event: 'PreToolUse', name: 'pre-tool-use', matcher: GOOSE_MATCHER, extra: { timeout: 60 } },
-    { event: 'Stop', name: 'stop', extra: { timeout: 300 } },
-  ]),
-};
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+export function gooseHooks(cli: string = DEFAULT_COMMAND): JsonHookFile {
+  return {
+    agent: AGENT,
+    title: TITLE,
+    file: GOOSE_HOOKS_FILE,
+    container: ['hooks'],
+    layout: 'groups',
+    owned: true,
+    entries: groupEntries(
+      AGENT,
+      [
+        { event: 'PreToolUse', name: 'pre-tool-use', matcher: GOOSE_MATCHER, extra: { timeout: 60 } },
+        { event: 'Stop', name: 'stop', extra: { timeout: 600 } },
+      ],
+      cli,
+    ),
+  };
 }
 
-function install(projectDir: string): InstallStep[] {
-  const steps = installHookFile(projectDir, GOOSE_HOOKS);
+function install(projectDir: string, options: InstallOptions): InstallStep[] {
+  const steps = installHooks(projectDir, gooseHooks(options.command));
   if (steps.some((step) => step.status === 'failed')) return steps;
   const manifest = path.join(projectDir, GOOSE_MANIFEST);
   try {
     if (!existsSync(manifest)) {
-      mkdirSync(path.dirname(manifest), { recursive: true });
-      writeFileSync(manifest, `${JSON.stringify(MANIFEST, null, 2)}\n`, 'utf8');
+      writeProjectFile(projectDir, GOOSE_MANIFEST, `${JSON.stringify(MANIFEST, null, 2)}\n`);
       steps.push({ status: 'done', text: `Wrote the Goose plugin manifest ${GOOSE_MANIFEST}` });
     }
   } catch (error) {
@@ -100,44 +99,33 @@ function install(projectDir: string): InstallStep[] {
   if (steps[0]?.status === 'done') {
     steps.push({
       status: 'todo',
-      text: 'Goose runs hooks with sh, so on Windows it needs sh on the PATH (Git for Windows has one). On a machine without the buckets command the hooks do nothing, so keep `buckets check` in CI.',
+      text: 'Goose runs hooks with sh, so on Windows it needs sh on the PATH (Git for Windows has one). Goose shows hook text to no one, so the agent sees the structure problems only when the stop hook blocks, and on a machine without the buckets command the hooks do nothing: keep `buckets check` in CI.',
     });
   }
   return steps;
 }
 
-function removeIfEmpty(dir: string): void {
-  try {
-    if (existsSync(dir) && readdirSync(dir).length === 0) rmdirSync(dir);
-  } catch {
-    // A folder that cannot be listed or removed stays.
-  }
-}
-
 function uninstall(projectDir: string): InstallStep[] {
-  const steps = uninstallHookFile(projectDir, GOOSE_HOOKS).filter((step) => step.status !== 'kept');
-  const manifest = path.join(projectDir, GOOSE_MANIFEST);
-  const hooksFile = path.join(projectDir, GOOSE_HOOKS_FILE);
+  const steps = uninstallHooks(projectDir, gooseHooks());
   try {
-    // The manifest goes with the plugin, unless the user keeps other hooks in it.
-    if (existsSync(manifest) && !existsSync(hooksFile) && JSON.parse(readFileSync(manifest, 'utf8')).name === MANIFEST.name) {
-      rmSync(manifest, { force: true });
+    // The manifest goes with the plugin, unless the user keeps other hooks next to it.
+    const manifest = path.join(projectDir, GOOSE_MANIFEST);
+    if (existsSync(manifest) && !existsSync(path.join(projectDir, GOOSE_HOOKS_FILE)) && JSON.parse(readFileSync(manifest, 'utf8')).name === MANIFEST.name) {
+      removeProjectFile(projectDir, GOOSE_MANIFEST);
       steps.push({ status: 'done', text: `Removed the Goose plugin manifest ${GOOSE_MANIFEST}` });
     }
-  } catch {
-    // A manifest that cannot be read stays.
+  } catch (error) {
+    steps.push({ status: 'failed', text: `Could not remove ${GOOSE_MANIFEST}: ${message(error)}` });
   }
-  removeIfEmpty(path.dirname(hooksFile));
-  removeIfEmpty(path.join(projectDir, GOOSE_PLUGIN_DIR));
+  removeEmptyFolders(projectDir, path.dirname(path.join(projectDir, GOOSE_HOOKS_FILE)));
   return steps;
 }
 
-export const gooseAdapter: HookAdapter = {
+export const gooseAdapter = defineAdapter({
   name: AGENT,
   title: TITLE,
   markers: ['.goosehints', GOOSE_PLUGIN_DIR],
-  events: GOOSE_EVENTS,
-  run: (ctx, io, event) => runHook(ctx, io, event, config),
+  handlers: { 'pre-tool-use': preToolUse, stop },
   install,
   uninstall,
-};
+});

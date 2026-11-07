@@ -1,6 +1,6 @@
 ---
 title: Getting started
-description: Install the buckets CLI, set up a TypeScript project and approve its first state.
+description: Install the buckets CLI, run init, and let an AI agent build the first architecture of the project.
 ---
 
 # Getting started
@@ -8,25 +8,30 @@ description: Install the buckets CLI, set up a TypeScript project and approve it
 ## Requirements
 
 - Node.js 20 or newer.
-- A TypeScript project with a `tsconfig.json` and the `typescript` package in its `node_modules`. The TypeScript adapter loads the compiler from the project, not from the CLI.
+- A TypeScript or JavaScript project with a `tsconfig.json` in its folder. A JavaScript project needs one too, because slopbuckets does not read `jsconfig.json`. It does not need `allowJs`.
+- The `typescript` package is optional. When the project has TypeScript 5 or 6, the TypeScript adapter resolves imports with it, so `paths` and workspaces work as they do in your build. With TypeScript 7, which has no JavaScript API, or with no `typescript` at all, the adapter uses the TypeScript 6 that slopbuckets installs with itself and reads the same `tsconfig.json`.
 
 ## Install
+
+Install the CLI globally:
 
 ```sh
 npm install -g slopbuckets
 ```
 
-The package is `slopbuckets` and the command is `buckets`. The CLI is a global install because it is meant to support more languages than TypeScript. Each project pins the CLI version in its lock, so a global install does not drift between projects: `buckets check` refuses to run with a version that differs from the lock.
+Or add it to the project, which pins the version for every teammate and for CI:
 
-Check the install:
+```sh
+npm install --save-dev slopbuckets
+```
+
+The package is `slopbuckets` and the command is `buckets`. With a project install, run it as `npx buckets`. Check the install:
 
 ```sh
 buckets --version
 ```
 
 It prints the CLI version and the adapter version with its protocol number.
-
-A coding agent can also do the install and the setup below, and then ask you to approve the first state. See [Install with an AI agent](./install-with-an-agent) for the prompt to paste.
 
 ## Set up a project
 
@@ -37,66 +42,73 @@ cd your-project
 buckets init
 ```
 
-It asks 2 questions. Press Enter to keep the default in brackets:
+It asks nothing about the project. It:
 
-| Question | Default | Config field |
-|---|---|---|
-| Root bucket folder | `root` | `root` |
-| Import alias for internal imports (unique, so other projects can link this one) | `@<root folder>-` and 8 random characters, such as `@root-k3x9pm2a` | `alias` |
+1. writes an empty `buckets.config.json`, or keeps the existing one:
 
-The alias is the prefix of every internal import, such as `import { logger } from '@root-k3x9pm2a/dmz/log/.self'`. `init` generates a new one for each project from lowercase letters and digits, without `0`, `o`, `1`, `l` and `i`, which are easy to confuse. So two projects that later [link each other](./projects-and-links#links) never share an alias. Keep the generated one unless you have a reason to pick your own. Projects set up with older versions use `@root`, which keeps working.
+   ```json
+   {
+     "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+     "version": "2.0",
+     "ignore": [],
+     "projects": [],
+     "buckets": {}
+   }
+   ```
 
-`init` also writes `"layout": {"default": "deny", "allow": ["<root>/*/*"]}`, so buckets may go two levels below the root bucket, such as `root/billing/invoices`. A human changes that limit in the file. See [Layout](./concepts#layout).
+2. adds `.buckets/` to `.gitignore`. That folder holds the analysis cache and the memory of each agent session.
+3. installs the hooks of your coding agent. By default that is Claude Code, which gets its hooks in `.claude/settings.json` and the skill in `.claude/skills/slopbuckets/SKILL.md`.
+4. writes a short block in `AGENTS.md`: the architecture is in `buckets.config.json`, the hooks warn when the code diverges, both fixes are valid, and agents run `buckets check` before they finish unless a slopbuckets stop hook runs it. It also copies the skill to `.agents/skills/slopbuckets/SKILL.md`, which Codex, Cursor, GitHub Copilot, OpenCode, Pi and Amp read.
+5. sets up the merge driver: `.gitattributes` gets the line `buckets.config.json merge=slopbuckets`, and the git config of the clone gets the command, so two branches that each add a bucket or a dependency merge without a conflict. See [buckets merge-driver](./commands#buckets-merge-driver).
 
-`buckets init --yes` takes the defaults without asking. Without `--yes`, `init` needs an interactive terminal when the project has no `buckets.config.json` yet.
+The hooks run slopbuckets the way `init` ran. After a global install they call `buckets hook ...`. When you run the `init` of a project install, as `npx buckets init`, they call `node ./node_modules/slopbuckets/dist/index.js hook ...`, so they need nothing on the PATH. For an agent that names its project folder in a variable and runs hooks in a POSIX shell, such as Claude Code with `$CLAUDE_PROJECT_DIR`, the command names the copy by that variable, so it works after the agent moves to another folder. A project with its own copy keeps the hooks on it, even when a global `buckets init` runs there later.
 
-Then it:
+To set up another agent, pass `--agent`. `buckets init --agent codex,cursor` names them, and `buckets init --agent auto` sets up every agent whose folder or file is already in the project, such as `.claude`, `.codex`, `.cursor` or `GEMINI.md`. [Supported agents](./agents/) lists what each agent supports. Add `--git-hook` to also install a git pre-commit hook that runs `buckets check`, whoever makes the commit. It runs before any hook already there, which then runs unchanged.
 
-1. writes `buckets.config.json`, or keeps the existing one when it is valid
-2. creates the root bucket folder with its `_/` folder, such as `root/_/`
-3. asks the adapter to set up the project. The TypeScript adapter adds the alias to `compilerOptions.paths` in `tsconfig.json`, turns on `noUnusedLocals`, and adjusts `nest-cli.json` and the Jest config in `package.json` when they exist
-4. installs the hooks of your coding agent. By default that is Claude Code: it merges the 4 [Claude Code hooks](./claude-code) into `.claude/settings.json` and copies the skill to `.claude/skills/slopbuckets/SKILL.md`
-5. writes the slopbuckets rules in a block of `AGENTS.md` and copies the skill to `.agents/skills/slopbuckets/SKILL.md`, which most other agents read
+`init` ends with warnings for what it cannot fix itself: no `tsconfig.json`, a hook command that is not on the PATH, a TypeScript version it cannot use, and a folder below the top of the git repository. In that last case, a session opened at the top of the repository does not read the hooks of this folder, and `buckets init --root` installs them at the top too. [Commands](./commands#buckets-init) lists each warning. `buckets doctor` checks the same things at any time.
 
-To set up another agent, pass `--agent`. `buckets init --agent auto` installs the hooks of every agent whose folder or file is already in the project, such as `.claude`, `.codex` or `.cursor`. `buckets init --agent codex,cursor` names them. [Supported agents](./agents/) lists every agent and what its hooks enforce. Add `--git-hook` to also install a git pre-commit hook that runs `buckets check`, whatever agent or human makes the commit.
+Running `buckets init` again changes only what differs from the current version, and never overwrites an existing `buckets.config.json`. Each clone runs it once, because git does not commit the merge driver setting of the git config.
 
-Running `buckets init` again changes nothing that is already set up. Inside a bucket's `_/` folder of another project, `buckets init` creates a [nested project](./projects-and-links#nested-projects) instead, with its own alias and lock, keeps the new folder out of the build of the enclosing project, and skips the hooks and the skill. A nested project needs its own `tsconfig.json`.
+## Let the agent build the first architecture
 
-## Approve the first state
-
-`buckets init` never writes the lock. Before the first approval, `buckets check` exits with code 2 and reports `lock-missing`:
+Right after `init`, no file has a bucket, so `buckets check` reports one item with the folders of the project and their file counts:
 
 ```text
-Lock differences
-  Only a human approves these, with `buckets refresh` or `buckets refresh --web`.
-  + lock-missing  buckets.lock.json
-    buckets.lock.json does not exist yet, so no state has been approved. A human must run `buckets refresh` to create it.
+buckets check: 1 structure violation. Fix the code or edit buckets.config.json. Either is valid.
 
-buckets check: 1 lock difference.
-Exit code 2: the rules pass, but the state differs from buckets.lock.json. ...
+buckets.config.json: no buckets yet, 9 files are in no bucket
+  src/app/** (1 file)
+  src/billing/** (3 files)
+  src/log/** (2 files)
+  src/payments/** (3 files)
+  fix config: design the first architecture as the SKILL section "The first architecture after buckets init" says: read what each folder does, put tests, scripts and generated files in ignore, and give each domain its own bucket
 ```
 
-Approve the first state in your own terminal:
+You do not write the config by hand. Paste the prompt that `init` prints into your agent. After a project install, it names `npx buckets check` instead:
 
-```sh
-buckets refresh
+```text
+slopbuckets is set up in this project. Build its first architecture as the section "The first architecture after buckets init" of .agents/skills/slopbuckets/SKILL.md says, and run `buckets check` until it exits with 0.
 ```
 
-With no lock yet, it shows the state it is about to approve: the CLI and adapter versions, every bucket and every DMZ file with its symbols. Answer `y` to write `buckets.lock.json`, and commit it with the rest of the project.
+The agent reads the skill and the code, splits the code into buckets with a purpose each, picks or creates the public files of each bucket, declares each dependency and each external package with a one-line reason, and puts tests and scripts in `ignore`. In an existing project, `buckets fix import-private` rewrites the imports of private files to go through the public files, which saves the agent most of the editing. [Install with an AI agent](./install-with-an-agent) describes every step.
 
-From then on, when an agent changes a contract, it asks you with `buckets refresh --web`: you get a link to a review page, read the changes, and type the confirmation code from the page into a window of your operating system. You can always run `buckets refresh` in a terminal instead. [The approval flow](./approval) shows both.
+Read the result before you commit it. Two shapes pass every rule and say nothing useful: one bucket with `src/**`, and a `shared` bucket that every other bucket depends on. [What the check guarantees](./guarantees) explains why.
 
-## Move code into buckets
+## Commit
 
-Your code goes in `root/_/` at first. When a part of the project should be sealed, make it a bucket: create a folder next to `_/`, give it its own `_/`, and move the code there. The new bucket is a lock difference (`bucket-added`), so a human approves it with `buckets refresh`. Read [Concepts](./concepts) for the folder rules and how buckets talk to each other.
+Commit `buckets.config.json`, `AGENTS.md`, `.agents/`, `.gitignore`, `.gitattributes` and the files `init` wrote for your agent, such as `.claude/`. From then on, the hooks keep the code and the config in step, and the git history of `buckets.config.json` is the history of the architecture.
 
 ## Look at the result
 
-`buckets inspect` opens a read-only page with the map of the buckets, the contracts between them and anything that needs attention. It never writes to the project. See [Inspect](./inspect).
+`buckets inspect` opens a read-only page with the bucket graph, the dependency matrix, the pending violations and the file tree. See [Inspect](./inspect).
+
+## Coming from 1.x
+
+There is no migration tool. `buckets init` refuses a 1.x config, which has `root`, `alias`, `layout` or `access`, says so, and writes nothing. Rename the old config, for example to `buckets.config.1x.json`, delete `buckets.lock.json` and `buckets.links.json`, and run `buckets init` again. It replaces the older hooks it recognizes, and [Supported agents](./agents/#upgrading-from-slopbuckets-1-x) lists the agents that need a step by hand. Then let an agent write the new config.
 
 ## Next steps
 
-- [Concepts](./concepts): buckets, the DMZ and the lock.
-- [Who runs which command](./commands): `buckets check`, `buckets refresh --web`, `buckets refresh` and the exit codes.
-- [Projects and links](./projects-and-links): several projects, and sharing code between them with links.
+- [Concepts](./concepts): buckets, `public`, `dependsOn`, `packages`, `ignore` and the rules.
+- [Hooks](./hooks): what the agent sees, and when.
+- [Commands](./commands): every command, with examples.
 - [CLI reference](../reference/cli): every command and option.

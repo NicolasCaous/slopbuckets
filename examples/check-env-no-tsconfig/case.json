@@ -1,0 +1,19 @@
+{
+  "description": "without tsconfig.json the check exits with 3 (no-tsconfig)",
+  "delete": [
+    "tsconfig.json"
+  ],
+  "expect": {
+    "exitCode": 3,
+    "violations": [],
+    "stdoutJson": {
+      "exitCode": 3,
+      "environment": [
+        {
+          "code": "no-tsconfig",
+          "project": "."
+        }
+      ]
+    }
+  }
+}

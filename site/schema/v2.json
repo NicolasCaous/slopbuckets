@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "title": "slopbuckets config v2",
+  "description": "buckets.config.json holds the architecture of the project: the buckets, the purpose of each one, which bucket depends on which bucket and on which external package, and why. AI agents read and edit this file. The slopbuckets hooks compare the code with it and report every difference, and both fixing the code and editing this file are valid answers. Every path and glob is relative to the folder of this file and uses / as separator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "buckets"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this JSON Schema, for editor autocomplete. It has no effect on the check."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "description": "Version of the config format, \"2.0\" for slopbuckets 2.0. Keep the value that buckets init wrote. A slopbuckets that reads an older format does not check a newer config: it says which slopbuckets version the config needs and to run buckets update, and its hooks never deny an edit because of it.",
+      "examples": ["2.0"]
+    },
+    "ignore": {
+      "type": "array",
+      "description": "Globs of files that are outside the architecture, such as tests, scripts and tool configs. An ignored file may import any file. A file of a bucket that imports an ignored file is reported by import-ignored. The check removes ignored files before it matches bucket globs, so a file in ignore is ignored even when a bucket's files also match it. A leading ! takes matching files back out of ignore. A glob that matches no file is reported by glob-empty. Product code does not belong here: an ignored file is outside every rule.",
+      "examples": [["**/*.test.ts", "scripts/**"]],
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\r\\n]+$",
+        "description": "A glob such as \"**/*.test.ts\" or \"scripts/**\"."
+      }
+    },
+    "projects": {
+      "type": "array",
+      "description": "Folders of nested projects. Each folder has its own buckets.config.json, and its files are left out of this project. List every nested project here: a buckets.config.json found in a folder that is not listed is reported by project-undeclared, and a listed folder without buckets.config.json is reported by glob-empty.",
+      "examples": [["packages/sdk"]],
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^*?\\[\\]{}!\\r\\n]+$",
+        "description": "Path of one folder, such as \"packages/sdk\", without glob characters."
+      }
+    },
+    "buckets": {
+      "type": "object",
+      "description": "The buckets of the project, keyed by name. Every file that ignore does not match must belong to exactly one bucket. A file in no bucket is reported by file-unowned, and a file in two or more buckets by file-overlap. Write {} right after init. To rename a bucket, rename its key and every dependsOn entry that names it in the same edit.",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$",
+        "description": "Bucket name: lowercase letters, digits and -, starting with a letter, such as \"billing\" or \"payment-gateway\"."
+      },
+      "additionalProperties": { "$ref": "#/$defs/bucket" }
+    }
+  },
+  "$defs": {
+    "line": {
+      "type": "string",
+      "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$"
+    },
+    "publicPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^*?\\[\\]{}!\\r\\n]+$",
+      "description": "Path of one file of this bucket, without glob characters, such as \"src/billing/index.ts\"."
+    },
+    "bucket": {
+      "type": "object",
+      "description": "One bucket: a set of files with one purpose, its public files, and the declared lists of the buckets and external packages it uses.",
+      "additionalProperties": false,
+      "required": ["purpose", "files", "public", "dependsOn", "packages"],
+      "properties": {
+        "purpose": {
+          "$ref": "#/$defs/line",
+          "description": "One line that says what the bucket does, written for the next agent that decides where code goes. Name the job, not the bucket again. A purpose under three words gets reason-generic advice.",
+          "examples": ["Issues and charges invoices"]
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Globs of the files that belong to the bucket. A leading ! excludes files that an earlier glob matched. Two buckets must not match the same file. A glob that matches no file is reported by glob-empty.",
+          "examples": [["src/billing/**", "!src/billing/stripe/**"]],
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\r\\n]+$",
+            "description": "A glob such as \"src/billing/**\", or an exclusion such as \"!src/billing/stripe/**\"."
+          }
+        },
+        "public": {
+          "description": "The files of this bucket that other buckets may import: one path, a list of paths, or null. Each public file holds only named re-exports of files of this bucket, such as export { charge } from './client' or export type { Invoice } from './types', so together they are the interface of the bucket and nothing else. Use a list when the bucket has separate entries, such as a server and a client entry. An import of any other file of the bucket is reported by import-private. null declares that the bucket exports nothing, as an app entry point or the routes of a framework.",
+          "examples": ["src/billing/index.ts", ["src/user/index.ts", "src/user/server.ts"], null],
+          "oneOf": [
+            { "$ref": "#/$defs/publicPath" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/publicPath" }
+            },
+            { "type": "null" }
+          ]
+        },
+        "dependsOn": {
+          "type": "object",
+          "description": "Buckets this bucket may import, each with a one-line reason. Write {} when the bucket depends on nothing. An import of a bucket that is not listed is reported by dependency-undeclared, a listed bucket that is never imported by dependency-unused, and a cycle by config-cycle. Every key must be the name of a bucket of this config. There is no wildcard: a log bucket used by 50 buckets needs 50 entries.",
+          "examples": [{ "payments": "Charges go through the gateway", "log": "Logs failed charges with the invoice id" }],
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/line",
+            "description": "One line that says what this bucket takes from the other one and why. A reason under three words, or one that only names the bucket with a verb such as uses or needs, gets reason-generic advice."
+          }
+        },
+        "packages": {
+          "type": "object",
+          "description": "Every external module the files of this bucket import, npm packages and Node built-ins, each with a one-line reason. Write {} when the bucket imports none. Type-only imports count. An import of a package that is not listed is reported by package-undeclared, and a listed package that no file of the bucket imports by package-unused. Ignored files need no declaration.",
+          "examples": [{ "zod": "Validates the invoice payloads of the public API", "node:fs": "Writes invoice PDFs to the export folder" }],
+          "propertyNames": {
+            "pattern": "^(node:[a-z0-9_]+|(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9._~][a-z0-9._~-]*)$",
+            "description": "A package name without a subpath, such as \"lodash\" or \"@scope/pkg\" (an import of lodash/merge is the key lodash), or a Node built-in with the node: prefix, such as \"node:fs\" (an import of fs or fs/promises is the key node:fs)."
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/line",
+            "description": "One line that says what this bucket uses the package for."
+          }
+        },
+        "external": {
+          "$ref": "#/$defs/line",
+          "description": "Optional. One line that says which code outside the project uses the public files, such as the entry of an npm package. With it, export-unused skips this bucket, because its consumers are not in the project.",
+          "examples": ["Entry point of the npm package"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "description": "an ignored file may import ignored files and public files",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "description": "an import of a folder whose index.ts is private gives import-private for that index.ts",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-private",
+        "file": "src/app/main.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-private",
+          "imports": [
+            {
+              "target": "src/billing/internal/index.ts"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

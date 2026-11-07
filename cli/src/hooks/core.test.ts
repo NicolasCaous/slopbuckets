@@ -1,656 +1,351 @@
-// The harness-neutral hook core, called directly: every deny and allow form of the Claude Code hook, without Claude's
-// payload, plus the post-edit and stop reports.
+// The hook core against the fake engine: the pending list across calls of one session, the stop block, post-compact,
+// subagents, the config-invalid deny and the fail-open rule.
+import { existsSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { linkSync, rmSync, symlinkSync } from 'node:fs';
-import type { AnalyzeResponse } from '@slopbuckets/adapter-ts';
-import { afterEach, describe, expect, it } from 'vitest';
-import type { Context } from '../core/types.js';
-import { cleanupProjects, LOGGER_PROJECT, makeProject } from '../testing/fixture.js';
-import { approve, testContext } from '../testing/harness.js';
-import { COMPLEX_DENY_REASON, CONFIG_DENY_REASON, LOCK_DENY_REASON, postEdit, preTool, stop, STOP_INTRO, UPDATE_DENY_REASON, type ToolAction } from './core.js';
-import { readSessionProjects, sessionStateFile } from './session.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RuleEngine } from '../contract/engine.js';
+import type { HookDecision, HookInput, HookPhase } from '../contract/hooks.js';
+import { adviceHeader, renderAdvice, renderAdviceNote, renderEnvironment, renderInterrupt, renderPending, renderStop } from '../contract/messages.js';
+import type { Violation } from '../contract/violation.js';
+import { createFakeEngine, type FakeEngineScript } from '../testing/fake-engine.js';
+import { cleanupProjects, makeProject } from '../testing/fixture.js';
+import { ADVICE_SAMPLES, SAMPLES } from '../testing/samples.js';
+import { hookCore, SHELL_NOTE } from './core.js';
+import { loadSession, sessionRef } from './session.js';
 
-const stateFiles: string[] = [];
-afterEach(() => {
-  for (const file of stateFiles.splice(0)) rmSync(file, { force: true });
-  cleanupProjects();
-});
+afterEach(cleanupProjects);
 
-function newSession(): string {
-  const id = randomUUID();
-  stateFiles.push(sessionStateFile(id)!);
-  return id;
+const A = SAMPLES['import-private'];
+const B = SAMPLES['file-unowned'];
+const BAD = SAMPLES['config-invalid'];
+const BAD2: Violation = { rule: 'config-invalid', project: '.', problem: { kind: 'missing', at: ['buckets', 'billing'], field: 'purpose' } };
+
+function setup(script: FakeEngineScript = {}) {
+  const root = makeProject({});
+  const engine = createFakeEngine(script);
+  const call = (phase: HookPhase, extra: Partial<HookInput> = {}): Promise<HookDecision> =>
+    hookCore({ phase, sessionId: 's1', agentId: null, cwd: root, root, toolName: null, edits: [], isShell: false, stopHookActive: false, ...extra }, engine);
+  const edit = (file: string, extra: Partial<HookInput> = {}) => call('pre-edit', { toolName: 'Write', edits: [{ path: path.join(root, file), content: 'x' }], ...extra });
+  const read = (extra: Partial<HookInput> = {}) => call('pre-tool', { toolName: 'Read', ...extra });
+  return { root, engine, call, edit, read };
 }
 
-const NOWHERE = path.join(path.sep, 'nowhere', 'at', 'all');
-const DENY = { decision: 'deny', reason: LOCK_DENY_REASON };
-const CONFIG_DENY = { decision: 'deny', reason: CONFIG_DENY_REASON };
-const UPDATE_DENY = { decision: 'deny', reason: UPDATE_DENY_REASON };
-const ALLOW = { decision: 'allow' };
-const shell = (command: string): ToolAction => ({ kind: 'shell', command });
-const write = (...paths: string[]): ToolAction => ({ kind: 'write', paths });
+const context = (fresh: Violation[], old: Violation[] = [], resolved: Violation[] = []): HookDecision => ({ kind: 'context', text: renderPending({ fresh, old, resolved }) });
+const SILENT = { kind: 'silent' };
 
-describe('preTool: shell commands', () => {
-  it.each([
-    'buckets check',
-    'ls',
-    'buckets refresh --web',
-    'npx slopbuckets refresh --web',
-    'npx slopbuckets@0.1.0 refresh --web',
-    'cd /repo && buckets refresh --web',
-    'buckets refresh --web 2>&1',
-    'buckets refresh --web &',
-    'buckets refresh --web; echo done',
-    'buckets   refresh\t--web',
-    'buckets refresh "--web"',
-    'buckets check && buckets refresh --web',
-    'buckets refresh --web > out.txt',
-    'buckets refresh --web > refresh.log 2>&1 &',
-    'buckets refresh --web >refresh.log 2>&1 &',
-    'buckets refresh --web>refresh.log',
-    'buckets refresh --web >> refresh.log 2>> errors.log',
-    'buckets refresh --web &> refresh.log &',
-    'buckets refresh --web &>> refresh.log',
-    'buckets refresh --web >| refresh.log',
-    'buckets refresh --web >& refresh.log',
-    'buckets refresh --web 2>&1 | tee refresh.log',
-    'buckets refresh --web 2>&1 | tee -a refresh.log &',
-    'buckets refresh --web > /dev/null 2>&1 &',
-    'buckets refresh --web 1>&2',
-    'buckets refresh --web 2>&-',
-    'nohup buckets refresh --web > refresh.log 2>&1 &',
-    'nohup npx slopbuckets refresh --web &',
-    '(buckets refresh --web > refresh.log 2>&1 &)',
-    'cd /repo && nohup buckets refresh --web > "logs/refresh.log" 2>&1 &',
-    String.raw`buckets refresh --web > C:\temp\refresh.log 2>&1`,
-    'npx slopbuckets refresh --web 2>&1 > .buckets/refresh.log & echo started',
-    'buckets refresh --web; buckets check > check.log',
-    'buckets refresh --web *>&1',
-    'buckets refresh --web *> refresh.log',
-    'buckets refresh --web 2>$null',
-    'buckets refresh --web > $null',
-    'buckets refresh --web *>&1 | Out-File refresh.log',
-    'buckets refresh --web 3>&1 2>&1 > refresh.log',
-    '& buckets refresh --web *> refresh.log',
-    "& 'npx' slopbuckets refresh --web *>&1 &",
-    'buckets.cmd refresh --web',
-    'node cli/dist/index.js refresh --web',
-    'npm exec slopbuckets -- refresh --web',
-    'pnpm dlx slopbuckets refresh --web',
-    'node scripts/build.js',
-    'npx vitest run refresh-web',
-    'npm test -- refresh',
-    'ls *',
-    'cat *.json',
-    'prettier --write "**/*.ts"',
-    'git show bugfix~1',
-    'ls src/[a-z]*.ts',
-    'cat package.json',
-  ])('allows %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
+describe('the pending list', () => {
+  it('shows a new violation in full, then as a reminder, then once as resolved, then nothing', async () => {
+    const { edit, read } = setup({ edits: { 'src/a.ts': [A], 'src/fix.ts': [] } });
+    expect(await edit('src/a.ts')).toEqual(context([A]));
+    expect(await read()).toEqual(context([], [A]));
+    expect(await edit('src/fix.ts')).toEqual(context([], [], [A]));
+    expect(await read()).toEqual(SILENT);
   });
 
-  it.each([
-    'buckets refresh',
-    'buckets  refresh',
-    'buckets refresh --webx',
-    'buckets refresh --web-ui',
-    'buckets refresh --WEB',
-    'buckets refresh --web --yes',
-    'buckets refresh --yes --web',
-    'buckets refresh -- --web',
-    'buckets refresh --web; buckets refresh',
-    'buckets refresh --web && buckets refresh',
-    'buckets refresh --web || buckets refresh',
-    'buckets refresh --web | buckets refresh',
-    'buckets refresh --web & buckets refresh',
-    'buckets refresh --web\nbuckets refresh',
-    'buckets refresh --web $(buckets refresh)',
-    'buckets refresh --web`buckets refresh`',
-    'buckets refresh --web#',
-    'echo y | buckets refresh',
-    'npx slopbuckets refresh',
-    'npx slopbuckets@latest refresh',
-    'npx slopbuckets@0.1.0 refresh --webx',
-    'Buckets Refresh',
-    '"buckets" refresh',
-    "buckets 'refresh'",
-    String.raw`b\uckets refresh`,
-    'b^uckets refresh',
-    'buckets refreshx --web',
-    'buckets refresh --web buckets.lock.json',
-    'cat buckets.lock.json',
-    'Get-Content buckets.lock.json',
-    'buckets refresh --web > buckets.lock.json',
-    'buckets refresh --web >> ./buckets.lock.json',
-    'buckets refresh --web 2> buckets.lock.json',
-    'buckets refresh --web *> buckets.lock.json',
-    'buckets refresh --web > BUCKET~1.JSO',
-    'buckets refresh --web > bucket*',
-    'buckets refresh --web 2>&1 | tee buckets.lock.json',
-    'buckets refresh --web > out.txt --yes',
-    'buckets refresh --web 2>&1 --yes',
-    'buckets refresh --web > out.txt extra',
-    'buckets refresh --web >',
-    'buckets refresh --web > out.txt 2>',
-    'buckets refresh --web2>&1',
-    'buckets refresh --web*>&1',
-    'buckets refresh --web < answers.txt',
-    'buckets refresh --web 0< answers.txt',
-    'buckets refresh --web <<< y',
-    'buckets refresh --web > $(buckets refresh)',
-    'buckets refresh --web > `buckets refresh`',
-    'buckets refresh --web > out.txt; buckets refresh',
-    'buckets refresh --web > out.txt 2>&1 & buckets refresh',
-    'nohup buckets refresh > refresh.log 2>&1 &',
-    'nohup buckets refresh --yes > refresh.log &',
-    'buckets refresh > out.txt --web',
-    'buckets refresh 2>&1 --web',
-    'cat bucket*',
-    'cat buckets.lock.js?n',
-    'rm ./*.lock.json',
-    'cp x b[u]ckets.lock.json',
-    'echo {} > bucket[s].lock.json',
-    'cat bucket{s,}.lock.json',
-    'Get-Content .\\buckets.*.json',
-    'Set-Content -Path buckets.lock.js* -Value x',
-    'type BUCKET~1.JSO',
-    'copy x C:\\p\\BU3F2A~1.JSO',
-    'type BUCKET~?.JSO',
-    'cat "buckets".lock.json',
-    'cat b"ucke"ts.lock.json',
-    'cat b^uckets.lock.json',
-    'cat b\\uckets.lock.json',
-    'buckets.cmd refresh',
-    'buckets.CMD refresh --yes',
-    'buckets.ps1 refresh',
-    'slopbuckets.cmd refresh',
-    String.raw`node C:\src\slopbuckets\cli\dist\index.js refresh`,
-    'node C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\slopbuckets\\dist\\index.js refresh',
-    'node "./node_modules/slopbuckets/dist/index.js" refresh --webx',
-    'npx tsx ../slopbuckets/cli/src/cli.ts refresh',
-    'npm exec slopbuckets -- refresh',
-    'npm exec --yes slopbuckets -- refresh',
-    'npm exec --package=slopbuckets -- buckets refresh',
-    'npx --prefix /tmp/x slopbuckets refresh',
-    'npx slopbuckets --cwd /repo refresh',
-    'pnpm dlx slopbuckets refresh',
-  ])('denies %j inside and outside a project', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(DENY);
-    const dir = makeProject(LOGGER_PROJECT);
-    expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(DENY);
+  it('is silent with nothing pending, without asking the engine', async () => {
+    const { read, engine } = setup();
+    expect(await read()).toEqual(SILENT);
+    expect(engine.calls).toEqual([]);
   });
 
-  it('allows anything that is neither a write nor a shell command', () => {
-    expect(preTool({ cwd: NOWHERE, action: { kind: 'other' } })).toEqual(ALLOW);
-  });
-});
-
-describe('preTool: file writes', () => {
-  it.each([
-    '/p/buckets.lock.json',
-    'C:\\p\\buckets.lock.json',
-    'buckets.lock.json',
-    'C:\\p\\buckets.lock.json::$DATA',
-    'buckets.lock.json:$DATA',
-    '/p/buckets.lock.json.',
-    '/p/buckets.lock.json ',
-    'C:\\p\\BUCKETS.LOCK.JSON. ',
-  ])('denies a write to %j inside a project', (file) => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write(file) })).toEqual(DENY);
+  it('drops a violation that a shell command fixed, on the next tool call', async () => {
+    const { edit, read, engine } = setup({ edits: { 'src/a.ts': [A, B] } });
+    await edit('src/a.ts');
+    engine.set([B]);
+    expect(await read()).toEqual(context([], [B], [A]));
   });
 
-  it('denies when any path of a multi-file write is a lock, and allows other files', () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts', 'buckets.lock.json') })).toEqual(DENY);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts', 'buckets.config.json') })).toEqual(CONFIG_DENY);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write('root/_/main.ts') })).toEqual(ALLOW);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write() })).toEqual(ALLOW);
+  it('says under the header that the list may be partial after a shell command, until the stop checks every file', async () => {
+    const { edit, read, call, engine } = setup({ edits: { 'src/a.ts': [A, B] } });
+    await edit('src/a.ts');
+    // The shell call itself shows the list as it was before the command runs.
+    expect(await read({ toolName: 'Bash', isShell: true })).toEqual(context([], [A, B]));
+    engine.set([B]);
+    const partial = (d: HookDecision) => (d.kind === 'context' ? d.text.replace(/\n|$/, (end) => `\n${SHELL_NOTE}${end}`) : '');
+    expect(await read()).toEqual({ kind: 'context', text: partial(context([], [B], [A])) });
+    expect(await edit('src/a.ts')).toMatchObject({ kind: 'context', text: expect.stringContaining(SHELL_NOTE) });
+    await call('stop');
+    const after = await read();
+    expect(after.kind).toBe('context');
+    expect(after.kind === 'context' && after.text).not.toContain(SHELL_NOTE);
   });
 
-  it('finds the session project from projectDir, walking up, and resolves relative paths from cwd', () => {
-    const dir = makeProject(LOGGER_PROJECT);
+  it('treats an edit with unknown content as a tool call that changes files', async () => {
+    const { call, engine } = setup();
+    expect(await call('pre-edit', { toolName: 'NotebookEdit', edits: [{ path: 'a.ipynb' }] })).toEqual(SILENT);
+    expect(engine.calls).toEqual([]);
+    engine.set([A]);
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A]) });
+  });
+
+  it('shows every pending violation in full again after a compaction', async () => {
+    const { edit, read, call } = setup({ edits: { 'src/a.ts': [A, B] } });
+    await edit('src/a.ts');
+    expect(await read()).toEqual(context([], [A, B]));
+    expect(await call('post-compact')).toEqual(SILENT);
+    expect(await read()).toEqual(context([A, B]));
+    expect(await read()).toEqual(context([], [A, B]));
+  });
+
+  it('keeps a separate list for a subagent, and the main session checks at its stop', async () => {
+    const { edit, read, call } = setup({ edits: { 'src/a.ts': [A] } });
+    expect(await edit('src/a.ts', { agentId: 'sub1' })).toEqual(context([A]));
+    expect(await read()).toEqual(SILENT);
+    expect(await read({ agentId: 'sub1' })).toEqual(context([], [A]));
+    expect(await call('subagent-stop', { agentId: 'sub1' })).toEqual({ kind: 'block', text: renderStop([A]) });
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A]) });
+  });
+
+  it('without a session id, shows everything in full every time and writes no state', async () => {
+    const { root, edit, call } = setup({ edits: { 'src/a.ts': [A] } });
+    expect(await edit('src/a.ts', { sessionId: null })).toEqual(context([A]));
+    expect(await edit('src/a.ts', { sessionId: null })).toEqual(context([A]));
+    expect(await call('stop', { sessionId: null })).toEqual({ kind: 'block', text: renderStop([A]) });
+    expect(await call('stop', { sessionId: null, stopHookActive: true })).toEqual(SILENT);
+    expect(existsSync(path.join(root, '.buckets'))).toBe(false);
+  });
+
+  it('keeps no memory for a session id that could leave the sessions folder', async () => {
+    const { root, edit } = setup({ edits: { 'src/a.ts': [A] } });
+    expect(await edit('src/a.ts', { sessionId: '../x' })).toEqual(context([A]));
+    expect(await edit('src/a.ts', { sessionId: '../x' })).toEqual(context([A]));
+    expect(existsSync(path.join(root, '.buckets'))).toBe(false);
+  });
+
+  it('writes no state through a .buckets junction and stays silent', async () => {
+    const { root, edit, read } = setup({ edits: { 'src/fix.ts': [] } });
     const outside = makeProject({}, false);
-    expect(preTool({ projectDir: path.join(dir, 'root', 'log'), cwd: outside, action: write('buckets.lock.json') })).toEqual(DENY);
-    // Outside every project, a lock name with no project around it is allowed.
-    expect(preTool({ cwd: outside, action: write('buckets.lock.json') })).toEqual(ALLOW);
-  });
-
-  it('denies hard links and symbolic links of the lock and of a nested lock, by identity', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/log/_/engine/buckets.config.json': '{ "root": "root" }\n', 'root/log/_/engine/root/_/run.ts': 'export const run = 1;\n' });
-    await approve(path.join(dir, 'root/log/_/engine'));
-    await approve(dir);
-    const hard = path.join(dir, 'root', 'log', '_', 'notes.json');
-    linkSync(path.join(dir, 'buckets.lock.json'), hard);
-    const at = (file: string) => preTool({ projectDir: dir, cwd: dir, action: write(file) });
-    expect(at(hard)).toEqual(DENY);
-    expect(at('root/log/_/notes.json')).toEqual(DENY);
-    const nestedHard = path.join(dir, 'root', 'log', '_', 'data.json');
-    linkSync(path.join(dir, 'root/log/_/engine/buckets.lock.json'), nestedHard);
-    expect(at(nestedHard)).toEqual(DENY);
-    expect(at(path.join(dir, 'root/log/_/engine/buckets.lock.json'))).toEqual(DENY);
-    expect(at(path.join(dir, 'root', 'log', '_', 'other.json'))).toEqual(ALLOW);
+    symlinkSync(outside, path.join(root, '.buckets'), 'junction');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
-      const soft = path.join(dir, 'root', 'log', '_', 'soft.json');
-      symlinkSync(path.join(dir, 'buckets.lock.json'), soft, 'file');
-      expect(at(soft)).toEqual(DENY);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+      expect(await edit('src/fix.ts')).toEqual(SILENT);
+      expect(await read()).toEqual(SILENT);
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
     }
-  });
-
-  it('above the projects, denies a lock of a project below the session and a hard link to it, and allows files outside every project', async () => {
-    const parent = makeProject({ 'notes.md': '# notes\n', ...Object.fromEntries(Object.entries(LOGGER_PROJECT).map(([f, c]) => [`a/${f}`, c])), 'a/buckets.config.json': '{ "root": "root" }\n' }, false);
-    const a = path.join(parent, 'a');
-    await approve(a);
-    const session = newSession();
-    const scope = { projectDir: parent, cwd: parent, sessionId: session };
-    expect(preTool({ ...scope, action: write('a/buckets.lock.json') })).toEqual(DENY);
-    expect(preTool({ ...scope, action: write(path.join(a, 'buckets.lock.json.')) })).toEqual(DENY);
-    const hard = path.join(parent, 'copy.json');
-    linkSync(path.join(a, 'buckets.lock.json'), hard);
-    expect(preTool({ ...scope, action: write(hard) })).toEqual(DENY);
-    expect(preTool({ ...scope, action: write('notes.md', 'buckets.lock.json') })).toEqual(ALLOW);
-  });
-
-  it('above the projects, records the project of a shell command, from the action cwd first', () => {
-    const parent = makeProject({ 'a/buckets.config.json': '{ "root": "root" }\n', 'b/buckets.config.json': '{ "root": "root" }\n' }, false);
-    const session = newSession();
-    expect(preTool({ projectDir: parent, cwd: path.join(parent, 'a'), sessionId: session, action: shell('ls') })).toEqual(ALLOW);
-    expect(preTool({ projectDir: parent, cwd: parent, sessionId: session, action: { kind: 'shell', command: 'ls', cwd: 'b' } })).toEqual(ALLOW);
-    expect(readSessionProjects(sessionStateFile(session)!).projects).toEqual([path.join(parent, 'a'), path.join(parent, 'b')]);
-  });
-
-  it('never throws on odd paths', () => {
-    for (const file of ['', ':', '::$DATA', '\0', 'C:', '\\\\?\\', 'a/'.repeat(500)]) {
-      expect(() => preTool({ projectDir: NOWHERE, cwd: NOWHERE, action: write(file) })).not.toThrow();
-    }
+    expect(readdirSync(outside)).toEqual([]);
   });
 });
 
-describe('preTool: buckets.config.json', () => {
-  const NESTED = { ...LOGGER_PROJECT, 'root/log/_/engine/buckets.config.json': '{ "root": "root" }\n', 'root/log/_/engine/root/_/run.ts': 'export const run = 1;\n' };
-
-  it.each([
-    'buckets.config.json',
-    'C:\\p\\buckets.config.json',
-    'buckets.config.json::$DATA',
-    'BUCKETS.CONFIG.JSON. ',
-    'root/log/_/engine/buckets.config.json',
-  ])('denies a write to %j inside a project, root or nested, with the config reason', (file) => {
-    const dir = makeProject(NESTED);
-    expect(preTool({ projectDir: dir, cwd: dir, action: write(file) })).toEqual(CONFIG_DENY);
+describe('pre-edit deny', () => {
+  it('denies an edit that makes the config invalid and leaves the session as it was', async () => {
+    const { root, edit, read } = setup({ edits: { 'src/a.ts': [A], 'buckets.config.json': [BAD, A] } });
+    await edit('src/a.ts');
+    const before = loadSession(sessionRef(root, 's1'));
+    expect(await edit('buckets.config.json')).toEqual({ kind: 'deny', text: renderInterrupt([BAD]) });
+    expect(loadSession(sessionRef(root, 's1'))).toEqual(before);
+    expect(await read()).toEqual(context([], [A]));
   });
 
-  it('denies hard links and symbolic links of the root config and of a nested config, by identity', async () => {
-    const dir = makeProject(NESTED);
-    await approve(path.join(dir, 'root/log/_/engine'));
-    await approve(dir);
-    const at = (file: string) => preTool({ projectDir: dir, cwd: dir, action: write(file) });
-    const hard = path.join(dir, 'root', 'log', '_', 'settings.json');
-    linkSync(path.join(dir, 'buckets.config.json'), hard);
-    expect(at(hard)).toEqual(CONFIG_DENY);
-    const nestedHard = path.join(dir, 'root', 'log', '_', 'engine-settings.json');
-    linkSync(path.join(dir, 'root/log/_/engine/buckets.config.json'), nestedHard);
-    expect(at(nestedHard)).toEqual(CONFIG_DENY);
-    try {
-      const soft = path.join(dir, 'root', 'log', '_', 'soft-config.json');
-      symlinkSync(path.join(dir, 'root/log/_/engine/buckets.config.json'), soft, 'file');
-      expect(at(soft)).toEqual(CONFIG_DENY);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
+  it('after the tool (applied), says the config is now invalid as context and keeps it pending', async () => {
+    const { edit, read, call, engine } = setup({ edits: { 'buckets.config.json': [BAD] } });
+    expect(await edit('buckets.config.json', { applied: true })).toEqual({ kind: 'context', text: renderInterrupt([BAD], { applied: true }) });
+    // The fake engine keeps a config-invalid edit off its disk state; this one landed.
+    engine.set([BAD]);
+    expect(await read()).toEqual(context([], [BAD]));
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([BAD]) });
+  });
+
+  it('lets an edit of another file through when the config on disk is already invalid, and keeps the problem pending', async () => {
+    const { edit, read, engine } = setup({ violations: [BAD] });
+    expect(await edit('src/a.ts')).toEqual(context([BAD]));
+    expect(engine.calls.map((c) => c.method)).toEqual(['checkEdit']);
+    expect(await read()).toEqual(context([], [BAD]));
+  });
+
+  it('lets a config edit through that fixes one of two problems, and denies one that adds a problem', async () => {
+    const { edit, engine } = setup({ violations: [BAD, BAD2], edits: { 'buckets.config.json': [BAD] } });
+    expect(await edit('buckets.config.json')).toEqual(context([BAD]));
+    engine.set([BAD]);
+    const worse = setup({ violations: [BAD], edits: { 'buckets.config.json': [BAD, BAD2] } });
+    expect(await worse.edit('buckets.config.json')).toEqual({ kind: 'deny', text: renderInterrupt([BAD, BAD2]) });
+  });
+
+  it('drops edits of files outside the project before anything else', async () => {
+    const { root, call, engine } = setup({ edits: { 'src/a.ts': [A] } });
+    const outside = path.join(path.dirname(root), 'other', 'a.ts');
+    for (const file of [outside, '\\\\host\\share\\a.ts', '//host/share/a.ts']) {
+      expect(await call('pre-edit', { toolName: 'Write', edits: [{ path: file, content: 'x' }] })).toEqual(SILENT);
     }
-  });
-
-  it.each([
-    'cat buckets.config.json',
-    'sed -i s/deny/allow/ buckets.config.json',
-    'echo {} > root/log/_/engine/buckets.config.json',
-    'Set-Content -Path .\\buckets.config.json -Value x',
-    'cat *.config.json',
-    'cat b"ucke"ts.config.json',
-    'find . -name "*config*"',
-    'ls *.config.*',
-    'rg --files -g "*config*"',
-  ])('denies the shell command %j with the config reason', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(CONFIG_DENY);
-    const dir = makeProject(NESTED);
-    expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(CONFIG_DENY);
-  });
-
-  it.each([
-    'buckets update',
-    'buckets update 1.2.0',
-    'buckets update v1.2.0 --yes',
-    'buckets update --yes',
-    'buckets update -y',
-    'npx slopbuckets update',
-    'npx slopbuckets@latest update --yes',
-    'pnpm exec buckets update',
-    'pnpm dlx slopbuckets update',
-    'yarn buckets update',
-    'bunx slopbuckets update',
-    'npm exec slopbuckets -- update',
-    'node node_modules/slopbuckets/dist/index.js update',
-    'buckets.cmd update --yes',
-    'Buckets Update',
-    '"buckets" update',
-    'echo y | buckets update',
-    'buckets update --check; buckets update',
-    'buckets update --json && buckets update --yes',
-    'buckets update > --check',
-    'buckets update $(echo --check)',
-    'buckets update --checkx',
-    'buckets update --CHECK',
-    'buckets update --yes # --check',
-    'buckets update --yes `--check`',
-    'buckets update --yes <# --check #>',
-    'buckets update --yes "$(echo --check)"',
-    'buckets update (Write-Output --check)',
-    'node $(which buckets) update --yes',
-    'node `which buckets` update --yes',
-    '& (Get-Command buckets).Source update',
-    'bash -c "buckets update --yes"',
-    "pwsh -NoProfile -Command 'buckets update'",
-    'cmd /c buckets update',
-    'eval "buckets update"',
-    'echo "$(buckets update)"',
-    'echo `buckets update`',
-    'FOO=1 buckets update',
-    'sudo -E buckets update',
-    'nohup buckets update &',
-    'echo y | xargs buckets update',
-    'C:\\tools\\buckets.cmd update',
-    './node_modules/.bin/buckets update',
-  ])('denies the installing update %j with the update reason', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(UPDATE_DENY);
-    const dir = makeProject(NESTED);
-    expect(preTool({ projectDir: dir, cwd: dir, action: shell(command) })).toEqual(UPDATE_DENY);
-  });
-
-  it.each([
-    'buckets update --check',
-    'buckets update --json',
-    'buckets update 1.2.0 --check',
-    'buckets update --yes --json',
-    'npx slopbuckets update --check',
-    'pnpm exec buckets update --json',
-    'buckets update --check > update.log 2>&1 &',
-    'buckets update 2>&1 --json',
-    'buckets update "--check"',
-    'npm update',
-    'apt-get update && buckets check',
-    'git commit -m "Update the access docs"',
-    'buckets check --file root/_/update.ts',
-    'npm run update-deps',
-    'buckets link update shared',
-    'buckets update --check # weekly',
-    'buckets update --json <# report only #>',
-    'gcloud storage buckets update gs://my-bucket --versioning',
-    'git commit -m "docs: explain buckets update"',
-    'grep -rn "buckets update" docs',
-    'echo "run buckets update; then buckets update --yes"',
-    'bash -c "buckets update --check"',
-  ])('allows %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
-  });
-
-  it('tells the agent that a glob that can match the config names it, and what to use instead', () => {
-    expect(CONFIG_DENY_REASON).toContain('A shell glob that can match buckets.config.json');
-    expect(CONFIG_DENY_REASON).toContain('use your file reading or search tool instead');
-    expect(preTool({ cwd: NOWHERE, action: shell('cat tsconfig.json') })).toEqual(ALLOW);
-  });
-
-  it('gives the lock reason when a command names both files', () => {
-    expect(preTool({ cwd: NOWHERE, action: shell('cp buckets.config.json buckets.lock.json') })).toEqual(DENY);
-  });
-
-  it('above the projects, denies the config of a project below the session and of its nested project', async () => {
-    const parent = makeProject({ ...Object.fromEntries(Object.entries(NESTED).map(([f, c]) => [`a/${f}`, c])), 'a/buckets.config.json': '{ "root": "root" }\n' }, false);
-    const scope = { projectDir: parent, cwd: parent, sessionId: newSession() };
-    expect(preTool({ ...scope, action: write('a/buckets.config.json') })).toEqual(CONFIG_DENY);
-    expect(preTool({ ...scope, action: write('a/root/log/_/engine/buckets.config.json') })).toEqual(CONFIG_DENY);
-    await approve(path.join(parent, 'a'));
-    const hard = path.join(parent, 'copy.json');
-    linkSync(path.join(parent, 'a', 'buckets.config.json'), hard);
-    expect(preTool({ ...scope, action: write(hard) })).toEqual(CONFIG_DENY);
-  });
-});
-
-describe('preTool: shell guard review', () => {
-  it('matches a long run of stars in linear time, so the hook answers before the agent times it out', () => {
-    for (const command of ['echo "****************FAILED****************"; buckets update --yes', `ls ${'*'.repeat(200)}z`, `echo ${'*'.repeat(200)}`]) {
-      const start = performance.now();
-      const result = preTool({ cwd: NOWHERE, action: shell(command) });
-      expect(performance.now() - start, command).toBeLessThan(50);
-      expect(result, command).toEqual(command.includes('update') ? UPDATE_DENY : ALLOW);
-    }
-    expect(preTool({ cwd: NOWHERE, action: shell(`cat ${'*'.repeat(200)}lock.json`) })).toEqual(DENY);
-    expect(preTool({ cwd: NOWHERE, action: shell(`ls ${'{a,b}'.repeat(2000)} ${'['.repeat(20000)}`) })).toEqual(ALLOW);
-  });
-
-  it.each([
-    ['npx -p slopbuckets buckets update --yes', UPDATE_DENY],
-    ['npx --package slopbuckets buckets refresh', DENY],
-    ['npx -y -p slopbuckets@latest buckets update --yes', UPDATE_DENY],
-    ['npx --package=slopbuckets@1.2.0 -y buckets update --yes', UPDATE_DENY],
-    ['npm exec -p slopbuckets buckets update --yes', UPDATE_DENY],
-    ['pnpm --package slopbuckets dlx buckets update --yes', UPDATE_DENY],
-    ['pnpm --package=slopbuckets dlx buckets update --yes', UPDATE_DENY],
-    ['yarn dlx -p slopbuckets buckets update --yes', UPDATE_DENY],
-    ['npx -p slopbuckets -- buckets refresh', DENY],
-  ])('denies the CLI installed as the package of a runner, %j', (command, expected) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
-  });
-
-  it.each([
-    ['timeout 120 buckets update --yes', UPDATE_DENY],
-    ['timeout 120 npx slopbuckets update --yes', UPDATE_DENY],
-    ['timeout -s KILL 10m buckets refresh', DENY],
-    ['timeout -k 5 600 buckets refresh', DENY],
-    ['for d in a b; do buckets refresh; done', DENY],
-    ['for d in a b; do buckets update --yes; done', UPDATE_DENY],
-    ['while true; do buckets update; break; done', UPDATE_DENY],
-    ['if command -v buckets; then buckets update --yes; fi', UPDATE_DENY],
-    ['if true; then buckets refresh; fi', DENY],
-    ['if false; then :; else buckets update; fi', UPDATE_DENY],
-    ['{ buckets update --yes; } 2>&1 | tail -5', UPDATE_DENY],
-    ['{ buckets refresh; }', DENY],
-    ['! buckets update --yes', UPDATE_DENY],
-    ['! buckets refresh', DENY],
-    ['start /b buckets update --yes', UPDATE_DENY],
-    ['start /wait /d C:\\repo buckets refresh', DENY],
-    ['stdbuf -oL buckets update --yes', UPDATE_DENY],
-    ['watch buckets update --yes', UPDATE_DENY],
-    ['watch -n 5 buckets refresh', DENY],
-    ['ionice -c 3 buckets update', UPDATE_DENY],
-    ['unbuffer buckets update', UPDATE_DENY],
-  ])('denies the call behind a wrapper or a shell keyword, %j', (command, expected) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
-  });
-
-  it.each([
-    'timeout 120 npm test',
-    'if command -v buckets; then buckets check; fi',
-    '{ buckets refresh --web > refresh.log 2>&1; } &',
-    'for f in a b; do echo buckets update; done',
-    'watch -n 5 buckets check',
-    'start /b buckets refresh --web',
-    'npx -p slopbuckets buckets update --check',
-    'buckets link update shared',
-    'buckets help update',
-  ])('still allows %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
-  });
-
-  it.each([
-    "git commit -m \"$(cat <<'EOF'\nbuckets update now prints JSON\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"",
-    "git commit -m \"$(cat <<'EOF'\nExplain buckets update and buckets refresh (finding 4)\n1) one\nEOF\n)\"",
-    "gh pr create --title x --body \"$(cat <<'EOF'\nbuckets update --yes now works\nEOF\n)\"",
-    "cat <<'EOF' > notes.md\nbuckets update\nEOF",
-    "cat <<EOF > notes.md\nbuckets refresh\nEOF",
-    "cat <<-EOF > notes.md\n\tbuckets update\n\tEOF\necho done",
-    "git commit -F - <<'EOF'\r\nbuckets update now prints JSON\r\nEOF\r\n",
-    "cat <<\"EOF\"\nIt's buckets update\nEOF\nbuckets check",
-  ])('allows a here-doc body that only mentions the CLI, %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
-  });
-
-  it.each([
-    ["cat <<'EOF' > notes.md\nbuckets update\nEOF\nbuckets update", UPDATE_DENY],
-    ['cat <<EOF > notes.md\n$(buckets update)\nEOF', UPDATE_DENY],
-    ['cat <<EOF > notes.md\n`buckets refresh`\nEOF', DENY],
-    ['bash <<EOF\nbuckets update\nEOF', UPDATE_DENY],
-    ["sh <<'EOF'\necho hi\nbuckets refresh\nEOF", DENY],
-    ["cat <<'EOF' | bash\nbuckets update\nEOF", UPDATE_DENY],
-    ["cat <<'EOF' > buckets.config.json\n{}\nEOF", CONFIG_DENY],
-    ["cat <<'EOF' > notes.md\nsee buckets.lock.json\nEOF", DENY],
-  ])('denies a here-doc that runs the CLI, feeds a shell or names a guarded file, %j', (command, expected) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
-  });
-
-  it.each([
-    ['Start-Process buckets -ArgumentList update', UPDATE_DENY],
-    ['Start-Process buckets update', UPDATE_DENY],
-    ["Start-Process -FilePath buckets -ArgumentList 'update'", UPDATE_DENY],
-    ["Start-Process npx -ArgumentList 'slopbuckets update --yes'", UPDATE_DENY],
-    ["Start-Process -NoNewWindow -Wait buckets -ArgumentList 'update','--yes'", UPDATE_DENY],
-    ['Start-Process buckets -ArgumentList refresh', DENY],
-    ["start npx -ArgumentList 'slopbuckets refresh'", DENY],
-    ['echo "buckets update" | bash', UPDATE_DENY],
-    ["echo 'buckets refresh' | sh", DENY],
-    ["printf 'buckets update\\n' | sh", UPDATE_DENY],
-    ['bash <<< "buckets update"', UPDATE_DENY],
-    ["'buckets update' | iex", UPDATE_DENY],
-    ['Invoke-Expression -Command "buckets update"', UPDATE_DENY],
-    ["iex -C 'buckets refresh'", DENY],
-  ])('denies the CLI started by Start-Process or fed to a shell, %j', (command, expected) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(expected);
-  });
-
-  it.each([
-    "Start-Process buckets -ArgumentList 'refresh','--web'",
-    "Start-Process npx -ArgumentList 'slopbuckets update --check'",
-    'echo "buckets update" | grep update',
-    'echo "buckets update --check" | bash',
-    'bash <<< "buckets check"',
-    'Invoke-Expression -Command "buckets update --json"',
-  ])('allows %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
-  });
-
-  it('denies a command that nests more texts than the guard reads, and reads the ones within the limit', () => {
-    const subs = (count: number) => Array.from({ length: count }, (_, i) => `"$(echo ${i})"`).join(' ');
-    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(31)} "$(buckets update --yes)"`) })).toEqual({ decision: 'deny', reason: COMPLEX_DENY_REASON });
-    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(40)}`) })).toEqual({ decision: 'deny', reason: COMPLEX_DENY_REASON });
-    expect(COMPLEX_DENY_REASON).toContain('Split it into smaller commands');
-    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(20)} "$(buckets update --yes)"`) })).toEqual(UPDATE_DENY);
-    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${subs(20)}`) })).toEqual(ALLOW);
-    // The same substitution many times is one text.
-    expect(preTool({ cwd: NOWHERE, action: shell(`echo ${'"$(echo "$(echo hi)")"'.repeat(2000)}`) })).toEqual(ALLOW);
-  });
-
-  it.each(['node index.js update', 'node scripts/cli.js update', 'npx tsx scripts/cli.ts refresh', 'node src/index.ts update', 'node cli/dist/index.js update', 'node @slopbuckets/adapter-ts/dist/index.js update'])(
-    'allows a script that is not the installed CLI, %j',
-    (command) => {
-      expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(ALLOW);
-    },
-  );
-
-  it.each([
-    'node node_modules/slopbuckets/dist/index.js update',
-    String.raw`node .\node_modules\slopbuckets\dist\index.js update`,
-    String.raw`node C:\Users\dev\AppData\Roaming\npm\node_modules\SlopBuckets\dist\index.js update --yes`,
-    'node --no-warnings node_modules/.pnpm/slopbuckets@1.2.0/node_modules/slopbuckets/dist/index.js update',
-    'node node_modules/.bin/buckets update',
-    String.raw`node node_modules\.bin\buckets update`,
-    'npx tsx ~/src/slopbuckets/cli/src/index.ts update',
-  ])('denies a script of the installed CLI, %j', (command) => {
-    expect(preTool({ cwd: NOWHERE, action: shell(command) })).toEqual(UPDATE_DENY);
-  });
-});
-
-describe('postEdit', () => {
-  it('reports the violations of an edited file in the root bucket folder, and nothing for clean or outside files', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n" });
-    const ctx = testContext();
-    const bad = await postEdit(ctx, { projectDir: dir, cwd: dir, paths: ['root/_/main.ts'] });
-    expect(bad.feedback).toContain('buckets check --file root/_/main.ts found problems');
-    expect(bad.feedback).toContain('import-relative');
-    expect(await postEdit(ctx, { projectDir: dir, cwd: dir, paths: [path.join(dir, 'root/log/_/logger.ts')] })).toEqual({});
-    expect(await postEdit(ctx, { projectDir: dir, cwd: dir, paths: [path.join(dir, 'README.md')] })).toEqual({});
-    expect(await postEdit(ctx, { projectDir: dir, cwd: dir, paths: [] })).toEqual({});
-  });
-
-  it('reports a file written into a folder that layout denies', async () => {
-    const config = JSON.stringify({ root: 'root', layout: { default: 'deny', allow: ['root/*'] } });
-    const dir = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': config, 'root/log/old/_/x.ts': 'export const x = 1;\n' });
-    const result = await postEdit(testContext(), { projectDir: dir, cwd: dir, paths: ['root/log/old/_/x.ts'] });
-    expect(result.feedback).toContain('buckets check --file root/log/old/_/x.ts found problems');
-    expect(result.feedback).toContain('layout-denied');
-    expect(result.feedback).toContain('Layout denied: root/log/old/ is a bucket folder');
-  });
-
-  it('joins the reports of several files, as an apply_patch call produces', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n", 'root/log/_/logger.ts': "import y from './y';\nexport function logger() {}\n" });
-    const result = await postEdit(testContext(), { projectDir: dir, cwd: dir, paths: ['root/_/main.ts', 'root/log/_/logger.ts'] });
-    expect(result.feedback).toContain('--file root/_/main.ts');
-    expect(result.feedback).toContain('--file root/log/_/logger.ts');
-  });
-
-  it('above the projects, records the project of every path and checks only `paths`', async () => {
-    const parent = makeProject({ 'a/buckets.config.json': '{ "root": "root" }\n', ...Object.fromEntries(Object.entries(LOGGER_PROJECT).map(([f, c]) => [`a/${f}`, c])), 'a/root/_/main.ts': "import x from './x';\n", 'b/buckets.config.json': '{ "root": "root" }\n' }, false);
-    const session = newSession();
-    const result = await postEdit(testContext(), { projectDir: parent, cwd: parent, sessionId: session, paths: ['a/root/_/main.ts'], touched: ['b/notes.ipynb', 'loose.md'] });
-    expect(result.feedback).toContain(`in the project ${path.join(parent, 'a')}`);
-    expect(readSessionProjects(sessionStateFile(session)!).projects).toEqual([path.join(parent, 'a'), path.join(parent, 'b')]);
-  });
-
-  it('reports a crash inside a project and asks the agent to tell the human', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const ctx = testContext();
-    const broken: Context = { ...ctx, adapter: { ...ctx.adapter, analyze: async () => null as unknown as AnalyzeResponse } };
-    const result = await postEdit(broken, { projectDir: dir, cwd: dir, paths: ['root/_/main.ts'] });
-    expect(result.feedback).toContain('crashed');
-    expect(result.feedback).toContain('Report this error to the human');
-    expect(result.error).toContain('TypeError');
+    expect(engine.calls).toEqual([]);
   });
 });
 
 describe('stop', () => {
-  it('blocks with the report and the intro of its exit code, for a stop and a subagent stop', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    for (const subagent of [false, true]) {
-      const result = await stop(testContext(), { projectDir: dir, cwd: dir, active: false, subagent });
-      expect(result.block?.startsWith(STOP_INTRO[2])).toBe(true);
-      expect(result.block).toContain('lock-missing');
-    }
+  it('is silent for a session that changed nothing, without running the check', async () => {
+    const { call, engine } = setup({ violations: [A] });
+    expect(await call('stop')).toEqual(SILENT);
+    expect(engine.calls).toEqual([]);
   });
 
-  it('lets the agent go when active, without running anything, and when the check passes', async () => {
-    const broken = makeProject({ ...LOGGER_PROJECT, 'buckets.config.json': '{ broken' });
-    expect(await stop(testContext(), { projectDir: broken, cwd: broken, active: true, subagent: false })).toEqual({});
-    const dir = makeProject(LOGGER_PROJECT);
-    await approve(dir);
-    expect(await stop(testContext(), { projectDir: dir, cwd: dir, active: false, subagent: false })).toEqual({});
+  it('blocks once, not again with stop_hook_active, and not again for the same list', async () => {
+    const { edit, call } = setup({ edits: { 'src/a.ts': [A], 'src/b.ts': [A, B] } });
+    await edit('src/a.ts');
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A]) });
+    expect(await call('stop', { stopHookActive: true })).toEqual(SILENT);
+    expect(await call('stop')).toEqual(SILENT);
+    await edit('src/b.ts');
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A, B]) });
   });
 
-  it('above the projects, checks only the recorded projects, in one report', async () => {
-    const files: Record<string, string> = {};
-    for (const name of ['a', 'b']) {
-      files[`${name}/buckets.config.json`] = '{ "root": "root" }\n';
-      for (const [file, content] of Object.entries(LOGGER_PROJECT)) files[`${name}/${file}`] = content;
+  it('runs after a shell command, which marks the session dirty', async () => {
+    const { call, engine } = setup();
+    expect(await call('pre-tool', { toolName: 'Bash', isShell: true })).toEqual(SILENT);
+    engine.set([B]);
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([B]) });
+  });
+
+  it('is silent when the check passes', async () => {
+    const { edit, call } = setup({ edits: { 'src/a.ts': [] } });
+    await edit('src/a.ts');
+    expect(await call('stop')).toEqual(SILENT);
+  });
+
+  it('reports an environment error once in the block text', async () => {
+    const { call } = setup({ environment: [{ code: 'no-config', project: '.', message: 'Run buckets init.' }] });
+    await call('pre-tool', { toolName: 'Bash', isShell: true });
+    expect(await call('stop')).toEqual({ kind: 'block', text: 'buckets: cannot check (no-config): Run buckets init.' });
+    await call('pre-tool', { toolName: 'Read' });
+    expect(await call('stop')).toEqual(SILENT);
+  });
+});
+
+describe('obligations of R2', () => {
+  const NEWER = { code: 'config-newer' as const, project: '.', message: 'buckets.config.json has version "2.9".' };
+
+  it('shows config-newer once as context, never denies an edit for it and never blocks a stop for it', async () => {
+    const { edit, call } = setup({ environment: [NEWER] });
+    expect(await edit('buckets.config.json')).toEqual({ kind: 'context', text: `buckets: ${renderEnvironment(NEWER)}` });
+    expect(await edit('src/a.ts')).toEqual(SILENT);
+    expect(await call('stop')).toEqual(SILENT);
+  });
+
+  it('denies a rename edit with the bucket-renamed problem', async () => {
+    const renamed: Violation = { rule: 'config-invalid', project: '.', problem: { kind: 'bucket-renamed', from: 'billing', to: 'invoicing', referencedBy: ['api'] } };
+    const { edit } = setup({ edits: { 'buckets.config.json': [renamed] } });
+    const decision = await edit('buckets.config.json');
+    expect(decision).toEqual({ kind: 'deny', text: renderInterrupt([renamed as never]) });
+    expect(decision.kind === 'deny' && decision.text).toContain('invoicing');
+  });
+
+  it('passes the advice to a blocking stop, marks a list left at an earlier stop as repeated, and never blocks for advice alone', async () => {
+    const advice = [ADVICE_SAMPLES['reason-generic']];
+    const { edit, call, engine } = setup({ advice, edits: { 'src/a.ts': [A], 'src/b.ts': [A], 'src/c.ts': [] } });
+    await edit('src/a.ts');
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A], { advice, repeated: false }) });
+    expect(await call('stop', { stopHookActive: true })).toEqual(SILENT);
+    // The next turn edits again and stops with the same list.
+    await edit('src/b.ts');
+    expect(await call('stop')).toEqual({ kind: 'block', text: renderStop([A], { advice, repeated: true }) });
+    await edit('src/c.ts');
+    engine.set([]);
+    expect(await call('stop')).toEqual(SILENT);
+  });
+
+  it('notes once, without blocking, the advice on a reason the session wrote, and not the advice the config had before', async () => {
+    const advice = [ADVICE_SAMPLES['reason-generic']];
+    const weak = JSON.stringify({ buckets: { billing: { dependsOn: { log: 'Uses log' } }, log: {} } });
+    const fresh = setup({ advice });
+    await fresh.read();
+    writeFileSync(path.join(fresh.root, 'buckets.config.json'), weak);
+    await fresh.edit('src/a.ts');
+    expect(await fresh.call('stop')).toEqual({ kind: 'note', text: [adviceHeader(1), renderAdvice(advice[0]!)].join('\n\n') });
+    await fresh.edit('src/a.ts');
+    expect(await fresh.call('stop')).toEqual(SILENT);
+
+    const old = setup({ advice });
+    writeFileSync(path.join(old.root, 'buckets.config.json'), weak);
+    await old.read();
+    await old.edit('src/a.ts');
+    expect(await old.call('stop')).toEqual(SILENT);
+  });
+
+  it('shows once, after the pending list of the next pre-tool, the advice on a reason a config edit wrote', async () => {
+    const advice = [ADVICE_SAMPLES['reason-generic']];
+    const config = (log: string) => JSON.stringify({ buckets: { billing: { purpose: 'Bills', dependsOn: { log: 'Uses log' } }, log: { purpose: log } } });
+    const { root, edit, read, call, engine } = setup({ advice, edits: { 'src/a.ts': [A] } });
+    // The config already has advice on billing.purpose when the session first sees it, so only the new reason shows.
+    writeFileSync(path.join(root, 'buckets.config.json'), JSON.stringify({ buckets: { billing: { purpose: 'Bills' }, log: { purpose: 'Writes the logs' } } }));
+    expect(await edit('src/a.ts')).toEqual(context([A]));
+    const writeConfig = async (text: string) => {
+      const decision = await call('pre-edit', { toolName: 'Edit', edits: [{ path: path.join(root, 'buckets.config.json'), content: text }] });
+      writeFileSync(path.join(root, 'buckets.config.json'), text);
+      return decision;
+    };
+    // The edit has not landed when its own pre-edit runs, so the advice waits for the next call.
+    expect(await writeConfig(config('Writes the logs'))).toEqual(context([], [A]));
+    expect(await read()).toEqual({ kind: 'context', text: [renderPending({ fresh: [], old: [A], resolved: [] }), renderAdviceNote(advice)].join('\n\n') });
+    expect(await read()).toEqual(context([], [A]));
+    // An edit that writes no weak text adds nothing.
+    await writeConfig(config('Formats and writes the application logs'));
+    expect(await read()).toEqual(context([], [A]));
+    // The clean stop still notes the advice for the user.
+    engine.set([]);
+    expect(await call('stop')).toEqual({ kind: 'note', text: renderAdviceNote(advice) });
+  });
+
+  it('checks a project again when its config changed on disk, even with nothing pending', async () => {
+    const { root, read, engine } = setup();
+    expect(await read()).toEqual(SILENT);
+    expect(engine.calls).toEqual([]);
+    engine.set([B]);
+    // Another agent rewrites the config: a different size is enough.
+    writeFileSync(path.join(root, 'buckets.config.json'), '{ "buckets": {}, "ignore": [] }\n');
+    expect(await read()).toEqual(context([B]));
+    expect(engine.calls.map((c) => c.method)).toEqual(['checkAll']);
+    expect(await read()).toEqual(context([], [B]));
+    expect(engine.calls.map((c) => c.method)).toEqual(['checkAll', 'recheck']);
+  });
+
+  it('takes its own config edit without a check, and sees another agent overwrite the config right after it', async () => {
+    const { root, read, edit, engine } = setup();
+    const file = path.join(root, 'buckets.config.json');
+    const mine = '{ "buckets": {}, "ignore": ["dist/**"] }\n';
+    await read();
+    await edit('buckets.config.json', { edits: [{ path: file, content: mine }] });
+    writeFileSync(file, mine);
+    expect(await read()).toEqual(SILENT);
+    expect(engine.calls.map((c) => c.method)).toEqual(['checkEdit']);
+
+    await edit('buckets.config.json', { edits: [{ path: file, content: mine.replace('dist', 'out') }] });
+    writeFileSync(file, mine.replace('dist', 'out'));
+    engine.set([B]);
+    // Another agent writes its own config before this session's next call.
+    writeFileSync(file, '{ "buckets": {}, "ignore": ["tmp/**"] }\n');
+    expect(await read()).toEqual(context([B]));
+    expect(engine.calls.map((c) => c.method)).toEqual(['checkEdit', 'checkEdit', 'checkAll']);
+  });
+
+  it('checks an edit in the project of the nearest config, for a session at a root without one', async () => {
+    const root = makeProject({ 'cli/buckets.config.json': '{}\n', 'packages/x/buckets.config.json': '{}\n' }, false);
+    const engine = createFakeEngine({ edits: { 'src/a.ts': [A] } });
+    const base: HookInput = { phase: 'pre-edit', sessionId: 's1', agentId: null, cwd: root, root, toolName: 'Write', edits: [], isShell: false, stopHookActive: false };
+    const inCli = { ...A, project: 'cli' };
+    const inX = { ...A, project: 'packages/x' };
+    expect(await hookCore({ ...base, edits: [{ path: path.join(root, 'cli', 'src', 'a.ts'), content: 'x' }] }, engine)).toEqual(context([inCli]));
+    expect(engine.calls[0]).toMatchObject({ method: 'checkEdit', root: path.join(root, 'cli') });
+    expect(await hookCore({ ...base, edits: [{ path: path.join(root, 'packages', 'x', 'src', 'a.ts'), content: 'x' }] }, engine)).toEqual(context([inX], [inCli]));
+    expect(await hookCore({ ...base, phase: 'pre-tool', toolName: 'Read' }, engine)).toEqual(context([], [inCli, inX]));
+    expect(engine.calls.filter((c) => c.method === 'recheck').map((c) => c.root).sort()).toEqual([path.join(root, 'cli'), path.join(root, 'packages', 'x')]);
+    expect(await hookCore({ ...base, phase: 'stop', toolName: null }, engine)).toEqual({ kind: 'block', text: renderStop([inCli, inX], { advice: [], repeated: false }) });
+    expect(engine.calls.filter((c) => c.method === 'checkAll').map((c) => c.root)).toEqual([path.join(root, 'cli'), path.join(root, 'packages', 'x')]);
+    // A file in no project changes nothing the check sees.
+    expect(await hookCore({ ...base, edits: [{ path: path.join(root, 'README.md'), content: 'x' }] }, engine)).toEqual(context([], [inCli, inX]));
+  });
+});
+
+describe('fail open', () => {
+  it('turns an engine error into silence and the error on stderr', async () => {
+    const root = makeProject({});
+    const broken: RuleEngine = { ...createFakeEngine(), checkAll: () => Promise.reject(new Error('boom')) };
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const input: HookInput = { phase: 'stop', sessionId: null, agentId: null, cwd: root, root, toolName: null, edits: [], isShell: false, stopHookActive: false };
+      expect(await hookCore(input, broken)).toEqual(SILENT);
+      expect(write).toHaveBeenCalledWith(expect.stringMatching(/^buckets hook stop: unexpected error: Error: boom\n {4}at /));
+    } finally {
+      write.mockRestore();
     }
-    const parent = makeProject(files, false);
-    const session = newSession();
-    const scope = { projectDir: parent, cwd: parent, sessionId: session };
-    expect(await stop(testContext(), { ...scope, active: false, subagent: false })).toEqual({});
-    await postEdit(testContext(), { ...scope, paths: [], touched: ['a/root/_/x.ts'] });
-    const result = await stop(testContext(), { ...scope, active: false, subagent: false });
-    expect(result.block).toContain('buckets check failed in the project this session changed.');
-    expect(result.block).toContain(`--- Project folder: ${path.join(parent, 'a')}`);
-    expect(result.block).not.toContain(path.join(parent, 'b'));
   });
 });

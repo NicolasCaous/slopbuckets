@@ -1,0 +1,61 @@
+{
+  "description": "Claude Code: with buckets.config.json already invalid on disk, a Write of another file is not denied; the config problem shows as context and stays pending",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-invalid-on-disk",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-invalid-on-disk.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/log/level.ts",
+          "content": "export const level = 1;\n"
+        },
+        "tool_use_id": "toolu_01"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "messageIncludes": [
+          "[NEW]",
+          "buckets.config.json: invalid, other rules skipped",
+          "buckets.billing.dependsOn.payments: reason is empty"
+        ],
+        "pending": [
+          "config-invalid"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-invalid-on-disk",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-invalid-on-disk.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/log/index.ts"
+        },
+        "tool_use_id": "toolu_02"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "messageIncludes": [
+          "[OLD]",
+          "reason is empty"
+        ],
+        "pending": [
+          "config-invalid"
+        ]
+      }
+    }
+  ]
+}

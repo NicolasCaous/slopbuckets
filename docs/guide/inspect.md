@@ -1,184 +1,185 @@
 ---
 title: Inspect
-description: buckets inspect, a read-only page with the map, the DMZ matrix, symbol traces, projects, approvals, the timeline and impact simulations, and its JSON for agents.
+description: The read-only page where a human looks at the architecture, with the graph, the matrix, the pending list, the file tree, the details panel, the keyboard and the URL.
 ---
 
 # Inspect
 
-`buckets inspect` serves a read-only page with the state of the project and of every project nested in it. It runs the same check as `buckets check`, so every color and message on the page comes from the real rules.
+`buckets inspect` is how a human looks at the architecture that the agents keep. It serves a read-only page on `127.0.0.1`, prints the page's URL, and updates the page while files change. It stops with Ctrl+C, or by itself after 30 minutes without an open page. It never writes to the project.
 
 ```sh
 buckets inspect
 ```
 
-```text
-buckets inspect: 3 projects, 13 buckets, 15 contracts, 4 violations.
-The page is read only and updates while files change. Press Ctrl+C to stop. It stops by itself after 30 minutes without an open page.
-http://127.0.0.1:53883/
-```
+Every element of the page answers one of these questions:
 
-Open the link in a browser. The server listens only on `127.0.0.1`, answers only GET requests, and never writes to the project. The check it runs may write its analysis cache in `.buckets/cache/`, as `buckets check` does. Inspect never approves anything, so an agent may run it at any time, and `--no-recursive` leaves out the nested projects.
-
-<figure class="shot">
-  <img src="/img/inspect-map.webp" width="1440" height="900" alt="The map view of a project named acme-shop: nested boxes for the buckets root, api, billing, log, store and web, colored green, amber and red, with the project summary and the event feed on the right." fetchpriority="high">
-  <figcaption>The map of a project with 4 violations, 7 lock differences and 2 nested projects.</figcaption>
-</figure>
-
-## The layout
-
-The top bar lists the views and shows the live state, such as `live, 4 violations`. The line under it is a breadcrumb from the repo project to the current project and bucket. The right column has a panel for the selection (the project summary when nothing is selected) and the event feed. The CRT effect (scanlines, glow and the curved map) starts off. `CRT off` in the top bar turns it on, and the browser remembers the choice.
-
-Every view and every selection lives in the query string, such as `?view=trace&symbol=total`, so a link opens the same view. The page works at 375 pixels wide and without animations when the system asks for reduced motion.
-
-## Views
-
-### Map
-
-Each box is a bucket, nested like the folders, with one frame in the color of its situation: green passes, amber differs from the lock, and red breaks a rule. The box grows with the files in its `_/`. A badge on the frame counts violations (`✗`), orphan contracts (`○`) and lock differences (`~`), and a key at the top right of the map frame repeats these marks. Hovering a box, or moving to it with the arrow keys, shows its files, its contracts in and out, and how many buckets use it and it depends on. The `dmz/` line of a bucket with children is dim unless one of its contracts has a problem. A nested project is a cyan box inside the bucket that holds it. Click it to enter that project.
-
-The map also draws the violations: a cycle as a red path, an orphan chain as a dotted line, and a forbidden import as a dashed line through the wall it crosses. The dependency lines of the selected bucket stay hidden until Show dependencies turns them on. The selected bucket, the buckets it depends on and the buckets that use it always show their names: lit on the box, or as a tag beside a box too small for its name (`●` selected, `→` depends on, `•` used by). Hovering a box shows its full path. With the map focused, the arrow keys move between boxes, show the same path and Enter opens the box. Fullscreen, or `f`, gives the map the whole screen, and Escape brings it back. Under the map, the bucket tree lists the same buckets as links, and the list of violations repeats each message of the check with a Copy button.
-
-#### Large projects
-
-With more than 40 buckets, the map shows one level at a time: the buckets inside the selected one, each as a box with its name and a badge for the problems in everything below it. Click a box to open it, or the outer frame to go up; the breadcrumb and `u` go up too. A cycle or forbidden import whose buckets sit inside a box is drawn between the boxes that hold them, and a note under the map says so, with a link to the level that shows it. Show all switches to a treemap of every bucket, where the area follows the files and names appear where they fit.
-
-The bucket tree becomes the main way around: levels open and close, each row counts the buckets and problems below it, and the form above it finds a bucket by name or keeps only the buckets with problems or waiting for approval. The layout, the filters and the open bucket stay in the URL.
-
-### Matrix
-
-One table per `dmz/` folder. Rows are providers, columns are consumers, and each number counts the symbols of that contract file. `.self` stands for the bucket's own `_/`, `.parent` for the level above and `.external` for other projects. Select a number to open the symbols of that file, with their signatures and re-export chains. A dot marks a cell that cannot be a contract, such as a bucket providing to itself.
-
-A folder with more than 8 children shows only the rows and columns that have a contract. When that is still more than 15, the folder becomes a list of its contracts grouped by provider, with the consumer, the symbol count and the status, and Show as a table switches back. In a large project, a form above the tables finds contracts by path or symbol, or keeps only those with problems or waiting for approval.
+1. What does the architecture look like? The buckets, their purposes and their dependencies.
+2. What is broken right now? The pending violations.
+3. Why does A depend on B? The reason, and the imports that form the dependency.
+4. Where does this file live, and who uses this export?
+5. How does A reach C? The dependency paths between two buckets.
+6. What did the agents change while I was looking?
 
 <figure class="shot">
-  <img src="/img/inspect-matrix.webp" width="1440" height="900" alt="The DMZ matrix view: a table per dmz folder with providers in rows, consumers in columns and symbol counts in the cells." loading="lazy">
-  <figcaption>The DMZ matrix, one table per <code>dmz/</code> folder.</figcaption>
+  <img src="/img/inspect-page.webp" width="1200" height="760" alt="The inspect page on a shop project with 31 buckets and 9 pending items. The top bar has the search, the project picker and the pending count. The left column lists the buckets with their file counts and red pending badges. The bar above the graph reads Focus: payments, depth 1, with minus, plus and Show all buttons. The graph shows checkout and returns above payments, and events, http-client, log and money below it. The details panel on the right shows the purpose of payments, its files glob with a fold-out list of its files, each export of its public file with its line and the buckets that use it, and its dependencies with state, import count and reason." fetchpriority="high">
+  <figcaption>The graph in focus mode on <code>payments</code>, with the bucket in the details panel.</figcaption>
 </figure>
 
-### Trace
+## Layout
 
-Search a symbol by name, or press `/`. The list shows every DMZ symbol of every project with its origin bucket and how many files carry and import it. Select one to see where it is declared, its signature read from the source, the chain of re-exports from the declaration to each DMZ file, and every `_/` file that imports it, with the line. Symbols that differ from the lock are marked.
+The page is one screen with four areas:
+
+- The top bar has the search (`/`) for a bucket, a file or an export, the picker of nested projects when there are any, and the number of pending violations, which opens the pending view. After a live change it also shows the number of changes and a "Mark changes seen" button.
+- The left column lists the buckets, with a filter on name or purpose and a sort by name, files, dependencies, dependents or pending violations. Each row shows a red badge with its pending count when it has any, and the number the sort uses, or its file count when the sort is by name.
+- The center shows the active view, picked with tabs or the keys `1` to `4`: graph, matrix, pending or files.
+- The right column is the details panel for whatever is selected.
+
+In a window narrower than 1000 pixels the bucket list moves below the view, and below 640 pixels every area stacks. There are no modals and no intro animation. When the URL names no view, the page opens on the pending view if the project has pending violations, and on the graph otherwise.
+
+## Graph
+
+The config forbids cycles, so the dependency graph is acyclic and the page draws it in layers: a bucket sits above the buckets it depends on, and every edge points down.
+
+- A node shows the bucket name, its number of files and a red badge with its number of pending violations. The purpose shows on hover and in the panel.
+- A solid edge is a dependency that is declared and used. A dashed edge is declared but has no import. A red dotted edge is an import without a declaration. The line style carries the difference, so it does not depend on color alone.
+- A click on a node selects the bucket, highlights it with its direct dependencies and dependents, and fades the rest.
+- A click on an edge selects the dependency, and the panel shows the reason and every import that forms it, with file and line.
+- Dragging or scrolling pans the graph, and Ctrl+scroll zooms. The Fit, + and − buttons above the graph fit the drawing to the view and zoom.
+
+### Focus mode
+
+Focus mode draws only the neighborhood of the selection: the selected bucket, or both ends of the selected dependency, and the buckets up to N levels above and below it. The bar above the graph shows the state. In focus mode it reads "Focus: payments, depth 1", and its − and + buttons change N from 1 to 9. The keys `[` and `]` do the same.
+
+With 60 buckets or fewer, the graph opens whole and the bar reads "Whole graph". With a bucket selected, the bar has a "Focus on" button that switches to depth 1, and in focus mode a "Show all" button goes back to the whole graph.
+
+Above 60 buckets the graph always stays in focus mode, at depth 1 or more, and the bar has no "Show all", so a project with 500 buckets never draws 500 boxes at once. When nothing is selected, the graph opens on the bucket with the most pending violations. When nothing is pending, it opens on the bucket with the most dependencies among those that no other bucket depends on. The page writes that bucket into the URL, so a reload shows the same picture.
+
+### Paths between two buckets
+
+With a bucket selected, Shift and click on a second bucket, or Shift+Enter on it, shows the dependency paths between the two. This answers questions such as "why does billing end up depending on db?". The graph then draws only the two buckets and the buckets on those paths, in either direction. The panel lists up to 50 paths, shortest first, with a link on every bucket, and says so when there is no path. The bar reads "Paths between http and catalog" with a "Clear paths" link, and `Esc` clears the paths too.
 
 <figure class="shot">
-  <img src="/img/inspect-trace.webp" width="1440" height="900" alt="The trace view for the symbol total: its origin billing/invoices, its signature, and the chain through two DMZ files to the files that import it." loading="lazy">
-  <figcaption>The trace of <code>total</code>, with a signature change waiting for approval.</figcaption>
+  <img src="/img/inspect-graph-focus.webp" width="580" height="714" alt="The graph showing the paths between http and catalog. The bar above the graph reads Paths between http and catalog, with a Clear paths link. Only three buckets are drawn: http at the top, reviews in the middle and catalog at the bottom. A red dotted arrow from http to reviews is an import without a declaration, and a solid arrow goes from reviews to catalog. The selected bucket reviews is filled in blue, and http and reviews each have a red pending badge." loading="lazy">
+  <figcaption>The paths between <code>http</code> and <code>catalog</code>, which run through <code>reviews</code>.</figcaption>
 </figure>
 
-### Bucket panel
+## Matrix
 
-Select a bucket on the map, in the tree or in the matrix to open its panel:
+A bucket by bucket matrix, with the rows and the columns in the order of the graph layers. Each row imports its columns. It scales better than the graph to hundreds of buckets, because no edge crosses another.
 
-- what it offers (DMZ files where it is the provider) and what it consumes
-- the buckets it depends on and the buckets that depend on it
-- its violations and lock differences
-- the links in its `_/links/` folder
-- the rewrite cost: how many contract symbols a rewrite from the contracts must keep, in how many contract files, and how many buckets depend on it
-
-### Projects
-
-The constellation draws each project as a box and each link as an arrow from the project that consumes to the project that publishes. A solid line is a link, a dashed line is a copy, amber means drift or a change waiting for approval, and red means the link is missing. Under it, the public surfaces list what each project publishes in its `.external.ts` files and which visible projects consume it. Select a link to see its origin, mode and alias, the symbols the linked project publishes, the code that imports it and, for a drifted copy, the files that differ. A published symbol that differs from the lock is marked as added, removed or changed, as on the review page.
+- A cell shows the number of imports from the row bucket to the column bucket. A declared dependency without imports shows a dashed `0`, and an import without a declaration is red with a `!`.
+- A click on a cell opens the dependency in the panel, as a click on an edge does, and a click on a bucket name opens the bucket. The row and column of the selected bucket, or of both ends of the selected dependency, are shaded.
+- Up to 200 buckets the matrix is a table with sticky headers. Above 200 buckets the page draws it on a canvas with fixed headers. The "Show as table" button then switches to a list with one row per dependency, its two buckets, its state and its number of imports, which works with the keyboard and screen readers. "Show as matrix" switches back.
 
 <figure class="shot">
-  <img src="/img/inspect-projects.webp" width="1440" height="900" alt="The projects view: the repo project acme-shop with arrows to the nested projects engine and ui-kit, a solid arrow for a link and a dashed amber arrow for a drifted copy." loading="lazy">
-  <figcaption>The repo links <code>engine</code> and keeps a copy of <code>ui-kit</code> whose origin changed.</figcaption>
+  <img src="/img/inspect-matrix.webp" width="940" height="714" alt="The matrix view of the 31 bucket shop. Each cell holds the number of imports from the row bucket to the column bucket. The cell from reviews to shipping shows a dashed 0, declared but never imported. The cell from http to reviews is red with 1!, and it is selected, so the rows and columns of http and reviews are shaded blue. The details panel shows the dependency from http to reviews as undeclared, with no reason, and its one import at src/http/request.ts line 4, which imports reviewsTypes from src/reviews/index.ts." loading="lazy">
+  <figcaption>The matrix with the undeclared dependency from <code>http</code> to <code>reviews</code> selected.</figcaption>
 </figure>
 
-### Approvals
+## Pending
 
-Pending lock differences, grouped by project, with the message of each one. The view only shows the state. It says to approve with `buckets refresh --web` and has a button to copy that command. When a project also breaks rules, it says so, because the approval refuses to start until every rule passes.
+The list of everything `buckets check` reports, grouped by rule or by bucket, with a filter on the message text. Grouped by bucket, a violation that concerns two buckets shows under both, and each item names its rule. Each item shows a link to the dependency or bucket it concerns, a "Copy file:line" button and the full message, the same text the agent reads. The `file:line` in the message links to the file.
+
+After the violations comes the advice, under its own Advice heading, with a note that it never fails the check or blocks the turn. Advice is a note on the config, such as a reason under three words or an `ignore` glob that covers more than 20% of the files besides tests, scripts, fixtures and examples. Each note links to the bucket it is about and shows the text `buckets check` prints. The filter applies to the advice too. The pending view shows both, so a project with advice and no violations still lists its notes.
 
 <figure class="shot">
-  <img src="/img/inspect-approvals.webp" width="1440" height="900" alt="The approvals view: lock differences of acme-shop and of the nested project ui-kit, each with its kind, path and message, and a button to copy buckets refresh --web." loading="lazy">
-  <figcaption>Pending approvals of two projects. The page shows them and points to <code>buckets refresh --web</code>.</figcaption>
+  <img src="/img/inspect-pending.webp" width="580" height="714" alt="The pending view grouped by rule, with 9 items. Each group has a heading with the rule id and a count. Each item has a link to the dependency it concerns, a Copy file:line button and the full message, in which the file and line are a link: an undeclared dependency from http to reviews, an unused dependency from reviews to shipping, and a private file import from returns into payments. The heading of the file-unowned group starts at the bottom." loading="lazy">
+  <figcaption>The pending view grouped by rule.</figcaption>
 </figure>
 
-### Timeline
+## Files
 
-Only an approval writes a lock, so each commit that changed a `buckets.lock.json` is an approval. The timeline reads them from git, with one track per project and up to 200 approvals each. Pick a point, drag the slider, use the arrow keys or press Play to see the contract graph at that approval. The panel lists what the approval changed since the one before, with the same rows the review page showed. The graph comes from that version of the lock, which records buckets, contracts and symbols but no source code, so boxes are sized by the symbols each bucket offers.
-
-Without git, in a shallow clone or for a lock that was never committed, the track says why it has no points.
+The file tree of the project, with an Owner column that names the bucket of each file, or says `ignored`, `no bucket` or `two buckets`. The Owner filter shows one of these states and gives the number of files in each, and a second filter matches paths. A click on a folder folds it. The view answers where each file lives, and right after `init` the `no bucket` filter shows which files no bucket covers yet.
 
 <figure class="shot">
-  <img src="/img/inspect-timeline.webp" width="1440" height="900" alt="The timeline view: three tracks for acme-shop, engine and ui-kit with colored points for approvals, a slider, and a panel listing what the selected approval changed." loading="lazy">
-  <figcaption>Approval 6 of the repo project added the <code>ui-kit</code> project and a copy of its <code>Theme</code>.</figcaption>
+  <img src="/img/inspect-files.webp" width="580" height="714" alt="The files view of the shop right after buckets init, with the Owner filter on no bucket (142). The tree lists fixtures, orphans, packages/storefront-sdk, scripts and src with their file counts, and every file is marked no bucket in red. The count says 142 files." loading="lazy">
+  <figcaption>The files view filtered on "no bucket", right after <code>buckets init</code>.</figcaption>
 </figure>
 
-### Impact
+## Details panel
 
-Simulations that answer a question before anyone changes a file. They run in memory on the last check and write nothing.
+- With nothing selected, the panel shows the project: its numbers of buckets, dependencies, files and pending violations, the number of advice notes with a link to them, and the changes since the page opened. The root project shows under the name of its folder.
+- A bucket shows its purpose and its `files` globs, each with the number of files it matches, followed by a fold-out list of the files that the bucket alone owns. Then come its public files, each with every exported name, its line, whether it is a type, and the buckets that use it, or "Closed" when the bucket exports nothing. A public file that does not exist says so. Then come `external` when set, and its dependencies, each with its state, its number of imports, its reason and the first three imports that back it, with file, line and names, so a reason that no longer matches its imports stands out. Then come its dependents with the names each one uses, its packages, each with its state, its number of imports, its reason and the first three files that import it, and last its pending violations. A list of backing imports longer than three has a "Show N more" button.
+- When the dependents of a bucket fall into two or more groups that share no exported name, the Dependents section opens with a "May want to split" note that lists each group with the names it uses. That is the split rule of the skill: dependents that use disjoint parts of the interface are a sign that the bucket holds two jobs. A dependent with a namespace or side-effect import could use any name, so then the note does not show.
+- A dependency shows its state, the reason, and every import with file and line, the imported names and the imported file.
+- A file shows its owner, its imports grouped by target bucket, the files of other buckets that import it, and the pending violations in that file.
+- An export shows its name, its line in the public file and the files that import it, with their buckets.
+- A shift-click pair shows the paths between the two buckets. The first bucket stays, and another shift-click replaces the second.
 
-- **Remove a bucket.** Pick a bucket to see the contracts that break without it, the files that stop compiling, the buckets affected and the projects that link what it publishes.
-- **Route a symbol.** Pick a symbol from some bucket's `_/` code and the bucket that should use it. The answer lists the DMZ files needed at each level, through `.self` and `.parent`, marks the ones that already exist, and generates the re-export lines and the import with the real alias, ready to copy. It warns when the new edge would close a cycle.
-- **Change a published symbol.** Pick a symbol of a `.external.ts` file to see the other DMZ files of the project that pass it on, the code inside the project that uses it, and the projects that link it, with the files there that import the symbol. Those projects would see a `link-changed` difference for the new signature.
+A list longer than 50 items shows the first 50 and a "Show N more" button. Every `file:line` has a Copy button.
 
-<figure class="shot">
-  <img src="/img/inspect-impact.webp" width="1440" height="900" alt="The impact view routing the symbol query to the bucket web: one DMZ file to write, root/dmz/store/web.ts, highlighted on the map." loading="lazy">
-  <figcaption>Routing <code>query</code> from <code>store</code> to <code>web</code> needs one new DMZ file.</figcaption>
-</figure>
+## Live changes
 
-### Event feed
+The status at the right of the top bar reads "Live" while the page is connected and "Reconnecting…" when the connection drops. When a file changes, the server computes a new snapshot and sends it to the page. When the system cannot watch the folder, the command says so in the terminal, and only a reload shows changes.
 
-While the page is open, a watcher runs the check again after files change, with a short debounce, and pushes the result to the page. The feed lists what happened, tagged by project: a file changed in a bucket, a violation appeared or was resolved, a lock difference appeared or was approved, a nested project appeared or went away, a link changed. The page itself updates in place. Each update says which ids changed, so a page whose content stayed the same reloads only the feed. Long lists, such as the symbols of the trace or the contracts that break in a simulation, show their first rows and a Show more button for the rest.
+The page compares each snapshot with the one before and marks what changed since it opened: a new bucket, a dependency added, removed or with a new state, a new pending violation and a resolved one. The top bar counts the changes, and the panel with nothing selected lists them with links. In the views, a changed item gets a dot in the graph, an outline in the matrix and the pending list, and a `new` or `changed` tag in the lists and the panel. The "Mark changes seen" button, in the top bar or in the panel, clears every mark. The page keeps the marks in memory only, so a reload clears them too. This is not a history. The git log of `buckets.config.json` is the history.
 
-## Keyboard shortcuts
+While `buckets.config.json` does not parse, for example when it is half saved, a red banner names the errors and the page keeps showing the last valid architecture.
 
-Press `?` on the page for this list. Shortcuts do nothing while the focus is in a text field.
+## Keyboard
+
+The keys in the first part of the table work anywhere on the page except in a text field.
 
 | Key | Action |
 |---|---|
-| `/` | search a symbol |
-| `j` and `k` | next and previous item in the view |
-| `Enter` | open the item |
-| `m` | switch between map and matrix |
-| `g` | projects constellation |
-| `a` | pending approvals |
-| `t` | timeline of approvals |
-| `[` and `]` | previous and next approval on the timeline |
-| `p` | play or pause the timeline |
-| `i` | impact simulation |
-| `u` | up: parent bucket, then parent project |
-| `f` | map in fullscreen, and back |
-| `Esc` | close the panel or the help |
-| `?` | the help |
+| `/` | moves to the search |
+| `1` to `4` | switches to the graph, matrix, pending or files view |
+| `Esc` | clears the shift-click pair, then the selection; above 60 buckets the graph keeps a bucket selected |
+| `[` and `]` | lowers or raises the focus depth, up to 9; depth 0 is the whole graph, which only projects of 60 buckets or fewer have |
+| `c` | copies the selected bucket name or file path, the `file:line` of the selected export, or the `file:line` of the first import of the selected dependency |
 
-## Exports
+In the search, the up and down arrows move through the results, `Enter` opens one and moves to its details, and `Esc` closes the search. The bucket list, the file tree and the dependency table are one tab stop each: the arrows, `Page Up`, `Page Down`, `Home` and `End` move between rows, and `Enter` opens the row.
 
-The map has an Export row. Map as SVG downloads the map of the current project, and Bucket graph as Mermaid downloads a flowchart with every project, bucket and contract. The projects view offers the Mermaid file too. The same files come from the command line, without a server:
+In the graph:
 
-```sh
-buckets inspect --export svg > map.svg
-buckets inspect --export mermaid --out buckets.mmd
-```
+| Key | Action |
+|---|---|
+| left and right arrows | on a bucket, move to the next bucket in the same layer; on an edge, move to the next edge of the same bucket |
+| up and down arrows | on a bucket, move to the edge toward the nearest dependent or dependency; on an edge, move to its upper or lower bucket |
+| `Enter` or `Space` | selects the bucket or edge; with Shift on a second bucket, shows the paths |
+| Shift and an arrow | pans |
+| `+` or `=`, `-` | zoom in, zoom out |
+| `0` | fits the graph to the view |
 
-`--out <file>` writes the file instead of printing it. It refuses a lock file, also through a link, and a folder. An export reads the analysis cache but never writes it. In the Mermaid flowchart, each project is a subgraph, each bucket a subgraph inside its parent, and each DMZ file an edge labeled with its symbol count. The syntax stays simple so older Mermaid versions read it too.
+## URL
 
-### The page as one HTML file
+The hash holds the place the page shows: the view, the selection and the graph options, such as `#/graph/bucket/billing`, `#/matrix/edge/billing/payments`, `#/files/file/src/a.ts` or `#/graph?depth=2`. A selection is `bucket/<name>`, `edge/<from>/<to>`, `export/<bucket>/<name>` or `file/<path>`. A hash without a view opens the default view.
 
-`--export html` writes the whole page into one file that opens in any browser without a server. Send it to someone who does not have the project, attach it to a pull request, or publish it, as the [live demo](https://nicolascaous.github.io/slopbuckets/demo/) does with a generated project of about 300 buckets.
+The query string before the hash holds the options of the lists, such as `?sort=pending&by=bucket#/pending`. The page leaves out every option that has its default value.
 
-```sh
-buckets inspect --export html --out inspect.html
-```
+| Option | Place | Values |
+|---|---|---|
+| `depth` | hash | the focus depth, 0 to 9 |
+| `pair` | hash | two bucket names separated by a comma, for the paths between them |
+| `project` | hash | the path of a nested project; the root project is the default |
+| `filter` | query | the filter of the bucket list |
+| `sort` | query | `name`, `files`, `dependencies`, `dependents` or `pending` |
+| `by` | query | `rule` or `bucket`, the grouping of the pending view |
+| `pending` | query | the filter of the pending view |
+| `owner` | query | `all`, `bucket`, `ignored`, `unowned` or `overlap`, the Owner filter of the files view |
+| `path` | query | the path filter of the files view |
+| `table` | query | `1` shows the list of dependencies instead of the canvas matrix |
 
-Every view works in the file: the map with one level or every bucket, the labels of a selection, the tooltips and fullscreen, the matrix, traces, the bucket panels, projects, approvals, the timeline and the impact simulations. A line under the top bar says which project the snapshot shows, when it was taken and which version of buckets exported it. The file is a snapshot: it does not watch files and never changes.
+Each new selection or view adds a history entry, so the back button returns to the one before. Typing in a filter or changing the sort replaces the URL without a new entry. A reload or a copied link opens the same place while the server runs. The server picks a free port on each start, so a link from an earlier run does not work.
 
-- The view and the selection live in the URL hash, such as `inspect.html#view=matrix&bucket=root%2Fbilling`, so a link can open the file on a given view. The back button moves between the views you opened.
-- The file holds the snapshot, the stylesheets, the page script and the same renderers as the live page. Its Content-Security-Policy allows only its own inline scripts and styles, the two web fonts, and no requests. Offline, the page uses the system monospace fonts.
-- The timeline holds the approvals that git had when you exported. Without git history the timeline has no window in the top bar.
-- The path simulation of the impact view picks from the exports of every `_/` folder, read when you exported.
-- The Export row still downloads the SVG and the Mermaid file, which the browser builds from the snapshot in the file.
-- The file has no absolute folder of your computer: each project shows as its path in the repository. It has the names of buckets, files and symbols, the signatures of the symbols in contracts, and the authors and messages of the commits that changed a lock. Read it before you publish it.
+## Appearance
 
-The file grows with the project. For about 300 buckets it is 1.7 MB, about 240 KB when the server compresses it.
+The page follows the light or dark setting of the system. Text uses the system font, and bucket names, paths and code names use a monospaced font. Three colors carry meaning: blue for the selection, red for violations, and gray for everything else. The only animation is a 0.15 second fade of the graph's nodes and edges when the selection changes, and `prefers-reduced-motion` turns it off.
 
-## The JSON for agents
+## For agents and scripts
 
-`buckets inspect --json` prints the same state the page shows and exits, without a server:
+`buckets inspect --json` prints the snapshot the page loads and exits. The [Inspect snapshot](../reference/inspect) page describes it. The exports print without a server and exit.
 
-```sh
-buckets inspect --json > snapshot.json
-```
+| Flag | What it does |
+|---|---|
+| `--json` | prints the snapshot as JSON |
+| `--no-recursive` | keeps only the root project and leaves nested projects out, on the page and in every output |
+| `--export svg` | prints the layered graph of every project in one SVG, with a legend of the line styles |
+| `--export mermaid` | prints a Mermaid flowchart with the reasons on the edges |
+| `--export dot` | prints a Graphviz file with the reasons on the edges |
+| `--export html` | prints the whole page as one offline file with the snapshot inside; it does not update |
+| `--out <file>` | writes the export to the file instead of stdout; it works only with `--export` |
 
-The snapshot has every project with its buckets, DMZ files with their symbols, origins, chains, signatures and importers, the imports between buckets, cycles, orphan chains, violations with the same messages as the check, lock differences, links with the symbols each linked project publishes, and what each project publishes. A linked symbol that differs from the lock has a `change` field. Each bucket also lists `offers`, `consumes`, `dependsOn`, `dependents` and `rewriteCost`. An agent reads it to find the DMZ file a symbol already passes through, or the shortest path for a new one, instead of opening files one by one. The skill tells it to.
+## Security
 
-With `--export`, `--json` prints an object with the format, the file written and the text, plus the size of the SVG, the nodes and edges of the Mermaid graph, or the bytes of the HTML file. Every field is on the [Inspect snapshot](../reference/inspect) page.
+The server listens on `127.0.0.1` only and answers only GET and HEAD requests. It refuses a request whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`, which stops DNS rebinding, and a request whose `Origin` header names another origin. It also refuses requests for data that the browser marks as cross-site, so another site open in the same browser cannot read the project. A link from another site still opens the page. Every response carries a Content Security Policy that allows scripts and requests only from the server itself and forbids other pages from framing it.

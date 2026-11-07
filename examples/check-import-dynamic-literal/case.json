@@ -1,0 +1,7 @@
+{
+  "description": "import() with a string literal counts as a normal import of the names it destructures",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

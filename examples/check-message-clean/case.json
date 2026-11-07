@@ -1,0 +1,10 @@
+{
+  "description": "the text output of a clean check is one line",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 0,
+    "message": "buckets check: no structure violations."
+  }
+}

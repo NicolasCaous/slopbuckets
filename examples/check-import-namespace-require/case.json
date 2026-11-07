@@ -1,0 +1,23 @@
+{
+  "description": "require() of another bucket without destructuring gives import-namespace",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-namespace",
+        "file": "src/app/legacy.cjs",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "import-namespace",
+          "from": "app",
+          "to": "billing",
+          "form": "require"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "description": "Claude Code: a stop that blocks shows the advice after the violations, and advice alone never blocks",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git apply ../utils.patch",
+          "description": "Run a command"
+        },
+        "tool_use_id": "toolu_51"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "block",
+        "messageIncludes": [
+          "src/utils/date.ts: in no bucket and not ignored",
+          "buckets advice: 1 note on the config. Advice does not fail the check or block the turn.",
+          "buckets.app.dependsOn.billing: \"Uses billing\" only names a bucket and a generic verb",
+          "fix config: say what app takes from billing and why, so the next agent can judge the dependency"
+        ]
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/utils/date.ts": null
+      },
+      "payload": {
+        "session_id": "s-claude-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git rm src/utils/date.ts",
+          "description": "Remove the file"
+        },
+        "tool_use_id": "toolu_52"
+      },
+      "expect": {
+        "exitCode": 0
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

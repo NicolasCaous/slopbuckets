@@ -19,419 +19,301 @@
   <a href="https://www.npmjs.com/package/slopbuckets"><b>npm</b></a>
 </p>
 
-slopbuckets splits a project into sealed folders called buckets. Inside a bucket, the AI writes whatever it wants. Between buckets, every import goes through a contract file in a `dmz/` folder, and a human approves every change to those contracts.
+slopbuckets is a CLI for TypeScript and JavaScript projects that AI agents edit. The architecture of the project lives in one file, `buckets.config.json`. It lists the buckets, which are groups of files with one job each, what each bucket does, which buckets and npm packages each one imports, and a one-line reason for every one of those imports. Hooks in the coding agent stay silent while the code follows the file. When an edit makes the code diverge, the hook shows the agent the problem with two fixes, one in the code and one in the config.
+
+Both fixes are valid, and no human approves anything. The agent picks the fix that fits its task and writes down why, and the next agent reads that reason before it changes the same code.
 
 ```sh
 npm install -g slopbuckets
 ```
 
+## What it is and what it is not
+
+slopbuckets is:
+
+- one JSON file that holds the whole architecture explicitly, with no defaults, tags or wildcards;
+- hooks for 17 coding agents that check each edit while the agent works, and a `buckets check` command for CI and a git pre-commit hook;
+- a record of decisions. The git history of `buckets.config.json` is the history of the architecture, with a reason on every line.
+
+slopbuckets is not:
+
+- an ESLint plugin. It does not run in the editor or in `eslint`, and it does not replace your linter;
+- a gate that humans control. An agent may change the architecture as freely as the code. If you want a person to own the rules, see [if you know another tool](https://nicolascaous.github.io/slopbuckets/docs/guide/coming-from.html);
+- a tool that writes the config for you. `buckets init` writes an empty config, and your agent designs the buckets;
+- a check of coupling without imports. Two buckets that share a database table pass the check.
+
 ## Why
 
-An AI agent solves each task by the shortest path, and the shortest path is usually an import from some other part of the project. After a few hundred tasks, every module depends on every other module.
+An AI agent solves each task by the shortest path, and the shortest path is usually an import from some other part of the project. After a few hundred tasks, every module depends on every other module, and nobody remembers why.
 
-Code review does not catch this, because each import looks reasonable on its own. slopbuckets moves the boundaries out of review and into a check that fails the build. A human owns the dependency graph. The AI owns the code inside each node.
+The next agent has no way to tell a decision from an accident. It reads the code, sees an import from `billing` into `log` and copies the pattern. slopbuckets writes the decisions down where every agent reads them, with a purpose for each bucket and a reason for each dependency. The hooks keep the code and that file in agreement, so the file stays true.
 
-Because the contracts are fixed, the code inside a bucket is disposable. If a bucket turns into a mess, you can delete its code and have the AI rewrite it from the contracts.
+## How other tools differ
 
-Here an agent imported the logger from another bucket instead of going through the DMZ. `buckets check` stops it, and the report tells the agent how to fix it:
+[Nx module boundaries](https://nx.dev/features/enforce-module-boundaries), [eslint-plugin-boundaries](https://github.com/javierbrea/eslint-plugin-boundaries), [Sheriff](https://github.com/softarc-consulting/sheriff) and [dependency-cruiser](https://github.com/sverweij/dependency-cruiser) also check which part of a TypeScript project may import which. They differ from slopbuckets in three ways:
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/check-fail.svg" width="792" alt="Terminal output of buckets check, exit code 1. In root/billing/invoices/_/create-invoice.ts, line 1 breaks import-forbidden because it imports root/log/_/logger.ts directly, and line 2 breaks import-relative. The logger contract in the DMZ is now unused, so the check also reports a dmz-orphan chain. The summary reads 4 violations in 3 files.">
-</p>
+| | Nx, boundaries, Sheriff, dependency-cruiser | slopbuckets |
+|---|---|---|
+| Rules | Patterns, tags or regular expressions, where one rule covers many imports | One entry per pair of buckets and per package, each with a reason |
+| Who changes the rules | A human, usually through code review of the rules file | The agent, as an answer to the hook, with no approval |
+| When it reports | In the editor, in `eslint` or in CI, after the code is written | In the agent at each edit and at the end of each turn, and in CI |
+
+None of these tools asks for a reason per dependency, and none tells the agent that changing the rules is a valid fix. [If you know another tool](https://nicolascaous.github.io/slopbuckets/docs/guide/coming-from.html) maps the concepts of each one to slopbuckets and says when to keep the tool you have.
 
 ## How it works
 
 ### Buckets
 
-The root of the project is a bucket called `root`. Each bucket contains only three kinds of things:
-
-- `_/`, the bucket's own code, where the AI can create any files and folders
-- `dmz/`, the contracts between its children, present when the bucket has children
-- child buckets
-
-```
-root/
-  dmz/
-  _/                main.ts, app.module.ts
-  log/
-    _/
-  billing/
-    dmz/
-    _/              billing.module.ts
-    invoices/
-      _/
-    payments/
-      _/
-buckets.config.json
-buckets.lock.json
-```
-
-The tree is two levels deep by default. You can change the limit in the config.
-
-### DMZ
-
-Inside `P/dmz/`, the folder is the provider and the file is the consumer. `dmz/sql/http.ts` lists everything `http` takes from `sql`. Two names are reserved:
-
-- `.self` is the bucket's own code in `P/_/`
-- `.parent` is what `P` receives from the level above
-
-| File in `billing/dmz/` | Meaning |
-|---|---|
-| `payments/invoices.ts` | what `invoices` takes from `payments` |
-| `.self/invoices.ts` | what `invoices` takes from `billing/_` |
-| `invoices/.self.ts` | what `billing/_` takes from `invoices` |
-| `.parent/invoices.ts` | what `invoices` takes from outside `billing` |
-| `invoices/.parent.ts` | what `invoices` exposes outside `billing` |
-
-A DMZ file can only re-export named symbols. Every internal import goes through the project's alias, which `buckets init` generates as `@<root folder>-<8 characters>`. Here the alias is `@root-k3x9pm2a`, and `invoices` gets the logger from `log`:
-
-```ts
-// root/dmz/log/billing.ts
-export { logger } from '@root-k3x9pm2a/log/_/logger';
-
-// root/billing/dmz/.parent/invoices.ts
-export { logger } from '@root-k3x9pm2a/dmz/log/billing';
-
-// root/billing/invoices/_/create-invoice.ts
-import { logger } from '@root-k3x9pm2a/billing/dmz/.parent/invoices';
-```
-
-Each hop is one file. To find out what a bucket uses, open its DMZ files. The [concepts guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html) walks through every case.
-
-### Lock
-
-`buckets.lock.json` records the last state a human approved: the bucket tree, the whole config, every DMZ file, the type signature of every symbol a DMZ file exports, the nested projects, and each link with the signatures of the symbols the linked project publishes. If the AI changes the signature of an exported function without touching any DMZ file, the signature hash changes and the check fails. Because the lock keeps the config itself and not only its hash, the review of a config change shows each `access` or `layout` line added or removed and every other value that changed.
-
-Here the agent added a parameter to `createInvoice` and a new DMZ file. Every rule passes, so the check exits with 2 and waits for a human:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/check-lock.svg" width="792" alt="Terminal output of buckets check, exit code 2. Under Lock differences it lists dmz-added for root/billing/dmz/.parent/payments.ts and signature-changed for createInvoice in root/billing/dmz/invoices/.self.ts. The summary reads 2 lock differences and tells the agent to run buckets refresh --web in the background and send the link to the human.">
-</p>
-
-Every kind of lock difference is listed in the [lock reference](https://nicolascaous.github.io/slopbuckets/docs/reference/lock.html).
-
-## Commands
-
-Each command below runs as `buckets <command>`.
-
-| Command | Who runs it | What it does |
-|---|---|---|
-| `init [--yes]` | a human, once per project | writes the config with a unique alias, `root/_/`, the alias in `tsconfig.json`, the hooks of your coding agent, the rules in `AGENTS.md` and the skill. It never writes the lock |
-| `init --agent <names>` | a human | installs the hooks of these agents instead of Claude Code, such as `--agent codex,cursor`, or `--agent auto` for every agent whose folder is in the project |
-| `init --git-hook` | a human | also installs a git pre-commit hook that runs `buckets check` |
-| `check` | the AI, the hooks and CI | checks every rule and compares the project with the lock, in this project and every nested one |
-| `check --json` | scripts and CI | prints the same check as a JSON report |
-| `check --file <path>` | the agent hook after an edit | checks one file, cycles included, without the orphan rule and the lock |
-| `refresh` | a human, in a terminal | shows every change since the last approval, asks for confirmation and writes the lock, project by project |
-| `refresh --web` | the AI, in the background | serves the same review on `127.0.0.1` and writes the lock after a human types the page's code in a window of the operating system |
-| `inspect` | anyone | serves a read-only page with the map, the DMZ matrix and the pending approvals, updated while files change |
-| `inspect --json` | the AI | prints the same state as JSON and exits |
-| `inspect --export svg\|mermaid\|html` | anyone | prints the map as SVG, the bucket graph as a Mermaid flowchart or the whole page as one HTML file. `--out <file>` writes a file |
-| `link add <name> <folder>` | the AI | links the source of another project into `<bucket>/_/links/<name>/`, as a junction or symlink to its root folder, or with `--copy` as a copy of the files its `.external.ts` files reach. It adds the project's alias to `tsconfig.json` and prints the settings for a bundler |
-| `link sync` | anyone, after a clone and in CI | recreates every link in `buckets.links.json` that is missing |
-| `link update [name]` | the AI | copies the origin of links in copy mode again |
-| `link remove <name>` | the AI | deletes a link, its entry in `buckets.links.json` and its entries in `tsconfig.json` |
-| `update [<version>]` | a human | installs the latest slopbuckets, or the given version, the way the running CLI was installed: globally with npm, pnpm, yarn, bun or Volta, or as a project dependency. A global npm install gets `--prefix` with the prefix of the running CLI. It asks first in a terminal, and without one it installs only with `--yes`. Afterwards it reads the version on disk and exits with 1 when the copy did not change |
-| `update --check` | anyone | prints the installed and latest versions and the install command, and installs nothing. `--json` prints them as JSON |
-| `hook <event>` | Claude Code | runs a hook: `pre-tool-use`, `post-tool-use`, `stop` or `subagent-stop` |
-| `hook --agent <name> <event>` | another agent | runs a hook of that agent, reading and writing its own JSON format |
-
-`buckets check --no-recursive` skips the nested projects. Every option and message is in the [CLI reference](https://nicolascaous.github.io/slopbuckets/docs/reference/cli.html).
-
-When the npm registry has a newer slopbuckets, every command except `hook`, `check --file` and `update` first prints one line on stderr, such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` `buckets check --json` also puts it in its `update` field. The CLI asks the registry of `npm_config_registry` at most once a day, keeps the answer in the cache folder of the operating system, and never asks when `CI` or `SLOPBUCKETS_NO_UPDATE_CHECK=1` is set. The notice never changes an exit code. The agent hooks deny an agent's `buckets update` without `--check` or `--json`, so the agent tells the human the version instead.
-
-## Approving a change
-
-The AI can edit any file, DMZ files included. It cannot edit the lock or `buckets.config.json`, which a human owns. When the AI changes a contract, `buckets check` exits with 2 until a human approves the change. In an agent session the approval goes through `buckets refresh --web`:
-
-1. The agent runs `buckets refresh --web` in the background, and may redirect its output to a log file. The command refuses to start while a rule is broken. It prints the changes and, on its last line, a link to a page on `127.0.0.1`.
-2. The agent sends the link to the human with a summary of what changed and why, and waits for the command to finish.
-3. The page lists the changes to buckets, DMZ files, symbols, signatures, nested projects, links, the config and the versions, and shows a 6-character confirmation code for that state.
-4. The human clicks Approve. A window of the operating system lists the same changes and asks for the code. The lock is written only if the typed code matches the state of the project at that moment.
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/refresh-web.svg" width="1280" alt="The review page of buckets refresh --web in a green CRT monitor. It lists 2 contract changes of the project acme and shows a 6-character confirmation code. In front of it, the confirmation window of the operating system lists the same two DMZ changes, and the human has typed the same code before clicking Approve.">
-</p>
-
-The agent has the link, but it cannot type into that window. If the project changes after the page loaded, the page still shows the old code and the approval fails. With nested projects, the page has one section per project and each one is approved on its own.
-
-`buckets refresh --web` exits with 0 after an approval or when nothing waits for one, and with 1 after a cancel, a partial approval, 30 minutes without activity on the page or 2 hours in all. Over SSH, in a container or on a machine without a desktop it refuses at the start, and the human runs `buckets refresh` in a terminal instead. A human can always approve that way. More in [The approval flow](https://nicolascaous.github.io/slopbuckets/docs/guide/approval.html) and [Who runs which command](https://nicolascaous.github.io/slopbuckets/docs/guide/commands.html).
-
-### Exit codes
-
-`buckets check` exits with:
-
-| Code | Meaning | What the AI does |
-|---|---|---|
-| 0 | everything passes | continues |
-| 1 | a rule is broken | fixes it |
-| 2 | the rules pass, but the project differs from the lock | runs `buckets refresh --web` and sends the link to a human |
-| 3 | environment problem, such as a CLI version that differs from the lock | stops and tells the human |
-
-With nested projects, the check exits with the most serious code of any project, in the order 3, 1, 2, 0. A broken rule together with a lock difference gives 1, because the AI fixes the rule before it asks for approval.
-
-## What the check enforces
-
-Folders:
-
-- A bucket holds only `_/`, `dmz/` and child buckets. Every bucket has a `_/`, a bucket without children has no `dmz/`, and a bucket name cannot start with `.`.
-- Symlinks and junctions inside the root folder fail. The only exception is a link registered with `buckets link add`.
-- A new bucket folder needs human approval, like any contract change.
-
-DMZ files:
-
-- A DMZ file sits at `dmz/<provider>/<consumer>.ts`, where both names exist.
-- It contains only `export { name } from` and `export type { Name } from` statements. Renames, `export *`, default exports, imports and local declarations fail.
-- Each re-export points only where that DMZ file may reach, one level per file, and never into a nested project.
-- Every DMZ symbol is used by some `_/` code. Importing it without referencing it does not count, and neither does re-exporting it from `_/` unless another file of the same bucket imports it from there and references it. When a chain of re-exports ends unused, the check reports the whole chain in one run. An empty DMZ file fails too.
-
-Imports:
-
-- Every internal import uses the project's alias. Relative imports fail.
-- Code in `X/_/` imports only from `X/_/`, from DMZ files where `X` is the consumer, from packages in `package.json` and from Node built-ins. An import that resolves to nothing fails.
-- Code reaches a linked project only through its `.external` files. An import of any other file of the link fails.
-- `import()`, `require()`, `createRequire`, `import.meta.glob` and `import * as` from a DMZ file fail. `vi.mock`, `jest.mock` and `new URL('...', import.meta.url)` follow the same rules as an import of their string.
-- Code cannot be shared without imports. Files that are not modules, `declare global`, `export as namespace` and `/// <reference>` fail. `declare module '<alias>/...'` counts as an import of that file. Ambient declaration files such as `vite-env.d.ts` belong outside the root folder.
-- JavaScript files in `_/` are checked like TypeScript files.
-
-Graph and project:
-
-- The bucket graph has no cycles. Circular imports inside a single bucket are allowed.
-- `noUnusedLocals` stays on and the alias stays in `tsconfig.json`, so an unused import cannot count as a use.
-- Every project has its own `tsconfig.json`, which covers its root folder and leaves its nested projects out.
-- A `buckets.config.json` inside the root folder lives only in a subfolder of a bucket's `_/`, and its alias differs from the alias of every enclosing project.
-- Every link in `buckets.links.json` is on disk. Every package the linked files import resolves for type checking in this project and, for a junction or symlink, at runtime in the linked project.
-- The project matches the lock. Changed contracts, signatures, buckets, nested projects, links or config give exit code 2.
-
-Access, when the config has an `access` key:
-
-- Each import between buckets passes the `access` lines of `buckets.config.json`, such as `"root/teams/** -> root/sql"`. A line reads "code in this bucket uses code declared in that bucket", whatever DMZ files the symbol passes through.
-- The most specific matching line decides, and `default` decides when no line matches. A pattern with more literal bucket names is more specific, and where a segment sits does not matter. When an allow line and a deny line both match and neither is more specific than the other on both sides, the import is `access-ambiguous` until a human adds a more specific line.
-- A side of a line without wildcards names a bucket that exists, so renaming that bucket fails the check.
-
-The [access rules guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) has a worked example.
-
-Layout, when the config has a `layout` key:
-
-- Each bucket folder passes the `layout` lines of `buckets.config.json`, such as `"root/*/*"`. Each line is one pattern over bucket paths, and the most specific matching line decides, as for access.
-- A bucket also passes when no deny line matches it and an allow line can match a bucket below it, so `"allow": ["root/gpu/*"]` lets `root` and `root/gpu` exist too.
-- A folder that fails is `layout-denied`, or `layout-ambiguous` when an allow line and a deny line tie. `buckets init` writes `"allow": ["root/*/*"]` under `"default": "deny"`, so a new project allows buckets two levels below the root.
-
-The [layout guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#layout) has an example.
-
-Access and layout lines use the same patterns over bucket paths. Each pattern starts with the root path or with `**`:
-
-| Pattern | Matches | Example |
-|---|---|---|
-| `**` | zero or more bucket names | `root/teams/**` matches `root/teams` and every bucket below it |
-| `*` | any characters inside one name | `root/team-*` matches `root/team-a` |
-| `{a,b}` | one of the alternatives, separated by commas, never by `\|` | `root/{api,web}` matches `root/api` and `root/web` |
-| `{{a,b}}` | one of the alternatives, and the `{{...}}` groups of one name match values that never decrease | `root/{{A,B,C}}+{{A,B,C}}` matches `root/A+A` and `root/A+B`, not `root/B+A` |
-| `<a,b>` | one of the alternatives, and the `<...>` groups of one name match different values | `root/<A,B,C>+<A,B,C>` matches `root/A+B` and `root/B+A`, not `root/A+A` |
-| `<<a,b>>` | one of the alternatives, and the `<<...>>` groups of one name match values in strictly increasing order | `root/<<A,B,C>>+<<A,B,C>>` matches `root/A+B`, `root/A+C` and `root/B+C`, not `root/B+A` |
-| `` `name` `` | the values the script `name` of `scripts` prints, as one value of a group or, alone, as `` {`name`} `` | `` root/{shared,`repos`} `` matches `root/shared` and each repository name that `repos` prints |
-
-The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right:
-
-| | Repeats allowed | No repeats |
-|---|---|---|
-| Any order | `{a,b}` | `<a,b>` |
-| Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
-
-The sorted kinds compare values by character code, so uppercase letters sort before lowercase ones. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and `{...}` mixes with any of them. Those three list exact values, without `*`. Groups never nest.
-
-A script lists names that change often, such as the repositories of a team. `"scripts": {"repos": "tools/repos.mjs"}` maps the name to a Node script, and the check runs it as `node tools/repos.mjs` in the project folder, once per check, with a 10 second timeout. The script prints one bucket name per line, for example the names it reads from `repos.json`. Inside a group, `` `repos` `` is one value between commas, and its values follow the rules of that group. A failing script, an empty output or an invalid name is `config-invalid`. The lock stores the output, so a new value is a `config-changed` difference that a human approves. The [scripts guide](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#scripts) has the details.
-
-Every rule id, with what it means and how to fix it, is in the [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html).
-
-## Inspect
-
-`buckets inspect` serves a read-only page on `127.0.0.1` with the state of the project. It never writes to the project and never approves anything, so the AI may run it at any time. The page has these views:
-
-- a map of the buckets as nested boxes, green when they pass, amber when they differ from the lock and red when they break a rule
-- a DMZ matrix per level, with the symbols and signatures of each contract
-- a symbol trace from the origin through every re-export to each file that imports it
-- a panel per bucket with what it offers and consumes, who depends on it and its rewrite cost
-- the nested projects and their links, the pending approvals and a live feed of events
-- a timeline of approvals read from the git history of `buckets.lock.json`, and an impact view that shows which contracts break if a bucket goes away
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/inspect.svg" width="1280" alt="The read-only buckets inspect page in a green CRT monitor. The map draws the buckets of the project acme as nested boxes: root, billing with invoices and payments, and log. billing is amber because its contracts differ from the lock, and payments holds the nested project payment-gateway. A side panel counts the buckets, contracts, symbols and violations and links to 2 differences to approve.">
-</p>
-
-Try the [live demo](https://nicolascaous.github.io/slopbuckets/demo/), the page of a generated project with about 300 buckets, exported with `buckets inspect --export html`.
-
-`buckets inspect --json` prints the same state for an agent: buckets with what they offer and consume, contracts with the origin, chain, signature and importers of each symbol, violations and lock differences. `buckets inspect --export svg` and `--export mermaid` print the map and the bucket graph without a server, and `--export html` prints the whole page as one file that works offline. See the [inspect guide](https://nicolascaous.github.io/slopbuckets/docs/guide/inspect.html) and the [snapshot reference](https://nicolascaous.github.io/slopbuckets/docs/reference/inspect.html).
-
-## Projects and links
-
-A folder inside a bucket's `_/` that has its own `buckets.config.json` is a nested project, with its own root folder, alias, lock, rules and `tsconfig.json`. Run `buckets init` in that folder to create one. It adds the folder to `exclude` in the `tsconfig.json` of the enclosing project, which does not scan or compile the nested one. `buckets check` checks the current project and every nested one, each against its own lock.
-
-Projects share code through links. A link works like a git submodule: it brings the source of another project into a bucket, and the consuming project compiles and runs that code with its own tools. Values and types both cross a link.
-
-The project `api`, with the alias `@root-h4vq8sne`, publishes what other projects may import in `<parent>/dmz/<bucket>/.external.ts`, with the same syntax as any DMZ file:
-
-```ts
-// api/root/dmz/server/.external.ts
-export { handle } from '@root-h4vq8sne/server/_/router';
-export type { AppRouter } from '@root-h4vq8sne/server/_/router';
-```
-
-The project `web` links `api` into its bucket `frontend`:
-
-```sh
-cd web/root/frontend
-buckets link add api ../../../api
-```
-
-The command places the root folder of `api` in `root/frontend/_/links/api/`, as a junction or symlink kept out of git. With `--copy`, it copies the `.external.ts` files of `api` and every file they import, and you commit the copy. The command also:
-
-- records the link in `buckets.links.json`
-- maps `@root-h4vq8sne/*` to the link folder in `compilerOptions.paths` of `tsconfig.json`
-- adds the link folder to `exclude`, so that `tsc` compiles only the linked files the code imports
-- prints the alias settings for any Vite, Next or webpack config it finds, without editing that config
-
-Code in `frontend` then imports `api` through its alias and its `.external` files:
-
-```ts
-// web/root/frontend/_/client.ts
-import { handle, type AppRouter } from '@root-h4vq8sne/dmz/server/.external';
-```
-
-Each project needs its own alias, and `buckets link add` refuses two linked projects with the same one. The packages the linked files import must resolve where each tool looks for them. `tsc` looks in the consuming project. With a junction or symlink, Node and bundlers follow the link and load the packages from the linked project at runtime, so install them in both projects. With a copy, both look in the consuming project.
-
-A new or removed link, and a published symbol that was added, removed or changed its signature, are lock differences that the consuming project's human approves. A change inside `api` that keeps the published signatures needs no approval. After a clone, `buckets link sync` recreates the links that git does not hold. More in [Projects and links](https://nicolascaous.github.io/slopbuckets/docs/guide/projects-and-links.html) and the [links registry reference](https://nicolascaous.github.io/slopbuckets/docs/reference/links.html).
-
-## Works with your agent
-
-`buckets init` sets up Claude Code by default. Pass `--agent <name>` for another agent, a list such as `--agent codex,cursor` for several, or `--agent auto` for every agent whose folder is already in the project:
-
-```sh
-buckets init --agent auto
-```
-
-Every agent also gets the rules in a block of `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`. On top of that, the hooks of each agent enforce up to three things: the lock guard refuses a write to the lock, a plain `buckets refresh` and a `buckets update` that installs, edit feedback hands the `buckets check --file` report to the model after each edit, and the turn check blocks the end of a turn while `buckets check` fails.
-
-| Agent | `--agent` | Lock guard | Edit feedback | Turn check |
-|---|---|---|---|---|
-| [Claude Code](https://nicolascaous.github.io/slopbuckets/docs/guide/claude-code.html) | `claude` | yes | yes | yes |
-| [Codex CLI](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/codex.html) | `codex` | yes | yes | yes |
-| [Cursor](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/cursor.html) | `cursor` | yes | partial | yes |
-| [Gemini CLI](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/gemini.html) | `gemini` | yes | yes | yes |
-| [GitHub Copilot](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/copilot.html) | `copilot` | yes | yes | yes |
-| [Factory Droid](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/factory.html) | `factory` | yes | yes | yes |
-| [Qwen Code](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/qwen.html) | `qwen` | yes | yes | yes |
-| [Auggie](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/auggie.html) | `auggie` | yes | yes | yes |
-| [Devin Desktop](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/devin.html) | `devin` | yes | partial | yes |
-| [OpenCode](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/opencode.html) | `opencode` | yes | yes | partial |
-| [Pi](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/pi.html) | `pi` | yes | yes | yes |
-| [Amp](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/amp.html) | `amp` | yes | yes | yes |
-| [Cline](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/cline.html) | `cline` | partial | yes | no |
-| [Windsurf](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/windsurf.html) | `windsurf` | yes | no | no |
-| [Kiro](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/kiro.html) | `kiro` | partial | no | no |
-| [Goose](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/goose.html) | `goose` | yes | no | yes |
-| [Crush](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/crush.html) | `crush` | yes | no | no |
-| [Zed](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/zed.html) | `zed` | partial | no | no |
-| [Aider](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/aider.html) | `aider` | no | partial | no |
-| [Continue](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/continue.html) | `continue` | no | no | no |
-
-Every hook fails open. On a machine without the `buckets` command, the agent's calls go through and no check runs. `buckets init --git-hook` and `buckets check` in CI hold the rules for every agent, and for an agent that is not in the list. The [supported agents page](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/) explains each partial and links to a page per agent.
-
-### Claude Code
-
-`buckets init` installs a skill that teaches the agent the rules, and four hooks:
-
-| Hook | What it does |
-|---|---|
-| `PreToolUse` | denies writes to any `buckets.lock.json` or `buckets.config.json`, shell commands that name either file and any `buckets refresh` without exactly the `--web` flag, even in bypass permission mode. It allows `buckets refresh --web` in the background with its output redirected, piped to `tee` or under `nohup`, unless the redirect writes to the lock |
-| `Stop` | runs `buckets check` on every project before the agent ends its turn |
-| `SubagentStop` | runs `buckets check` before a subagent hands back its work |
-| `PostToolUse` | checks each edited file and reports a forbidden import right away |
-
-When the check exits with 2, the skill tells the agent to run `buckets refresh --web` in the background, send the link with a summary, and wait. A nested `buckets init` skips the hooks and the skill, because the enclosing project's hooks cover it. In a session opened in a folder above several projects, with the hooks in that folder's or your user settings, each hook works on the project of the file or command, and `Stop` checks only the projects the session touched. See the [Claude Code guide](https://nicolascaous.github.io/slopbuckets/docs/guide/claude-code.html) for the details of each hook.
-
-## Install
-
-```sh
-npm install -g slopbuckets
-cd your-project
-buckets init       # config, root/_/, tsconfig alias, agent hooks, AGENTS.md and skill
-buckets refresh    # you approve the initial state and create buckets.lock.json
-```
-
-To let a coding agent do the setup, paste "Install slopbuckets in this project. Read https://nicolascaous.github.io/slopbuckets/llms.txt and follow the steps for agents." The agent follows [llms.txt](https://nicolascaous.github.io/slopbuckets/llms.txt) and asks you to approve the first lock.
-
-`buckets init` sets up Claude Code unless you pass `--agent`, as [Works with your agent](#works-with-your-agent) shows. It edits the `tsconfig.json` of the project folder, so create one first. A nested project needs its own too. `buckets init` also generates a unique alias such as `@root-k3x9pm2a`, so that projects that link each other never share one. It asks before it uses it, and `--yes` takes it as is.
-
-`buckets init` never writes the lock. Only a human approves a state, with `buckets refresh` in an interactive terminal or in the confirmation window that `buckets refresh --web` opens.
-
-Once a human has approved the state, `buckets check` passes:
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/check-pass.svg" width="792" alt="Terminal output of buckets check, exit code 0: All bucket rules pass and the state matches buckets.lock.json.">
-</p>
-
-The CLI is a global install because it is meant to support more languages than TypeScript. Each project pins the CLI version in its lock, and `buckets check` refuses to run with a different version. After `buckets update`, a human runs `buckets refresh` in each project to approve the new version, or runs `buckets update <version>` to install the version a lock asks for.
-
-## CI
-
-Install the CLI version the lock asks for. When the project uses links, run `buckets link sync` before the build. A link made as a junction or symlink is not in git, and the build compiles the linked source. For such a link, the linked project also needs its dependencies installed, because Node and bundlers load its packages from there:
-
-```sh
-npm ci
-npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") link sync    # only with links
-npm run build
-npx slopbuckets@$(node -p "require('./buckets.lock.json').cli") check
-```
-
-`link sync` cannot recreate a link to a project outside the repository, so use `--copy` for those. The [CI guide](https://nicolascaous.github.io/slopbuckets/docs/guide/ci.html) has a GitHub Actions workflow, and the [report reference](https://nicolascaous.github.io/slopbuckets/docs/reference/report.html) describes the JSON output.
-
-## Config
+A bucket is a set of files with one job, matched by globs. A glob that starts with `!` leaves files out. Every file is in exactly one bucket or in `ignore`, the list of files outside the architecture, such as tests and scripts.
 
 ```json
 {
-  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",
-  "adapter": "ts",
-  "root": "root",
-  "alias": "@root-k3x9pm2a",
-  "layout": {
-    "default": "deny",
-    "allow": ["root/*/*"]
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": ["**/*.test.ts", "scripts/**"],
+  "projects": ["packages/sdk"],
+  "buckets": {
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": ["src/billing/**", "!src/billing/stripe/**"],
+      "public": "src/billing/index.ts",
+      "dependsOn": {
+        "payments": "Charges go through the gateway",
+        "log": "Logs failed charges with the invoice id"
+      },
+      "packages": {
+        "zod": "Validates the invoice payloads of the public API"
+      }
+    },
+    "payments": {
+      "purpose": "Talks to the payment gateway",
+      "files": ["src/payments/**"],
+      "public": "src/payments/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    }
   }
 }
 ```
 
-| Field | Default | Meaning |
+Each bucket has five required fields: `purpose`, `files`, `public`, `dependsOn` and `packages`. `version` is the version of the config format, and `projects` lists the folders of nested projects, each with its own config.
+
+### Public files
+
+`public` names the files other buckets may import: one path, a list of paths, or `null`. A public file holds only named re-exports, such as `export { charge } from './client'`, so it shows the whole interface of the bucket, and the rest of the bucket can change without breaking anyone. Use a list when a bucket has separate entries, such as a server entry and a client entry. `"public": null` declares a bucket that exports nothing, such as an app entry point.
+
+### Dependencies and packages
+
+`dependsOn` lists the buckets a bucket may import, and `packages` lists every npm package and Node built-in it imports, such as `zod` or `node:fs`. Every entry has a one-line reason. There is no wildcard and no default, so a `log` bucket used by 50 buckets needs 50 entries, and each one says why. A dependency or package that no file imports is reported too, so a stale reason never stays in the file. A cycle in `dependsOn` is a violation, and since code can only follow declared dependencies, the code has no cycles between buckets either.
+
+### Hooks
+
+`buckets init` installs hooks in your coding agent. Before each edit, the hook simulates the edit in memory and checks it against the config. With nothing to report it prints nothing, so a session that follows the config costs no tokens. When the edit diverges, the hook adds the pending list to the agent's context. Here an agent wrote `src/billing/refund.ts` with an import of a private file of `payments`:
+
+```text
+buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check
+
+[NEW]
+billing -> payments: private file
+  src/billing/refund.ts:1 imports charge from src/payments/client.ts
+  payments public: src/payments/index.ts
+  fix code: import from src/payments/index.ts instead
+```
+
+A few edits into a session, the list can hold three sections. The same agent then added a file in no bucket, and then rewrote `refund.ts` to import `payments` through its public file and to import `log`, which `billing` does not declare. The image is the real hook output for that third edit:
+
+<p align="center"><img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/hook-warning.svg" width="934" alt="The pending list of the third edit: under [NEW], billing -> log: undeclared dependency in full, with both purposes, the reason app gives for its own dependency on log, the choose one fix line and the fix code and fix config lines; under [OLD], src/utils/date.ts: in no bucket; under [RESOLVED], billing -> payments: private file (src/billing/refund.ts:1)."></p>
+
+The list shows before every later tool call until it is empty. A new violation shows in full once, then as a one-line reminder under `[OLD]`, and a fixed one shows once under `[RESOLVED]`. At the end of the turn, the stop hook runs the full check and blocks once if anything is left.
+
+## The loop
+
+1. The hook warns. An agent writes an import that the config does not allow, and the pending list says so, with both fixes.
+2. The agent decides. It knows the task, so it knows whether the import is a mistake or a sign that the architecture should change. The hook never prefers one answer.
+3. The agent writes the reason. If it keeps the import, it declares the dependency with a one-line reason, such as `"log": "Logs failed charges with the invoice id"`.
+
+Months later, a third agent opens the config, reads that reason and knows why `billing` depends on `log`.
+
+## Quick start
+
+```sh
+npm install -g slopbuckets
+cd your-project
+buckets init
+```
+
+`init` prints what it set up. In a git repository with a `tsconfig.json`:
+
+```text
+Setting up slopbuckets in /home/you/your-project
+
+  + Created buckets.config.json with no buckets
+  + Created .gitignore with .buckets/
+  + Installed Claude Code hooks in .claude/settings.json (PreToolUse, Stop, SubagentStop, PostCompact)
+  + Installed the skill in .claude/skills/slopbuckets/SKILL.md
+  + Created AGENTS.md with the slopbuckets rules for every agent
+  + Installed the skill for other agents in .agents/skills/slopbuckets/SKILL.md
+  + Created .gitattributes so git merges buckets.config.json with buckets merge-driver
+  + Set merge.slopbuckets.driver in the git config of this clone. Each clone needs it once: run `buckets init` there too.
+
+Next: let your agent design the buckets in buckets.config.json. Every file starts as unowned, and `buckets check` lists them grouped by folder.
+
+Paste this prompt into your coding agent:
+
+  slopbuckets is set up in this project. Build its first architecture as the section "The first architecture after buckets init" of .agents/skills/slopbuckets/SKILL.md says, and run `buckets check` until it exits with 0.
+```
+
+The skill is a Markdown file that teaches the agent how to read and edit the config. The merge driver lets git merge two branches that each add a bucket or a dependency without a conflict. Right after `init`, `buckets check` exits with 1 and lists every file as in no bucket, grouped by folder. Paste the prompt into your agent, and it designs the first buckets and runs the check until it exits with 0.
+
+Requires Node.js 20 or newer and a `tsconfig.json`, which a JavaScript project needs too. The project does not need the `typescript` package. slopbuckets uses the project's TypeScript 5 or 6 when it has one, and otherwise the TypeScript 6 it installs with itself. See [getting started](https://nicolascaous.github.io/slopbuckets/docs/guide/getting-started.html).
+
+## The costs of adoption
+
+slopbuckets asks for more writing than a rule file with patterns. Before you adopt it, know what it takes:
+
+- Every bucket declares every package it imports, Node built-ins included, with a reason. A bucket that imports `react`, `zod` and `node:fs` needs three entries, and type-only imports count.
+- Every dependency between buckets needs its own entry and reason. A `log` bucket used by 50 buckets needs 50.
+- Every bucket needs a public file of named re-exports, and imports of private files must move to it. `buckets fix import-private` writes the re-exports and rewrites those imports.
+- Every file must be in a bucket or in `ignore`.
+- During the first architecture, the pending list can be long, and the hook repeats it as one-line reminders before every tool call until it is empty.
+- The install is about 24 MB, nearly all of it the TypeScript 6 that the CLI depends on. A project on TypeScript 5 keeps its own compiler too, so the two take about 48 MB.
+- A pull request that changes the architecture changes `buckets.config.json`. `buckets check --base main` lists the buckets, dependencies, packages and public exports that changed, with their reasons, so a reviewer reads the decisions instead of the raw JSON.
+
+[The costs of adoption](https://nicolascaous.github.io/slopbuckets/docs/guide/costs.html) has the details and what each cost buys.
+
+## Rules
+
+| Rule | What it detects |
+|---|---|
+| `config-invalid` | the config is not valid JSON, misses a required field, has an empty reason, names a bucket that does not exist or names a package by a subpath |
+| `config-cycle` | a cycle in the `dependsOn` graph |
+| `dependency-undeclared` | a file of bucket A imports bucket B, and `A.dependsOn` does not list B |
+| `dependency-unused` | `A.dependsOn` lists B, and no file of A imports B |
+| `import-private` | an import of a file of B that `B.public` does not list, or of any file of B when its `public` is `null` |
+| `import-unresolved` | a relative import, an import that matches a `paths` pattern of `tsconfig.json`, or an import of a workspace package does not resolve to a file |
+| `import-ignored` | a file of a bucket imports an ignored file |
+| `import-dynamic` | `import()` or `require()` with an argument that is not a string literal |
+| `import-namespace` | `import * as x`, `export * from` or `import()` without destructuring points at another bucket |
+| `file-unowned` | a file in no bucket and not in `ignore` |
+| `file-overlap` | a file in two or more buckets |
+| `glob-empty` | a glob of `files` or `ignore`, or a path of `projects`, that matches nothing |
+| `public-missing` | a file that `public` lists does not exist or does not belong to the bucket |
+| `public-not-interface` | a public file has code, uses `export *` or re-exports from another bucket |
+| `project-undeclared` | a nested `buckets.config.json` not listed in `projects` |
+| `export-unused` | a name in a public file that no other bucket imports |
+| `package-undeclared` | a file of a bucket imports an npm package or a Node built-in that its `packages` does not list |
+| `package-unused` | `packages` lists a package that no file of the bucket imports |
+
+Before each tool call, `config-invalid` interrupts. An edit that makes the config worse is denied and never reaches the disk, because with an unreadable config no other rule can run. A config that a merge or a shell command already broke shows in the pending list instead. Every other rule warns and lets the tool run. At the end of the turn, every rule interrupts. The [rules reference](https://nicolascaous.github.io/slopbuckets/docs/reference/rules.html) has every message.
+
+`buckets check` prints the same messages for agents, CI and the git hook. Its exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | Every rule passes. |
+| 1 | A rule is broken. Fix the code or edit `buckets.config.json`. |
+| 3 | Environment problem, such as a missing config or a config written for a newer slopbuckets. |
+| 64 | The command line is wrong, such as an unknown option. Every command exits with 64 for that and prints its usage. |
+
+So a typo such as `buckets check --jsno` in CI exits with 64, and nobody reads it as "found violations". This is the check after the agent session above:
+
+<p align="center"><img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/check-fail.svg" width="934" alt="buckets check after the agent session: 2 structure violations in full, billing imports log without declaring it and src/utils/date.ts is in no bucket, each with a choose one fix line and its fix code and fix config lines. The exit code is 1."></p>
+
+## CI
+
+Add slopbuckets as a dev dependency, so every machine runs the same version, and run the local copy:
+
+```yaml
+- run: npm ci
+- run: npx buckets check
+```
+
+The check fails the job on any violation, whoever wrote the change. On GitHub Actions it also prints `::error` annotations, which GitHub shows on the lines of the pull request, and `--format sarif` prints a SARIF log for code scanning. `buckets init --git-hook` installs a git pre-commit hook that runs the check. See the [CI guide](https://nicolascaous.github.io/slopbuckets/docs/guide/ci.html).
+
+## Config
+
+| Field | Required | Meaning |
 |---|---|---|
-| `adapter` | `"ts"` | language adapter the CLI uses to read the project |
-| `root` | `"root"` | folder of the root bucket |
-| `alias` | `"@root"` | import prefix for internal imports. `buckets init` writes a unique one. A nested project and each linked project need an alias of their own |
-| `scripts` | not set | Node scripts by name, relative to the config, such as `{"repos": "tools/repos.mjs"}`. Access and layout lines name them in backticks. See [scripts](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#scripts) |
-| `layout` | not set | which bucket folders may exist, as patterns in `allow` and `deny` with a `default`. `buckets init` writes `"allow": ["<root>/*/*"]` under `"default": "deny"`. See [layout](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#layout) |
-| `access` | not set | which buckets may use code from which other buckets, as `"A -> B"` lines in `allow` and `deny` with a `default`. See [access rules](https://nicolascaous.github.io/slopbuckets/docs/guide/concepts.html#access-rules) |
+| `version` | yes | the version of the config format, `"2.0"`, as `init` writes it |
+| `buckets` | yes | the buckets, keyed by name |
+| `buckets.<name>.purpose` | yes | one line that says what the bucket does |
+| `buckets.<name>.files` | yes | globs of its files; a leading `!` excludes |
+| `buckets.<name>.public` | yes | the file or list of files other buckets may import, or `null` |
+| `buckets.<name>.dependsOn` | yes | bucket name to a one-line reason; `{}` for none |
+| `buckets.<name>.packages` | yes | npm package or Node built-in to a one-line reason; `{}` for none |
+| `buckets.<name>.external` | no | one line naming the code outside the project that uses the public files, such as the entry of an npm package |
+| `ignore` | no | globs of files outside the architecture, such as tests and scripts |
+| `projects` | no | folders of nested projects, each with its own `buckets.config.json` |
 
-Only a human edits `buckets.config.json`. The agent hooks deny writes to it, and an agent that needs a change asks for it with the exact line.
+The check reads the files that git lists, so `.gitignore` applies. It applies `ignore` before the bucket globs, so an ignored file never conflicts with a bucket. `buckets show <bucket>` prints one bucket with its dependents and violations, and `buckets fmt` writes the config in a fixed key order. See the [config reference](https://nicolascaous.github.io/slopbuckets/docs/reference/config.html) and [nested projects](https://nicolascaous.github.io/slopbuckets/docs/guide/nested-projects.html).
 
-Links live in a separate file, `buckets.links.json`, which the `buckets link` commands write. See the [config reference](https://nicolascaous.github.io/slopbuckets/docs/reference/config.html).
+## Agents
 
-## Languages
+"Warning on edit" means the agent gets the pending list before the edit runs. "After the edit" means the agent cannot take context before a tool runs, so the warning arrives with the result of the edit. "Interrupt at the end" means the stop hook can block the end of the turn. "Compaction" means the hooks know when the agent compacts its context, and show every item in full again.
 
-The CLI applies every rule that does not depend on a language: folders, the bucket graph, cycles, orphans, nested projects, links and the lock. A language adapter reads the source code and reports exports, imports, type signatures, and the published symbols and package imports of each linked project back to the CLI as JSON. The TypeScript adapter ships with the CLI. Other languages can be added as separate adapters, following the [adapter guide](https://nicolascaous.github.io/slopbuckets/docs/guide/adapters.html).
+| Agent | Warning on edit | Interrupt at the end | Subagents | Compaction |
+|---|---|---|---|---|
+| Claude Code | yes | yes | yes | yes |
+| Codex CLI | yes | yes | yes | yes |
+| Qwen Code | yes | yes | yes | yes |
+| GitHub Copilot | yes | yes | partial | no |
+| Pi | yes | yes | no | yes |
+| Cursor | after the edit | yes | yes | no |
+| Factory Droid | after the edit | yes | unverified | yes |
+| Gemini CLI | after the edit | yes | no | no |
+| Auggie | after the edit | yes | no | no |
+| Devin | after the edit | yes | no | yes |
+| Amp | after the edit | yes | unverified | no |
+| OpenCode | after the edit | partial | yes | yes |
+| Cline | yes | no | no | no |
+| Crush | yes | no | no | no |
+| Goose | no | yes | unverified | no |
+| Kiro | partial | partial | no | no |
+| Aider | partial | no | no | no |
 
-## Threat model
+`buckets init --agent <name>` sets up one agent, and `--agent auto` sets up every agent whose folder or file is in the project, such as `.codex` or `GEMINI.md`. Windsurf gets one hook, which refuses an edit that breaks the config and shows no pending list. Zed, Continue and other agents get no hooks. These agents follow the `AGENTS.md` block, which tells the agent to run `buckets check` before it finishes, and the git hook and CI catch the rest. See [supported agents](https://nicolascaous.github.io/slopbuckets/docs/guide/agents/).
 
-slopbuckets protects against an agent that takes shortcuts, not against one that sets out to break the rules. The lock hook compares text, so a determined agent could write the lock from a script that never names it, and on Windows any process on the same desktop can type into the confirmation window. Review the lock diff in pull requests, and read the [threat model](https://nicolascaous.github.io/slopbuckets/docs/guide/threat-model.html) for the details.
+## Inspect
+
+`buckets inspect` serves a read-only page on `127.0.0.1` for the human. It has a layered graph of the buckets, a dependency matrix, the pending violations, the file tree and a details panel that shows the reason and the imports behind each dependency. Every selection goes into the URL, and the page marks what the agents changed while it was open.
+
+<p align="center"><a href="https://nicolascaous.github.io/slopbuckets/demo/"><img src="https://raw.githubusercontent.com/NicolasCaous/slopbuckets/main/.github/readme/inspect.svg" width="1280" alt="The buckets inspect page on a shop project with 31 buckets: the bucket list on the left, the graph in focus mode on payments in the center, and the details panel with its purpose, public file exports and dependencies on the right."></a></p>
+
+Try it on the [live demo](https://nicolascaous.github.io/slopbuckets/demo/), a static export of the page for a generated shop with 31 buckets, a nested project and a few pending items.
+
+`buckets inspect --json` prints the same state for agents and scripts, and `--export svg|mermaid|dot|html` prints the graph or the whole page without a server. See the [inspect guide](https://nicolascaous.github.io/slopbuckets/docs/guide/inspect.html).
+
+## What the check cannot see
+
+The check follows imports. Two buckets that share a database table, an event topic or an environment variable are coupled without an import, and the check passes. One bucket with `src/**` also passes every rule while it says nothing about the architecture. Read the config your agents write. See [what the check guarantees](https://nicolascaous.github.io/slopbuckets/docs/guide/guarantees.html).
+
+## Performance
+
+The hooks run before every tool call, so the check never loads the TypeScript type checker. A light scanner reads the imports, `ts.resolveModuleName` resolves them with your `tsconfig.json`, and a cache in `.buckets/cache/` keeps both between runs. The pre-edit hook scans only the edited file.
+
+| Operation | Repository | Budget | Median / p95 |
+|---|---|---|---|
+| pre-edit hook, warm cache | 10,000 files | p95 under 150 ms | 81 / 89 ms |
+| pre-edit hook, warm cache | 50,000 files | p95 under 150 ms | 119 / 130 ms |
+| pre-tool hook, no simulation | 10,000 files | under 80 ms | 56 / 69 ms |
+| stop hook, warm cache, 20 files changed | 10,000 files | under 300 ms | 187 / 204 ms |
+| `buckets check`, cold | 10,000 files | under 2 s | 1,023 / 1,075 ms |
+
+The times include starting Node. They are the baseline in `bench/baseline.json` that `npm run bench` compares against, measured on Windows 11 with an Intel Core i9-13900KF. See [performance](https://nicolascaous.github.io/slopbuckets/docs/guide/performance.html) for the machine and every scenario.
 
 ## Repository layout
 
 ```
 cli/             the buckets command, published to npm as slopbuckets
 adapters/ts/     TypeScript adapter, bundled into the CLI
-examples/        end-to-end cases that run the built CLI, one per rule
+examples/        end-to-end cases that run the built CLI
 skill/           the skill buckets init installs
 docs/            documentation site (VitePress), built into site/docs/
-site/            website and config schema, served by GitHub Pages
-scripts/         readme-assets.mjs, which draws the images in .github/readme/
+site/            website and config schemas, served by GitHub Pages
+bench/           baseline.json, the medians the benchmark compares against
+scripts/         bench.mjs, the benchmark; stress-project.mjs, which generates its projects;
+                 readme-assets.mjs, which draws the images in .github/readme/; site-demo.mjs,
+                 which exports the inspect demo of the website
 ```
 
 ## Development
@@ -445,9 +327,10 @@ npm run typecheck
 npm run docs:dev         # serves the docs site locally
 npm run docs:build       # builds the docs into site/docs/
 npm run readme:assets    # redraws the README images from the real CLI output
+npm run bench            # measures the hooks and the check against the budgets
 ```
 
-`npm run readme:assets` takes the screenshots of `buckets inspect` and `buckets refresh --web` with a local Chrome or Edge. Set `CHROME_PATH` if it is not in the usual place. Without one, the script redraws the other images and keeps the screenshots.
+`npm run readme:assets` takes the screenshot of `buckets inspect` with a local Chrome or Edge. Set `CHROME_PATH` if it is not in the usual place.
 
 ## License
 

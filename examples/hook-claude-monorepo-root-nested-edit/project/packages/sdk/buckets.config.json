@@ -1,0 +1,16 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "buckets": {
+    "core": {
+      "purpose": "Runs the jobs of the SDK",
+      "files": [
+        "src/**"
+      ],
+      "public": "src/index.ts",
+      "dependsOn": {},
+      "packages": {},
+      "external": "Entry of the npm package"
+    }
+  }
+}

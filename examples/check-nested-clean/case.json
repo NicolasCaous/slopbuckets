@@ -1,0 +1,14 @@
+{
+  "description": "a nested project listed in projects is checked on its own, and its files are not files of the root",
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "stdoutJson": {
+      "exitCode": 0,
+      "projects": [
+        ".",
+        "packages/sdk"
+      ]
+    }
+  }
+}

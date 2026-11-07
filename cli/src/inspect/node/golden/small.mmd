@@ -1,0 +1,50 @@
+flowchart TB
+  subgraph p0["root project"]
+    %% api public: src/api/index.ts
+    p0_b0["api (6 files)"]
+    %% app closed, no public file
+    p0_b1["app (6 files)"]
+    %% auth public: src/auth/index.ts
+    p0_b2["auth (6 files)"]
+    %% billing public: src/billing/index.ts
+    p0_b3["billing (6 files)"]
+    %% db public: src/db/index.ts
+    p0_b4["db (6 files)"]
+    %% log public: src/log/index.ts
+    p0_b5["log (6 files)"]
+    %% mail public: src/mail/index.ts
+    p0_b6["mail (6 files)"]
+    %% payments public: src/payments/index.ts
+    p0_b7["payments (6 files)"]
+  end
+  subgraph p1["packages/sdk"]
+    %% client public: src/client/index.ts
+    p1_b0["client (4 files)"]
+    %% transport public: src/transport/index.ts
+    p1_b1["transport (4 files)"]
+    %% types public: src/types/index.ts
+    p1_b2["types (4 files)"]
+  end
+  p0_b0 -->|"Sends events through it"| p0_b2
+  p0_b0 -->|"Reports failures to it"| p0_b3
+  p0_b0 -->|"Calls it to validate input"| p0_b5
+  p0_b1 -->|"Reads its records"| p0_b0
+  p0_b1 -->|"Sends events through it"| p0_b2
+  p0_b1 -->|"Needs its types"| p0_b5
+  p0_b1 -->|"Reports failures to it"| p0_b7
+  p0_b2 -->|"Reads its records"| p0_b4
+  p0_b2 -->|"Calls it to validate input"| p0_b5
+  p0_b2 -.->|"Sends events through it (no import)"| p0_b6
+  p0_b3 -.->|"not declared"| p0_b2
+  p0_b3 -->|"Needs its types"| p0_b5
+  p0_b4 -.->|"not declared"| p0_b1
+  p0_b4 -->|"Reads its records"| p0_b5
+  p0_b6 -->|"Needs its types"| p0_b4
+  p0_b6 -->|"Calls it to validate input"| p0_b5
+  p0_b7 -->|"Needs its types"| p0_b2
+  p0_b7 -->|"Calls it to validate input"| p0_b6
+  p1_b0 -->|"Needs its types"| p1_b1
+  p1_b0 -->|"Reports failures to it"| p1_b2
+  p1_b1 -.->|"Sends events through it (no import)"| p1_b2
+  linkStyle 9,20 stroke-dasharray:6 4
+  linkStyle 10,12 stroke:#d1242f,stroke-dasharray:2 4

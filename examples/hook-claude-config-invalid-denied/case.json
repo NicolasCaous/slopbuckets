@@ -1,0 +1,75 @@
+{
+  "description": "Claude Code: an Edit that empties a dependency reason is denied with the interrupt text, and the config on disk stays valid",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-invalid",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-invalid.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run build",
+          "description": "Run a command"
+        },
+        "tool_use_id": "toolu_07"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-invalid",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-invalid.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"payments\": \"Charges go through the gateway\"",
+          "new_string": "\"payments\": \"\"",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_08"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\"",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\""
+          }
+        },
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-config-invalid",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-invalid.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

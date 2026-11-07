@@ -3,8 +3,9 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main } from '../cli.js';
 import { fakeUpdates, type FakeUpdatesOptions } from '../testing/fake-updates.js';
-import { cleanupProjects, LOGGER_PROJECT, makeProject, readFile, writeFile } from '../testing/fixture.js';
-import { approve, fakeIo, testContext } from '../testing/harness.js';
+import { cleanupProjects, makeProject, readFile, writeFile } from '../testing/fixture.js';
+import { fakeIo, testContext } from '../testing/harness.js';
+import { processUpdateDeps } from '../update/update.js';
 
 afterEach(cleanupProjects);
 
@@ -72,8 +73,6 @@ describe('buckets update', () => {
     expect(updates.runs).toEqual([{ argv, cwd: io.cwd }]);
     expect(io.out).toContain(`Installed slopbuckets 1.2.0 in ${updates.packageDir}.`);
     expect(io.err).toBe('');
-    expect(io.out).toContain('`buckets check` stops with exit code 3');
-    expect(io.out).toContain('a human runs `buckets refresh`');
   });
 
   it('targets the prefix of a Windows install, quoted when it has spaces', async () => {
@@ -192,16 +191,6 @@ describe('buckets update', () => {
     expect(updates.runs).toHaveLength(1);
   });
 
-  it('installs a given version, such as the one a lock asks for, and says when the lock already names it', async () => {
-    const project = makeProject(LOGGER_PROJECT);
-    await approve(project, { ...testContext(), cliVersion: '1.0.5' });
-    const { io, updates, prefix } = setup({ cwd: project });
-    expect(await main(testContext(), io, ['update', 'v1.0.5', '--yes'])).toBe(0);
-    expect(updates.requests).toContain('https://registry.npmjs.org/slopbuckets/1.0.5');
-    expect(updates.runs.map((r) => r.argv)).toEqual([['npm', 'install', '-g', '--prefix', prefix, 'slopbuckets@1.0.5']]);
-    expect(io.out).toContain('already names 1.0.5, so `buckets check` runs as before');
-  });
-
   it('runs a project install in the project folder', async () => {
     const dir = makeProject(
       { 'package.json': '{ "devDependencies": { "slopbuckets": "1.0.0" } }', 'pnpm-lock.yaml': '', 'node_modules/slopbuckets/package.json': PACKAGE, 'src/a.ts': '' },
@@ -251,6 +240,25 @@ describe('buckets update', () => {
     expect(io.out).not.toContain('`npm install');
   });
 
+  it('after the install, copies the skill of the new version over the skill copies of the project', async () => {
+    const old = '---\nname: slopbuckets\nmetadata:\n  slopbuckets-version: "1.0.0"\n---\nold rules\n';
+    const dir = makeProject(
+      {
+        'buckets.config.json': '{}',
+        'package.json': '{ "devDependencies": { "slopbuckets": "1.0.0" } }',
+        'node_modules/slopbuckets/package.json': PACKAGE,
+        'node_modules/slopbuckets/skill/SKILL.md': '---\nname: slopbuckets\n---\nnew rules\n',
+        '.claude/skills/slopbuckets/SKILL.md': old,
+      },
+      false,
+    );
+    const { io } = setup({ cwd: path.join(dir, 'src'), packageDir: path.join(dir, 'node_modules', 'slopbuckets') });
+    expect(await main(testContext(), io, ['update', '--yes'])).toBe(0);
+    expect(readFile(dir, '.claude/skills/slopbuckets/SKILL.md')).toBe('---\nname: slopbuckets\nmetadata:\n  slopbuckets-version: "1.2.0"\n---\nnew rules\n');
+    expect(io.out).toContain('Updated the skill in .claude/skills/slopbuckets/SKILL.md.');
+    expect(io.out).not.toContain('.agents/skills');
+  });
+
   it('cannot update a CLI it cannot place, and rejects bad arguments', async () => {
     const checkout = setup({ packageDir: '/home/ana/src/slopbuckets/cli' });
     expect(await main(testContext(), checkout.io, ['update', '--yes'])).toBe(1);
@@ -258,10 +266,13 @@ describe('buckets update', () => {
     expect(checkout.updates.runs).toEqual([]);
 
     const bad = setup();
-    expect(await main(testContext(), bad.io, ['update', 'latest'])).toBe(1);
+    expect(await main(testContext(), bad.io, ['update', 'latest'])).toBe(64);
     expect(bad.io.err).toContain('"latest" is not a version');
-    expect(await main(testContext(), bad.io, ['update', '--force'])).toBe(1);
+    expect(await main(testContext(), bad.io, ['update', '--force'])).toBe(64);
+    expect(bad.io.err).toContain('unknown option "--force"');
     expect(bad.io.err).toContain('Usage: buckets update');
+    expect(await main(testContext(), bad.io, ['update', '1.2.0', '1.0.5'])).toBe(64);
+    expect(bad.io.err).toContain('unexpected argument "1.0.5"');
     expect(bad.updates.requests).toEqual([]);
   });
 });
@@ -278,20 +289,12 @@ describe('the update notice', () => {
     io.stderr = (text) => (order.push('stderr'), err(text));
     expect(await main(testContext(), io, ['--version'])).toBe(0);
     expect(io.err).toBe(NOTICE);
-    expect(io.out).toBe('buckets 1.0.0\nadapter ts 1.0.0 (protocol 1)\n');
+    expect(io.out).toBe('buckets 1.0.0\nadapter ts 2.0.0 (protocol 2)\n');
     expect(order).toEqual(['stderr', 'stdout']);
   });
 
-  it('keeps check --json valid and adds the update field', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const { io } = setup({ cwd: dir });
-    expect(await main(testContext(), io, ['check', '--json'])).toBe(2);
-    expect(io.err).toBe(NOTICE);
-    expect(JSON.parse(io.out)).toMatchObject({ exitCode: 2, update: { installed: '1.0.0', latest: '1.2.0', message: NOTICE.trimEnd() } });
-  });
-
-  it('is not in hooks, check --file, update, typos, CI, or when the latest version is installed', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
+  it('is not in hooks, update, typos, CI, or when the latest version is installed', async () => {
+    const dir = makeProject({});
     const quiet = async (args: string[], options: Parameters<typeof setup>[0] = {}) => {
       const { io, updates } = setup({ cwd: dir, ...options });
       await main(testContext(), io, args);
@@ -299,17 +302,11 @@ describe('the update notice', () => {
       return { io, updates };
     };
     expect((await quiet(['hook', 'stop'])).updates.requests).toEqual([]);
-    const file = await quiet(['check', '--json', '--file', 'root/_/main.ts']);
-    expect(file.updates.requests).toEqual([]);
-    expect(() => JSON.parse(file.io.out)).not.toThrow();
-    expect(JSON.parse(file.io.out)).not.toHaveProperty('update');
-    await quiet(['check', '--file=root/_/main.ts']);
     await quiet(['update', '--check']);
     expect((await quiet(['chek'])).updates.requests).toEqual([]);
     expect((await quiet(['check'], { env: { CI: 'true' } })).updates.requests).toEqual([]);
     expect((await quiet(['check'], { env: { SLOPBUCKETS_NO_UPDATE_CHECK: '1' } })).updates.requests).toEqual([]);
-    const current = await quiet(['check', '--json'], { versions: { latest: '1.0.0' } });
-    expect(JSON.parse(current.io.out)).not.toHaveProperty('update');
+    await quiet(['check', '--json'], { versions: { latest: '1.0.0' } });
   });
 
   it('comes from the cache without the network while the cache is fresh', async () => {
@@ -320,6 +317,26 @@ describe('the update notice', () => {
     await main(testContext(), second.io, ['--version']);
     expect(second.io.err).toBe(NOTICE);
     expect(second.updates.requests).toEqual([]);
+  });
+});
+
+describe('the programs of buckets update on Windows', () => {
+  // The fake npm.cmd on PATH calls `helper`. A planted npm.cmd and helper.cmd in the folder the command runs in must
+  // not run: cmd.exe looks in the current folder first unless it gets the absolute path and
+  // NoDefaultCurrentDirectoryInExePath. No real npm runs.
+  it.runIf(process.platform === 'win32')('never run an npm.cmd or a helper from the current folder', async () => {
+    const bin = makeProject({ 'npm.cmd': '@echo off\r\ncall helper\r\n', 'helper.cmd': '@echo fake npm\r\n' }, false);
+    const planted = makeProject({ 'npm.cmd': '@echo planted npm\r\n', 'helper.cmd': '@echo planted helper\r\n' }, false);
+    // The parent may already set NoDefaultCurrentDirectoryInExePath (Claude Code does), which would hide the bug.
+    const saved = { PATH: process.env.PATH, NoDefaultCurrentDirectoryInExePath: process.env.NoDefaultCurrentDirectoryInExePath };
+    process.env.PATH = bin;
+    delete process.env.NoDefaultCurrentDirectoryInExePath;
+    try {
+      const updates = processUpdateDeps(planted);
+      expect(await updates.output(['npm', 'prefix', '-g'], planted)).toBe('fake npm');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) if (value !== undefined) process.env[key] = value;
+    }
   });
 });
 

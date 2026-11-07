@@ -1,0 +1,117 @@
+{
+  "description": "Claude Code: a stop that blocks with the same violations as the stop of an earlier turn adds the note to tell the user",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-repeated",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-repeated.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git apply ../utils.patch",
+          "description": "Run a command"
+        },
+        "tool_use_id": "toolu_42"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-repeated",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-repeated.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "block",
+        "messageIncludes": [
+          "buckets: 1 structure violation remains.",
+          "src/utils/date.ts: in no bucket and not ignored"
+        ],
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-repeated",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-repeated.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": true,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-repeated",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-repeated.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test",
+          "description": "Run the tests"
+        },
+        "tool_use_id": "toolu_43"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "messageIncludes": "[OLD]\nsrc/utils/date.ts: in no bucket",
+        "pending": [
+          "file-unowned"
+        ]
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-repeated",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-repeated.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "block",
+        "messageIncludes": [
+          "src/utils/date.ts: in no bucket and not ignored",
+          "These were also left at the end of an earlier turn. If you leave them, tell the user which ones and why."
+        ]
+      }
+    }
+  ]
+}

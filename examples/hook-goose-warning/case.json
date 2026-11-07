@@ -1,0 +1,61 @@
+{
+  "description": "Goose: a warning has no way to reach the model, so PreToolUse prints nothing, and a config edit that would be invalid is denied",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "goose",
+      "payload": {
+        "event": "PreToolUse",
+        "session_id": "s-goose-1",
+        "working_dir": "${PROJECT}",
+        "matcher_context": "write",
+        "tool_call_id": "call_1",
+        "tool_name": "write",
+        "tool_input": {
+          "path": "${PROJECT}/src/billing/refund.ts",
+          "content": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "goose",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "event": "PreToolUse",
+        "session_id": "s-goose-1",
+        "working_dir": "${PROJECT}",
+        "matcher_context": "edit",
+        "tool_call_id": "call_2",
+        "tool_name": "edit",
+        "tool_input": {
+          "path": "${PROJECT}/buckets.config.json",
+          "before": "\"payments\": \"Charges go through the gateway\"",
+          "after": "\"payments\": \"\""
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\"",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: edit not applied, buckets.config.json would be invalid.\n  buckets.billing.dependsOn.payments: reason is empty\n  fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\""
+        },
+        "pending": [
+          "import-private"
+        ]
+      }
+    }
+  ]
+}

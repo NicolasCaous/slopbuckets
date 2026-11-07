@@ -1,14 +1,13 @@
-// The adapters of harnesses without hooks: Zed (static tool permissions in user settings), Aider (`read:` in
-// .aider.conf.yml) and Continue (instructions only).
+// The adapters of harnesses without hooks: Zed and Continue (instructions only) and Aider (`read:` in .aider.conf.yml).
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hookCommand } from '../../commands/hook.js';
 import { cleanupProjects, makeProject } from '../../testing/fixture.js';
 import { fakeIo, testContext } from '../../testing/harness.js';
-import { addAgentsRead, AIDER_CONFIG, aiderAdapter, removeAgentsRead } from './aider.js';
+import { addAgentsRead, AIDER_CONFIG, aiderAdapter } from './aider.js';
 import { continueAdapter } from './continue.js';
-import { ZED_GUARDED_PATTERN, ZED_REFRESH_PATTERN, ZED_TOOL_PERMISSIONS, ZED_UPDATE_PATTERN, zedAdapter } from './zed.js';
+import { zedAdapter } from './zed.js';
 
 afterEach(cleanupProjects);
 
@@ -22,103 +21,17 @@ describe('harnesses without hooks', () => {
     }
   });
 
-  it('Continue and Zed write nothing and say what to do instead', () => {
+  it('Continue and Zed write nothing and say that the agent relies on buckets check and the git hook', () => {
     const dir = makeProject({}, false);
-    expect(continueAdapter.install(dir, { skill: null })).toEqual([expect.objectContaining({ status: 'todo', text: expect.stringContaining('--git-hook') })]);
-    expect(zedAdapter.install(dir, { skill: null })).toEqual([expect.objectContaining({ status: 'todo', text: expect.stringContaining('user settings') })]);
+    for (const adapter of [continueAdapter, zedAdapter]) {
+      const steps = adapter.install(dir, { skill: null });
+      expect(steps).toEqual([expect.objectContaining({ status: 'todo' })]);
+      expect(steps[0]!.text).toContain('AGENTS.md');
+      expect(steps[0]!.text).toContain('`buckets check` before it finishes');
+      expect(steps[0]!.text).toContain('buckets init --git-hook');
+    }
     expect(existsSync(path.join(dir, '.zed'))).toBe(false);
-    expect(zedAdapter.uninstall(dir)).toEqual([]);
-  });
-});
-
-describe('zed tool permissions', () => {
-  // Zed matches case-insensitively by default. These patterns use no syntax that Rust's regex crate lacks.
-  const refresh = new RegExp(ZED_REFRESH_PATTERN, 'i');
-  const guarded = new RegExp(ZED_GUARDED_PATTERN, 'i');
-
-  it('denies plain buckets refresh and lets buckets refresh --web through', () => {
-    for (const command of ['buckets refresh', 'npx slopbuckets refresh', 'buckets refresh --web --yes', 'buckets.cmd refresh', 'buckets --verbose refresh', 'buckets refresh --webx']) {
-      expect(refresh.test(command), command).toBe(true);
-    }
-    for (const command of ['cd /repo && buckets refresh', 'nohup npx slopbuckets refresh &', 'node $(which buckets) refresh']) expect(refresh.test(command), command).toBe(true);
-    for (const command of ['buckets refresh --web', 'buckets refresh --web > refresh.log 2>&1', 'buckets check', 'buckets refresh --web &']) expect(refresh.test(command), command).toBe(false);
-    for (const command of ['gcloud storage buckets refresh gs://b', 'git commit -m "docs: explain buckets refresh"']) expect(refresh.test(command), command).toBe(false);
-  });
-
-  it('denies buckets update without --check or --json and lets the report forms through', () => {
-    const update = new RegExp(ZED_UPDATE_PATTERN, 'i');
-    for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update', 'buckets.cmd update -y', 'buckets update --checkx', 'buckets update 2>&1']) {
-      expect(update.test(command), command).toBe(true);
-    }
-    for (const command of [
-      'buckets update --yes # --check',
-      'buckets update --yes `--check`',
-      'buckets update --yes <# --check #>',
-      'node $(which buckets) update --yes',
-      '"buckets" update',
-      'C:\\tools\\buckets.cmd update',
-      'cd /repo && pnpm exec buckets update',
-      'npx --prefix /tmp/x slopbuckets@latest update -y',
-      'echo y | buckets update',
-    ]) {
-      expect(update.test(command), command).toBe(true);
-    }
-    for (const command of [
-      'gcloud storage buckets update gs://my-bucket --versioning',
-      'git commit -m "docs: explain buckets update"',
-      'grep -rn "buckets update" docs',
-      'buckets update --check # weekly',
-    ]) {
-      expect(update.test(command), command).toBe(false);
-    }
-    for (const command of ['buckets update --check', 'buckets update --json', 'buckets update 1.2.0 --check', 'buckets update --check > update.log 2>&1', 'npx slopbuckets update --json', 'npm update', 'buckets updates', 'buckets link update shared']) {
-      expect(update.test(command), command).toBe(false);
-    }
-  });
-
-  it('denies a call inside parentheses or a substitution, and a call that a shell runs with -c, /c or -Command', () => {
-    const update = new RegExp(ZED_UPDATE_PATTERN, 'i');
-    for (const command of ['(cd sub && buckets refresh)', 'cd sub && (buckets refresh)', '(cd packages/api; buckets refresh) && echo done', 'bash -c "buckets refresh"', 'echo "$(buckets refresh)"']) {
-      expect(refresh.test(command), command).toBe(true);
-    }
-    for (const command of [
-      '(buckets update)',
-      '(cd sub && buckets update)',
-      '$(buckets update)',
-      'echo "$(buckets update --yes)"',
-      'bash -c "buckets update"',
-      "bash -c 'buckets update --yes'",
-      'sh -lc "buckets update"',
-      'cmd /c buckets update',
-      'cmd.exe /C "buckets update"',
-      'cmd /s /c "buckets update"',
-      "pwsh -c 'buckets update'",
-      'powershell -NoProfile -Command "buckets update"',
-      'pwsh -NoProfile -NonInteractive -c "npx slopbuckets update"',
-    ]) {
-      expect(update.test(command), command).toBe(true);
-    }
-    for (const command of ['(cd sub && buckets refresh --web)', 'bash -c "buckets refresh --web"', '(buckets refresh --web > refresh.log 2>&1 &)']) expect(refresh.test(command), command).toBe(false);
-    for (const command of ['(buckets update --check)', 'bash -c "buckets update --check"', "pwsh -c 'buckets update --json'", 'cmd /c buckets update --json', 'bash -c "gcloud storage buckets update gs://b"', 'bash script.sh buckets update']) {
-      expect(update.test(command), command).toBe(false);
-    }
-  });
-
-  it('denies the lock and the config by name and by 8.3 short name', () => {
-    for (const target of ['buckets.lock.json', 'C:\\shop\\BUCKETS.LOCK.JSON', 'cat BUCKET~1.JSO', 'buckets.config.json', 'root/log/_/engine/Buckets.Config.json']) {
-      expect(guarded.test(target), target).toBe(true);
-    }
-    for (const target of ['package.json', 'root/_/buckets.ts', 'buckets.links.json']) expect(guarded.test(target), target).toBe(false);
-  });
-
-  it('has no look-around, which Rust regex rejects', () => {
-    expect(JSON.stringify(ZED_TOOL_PERMISSIONS)).not.toMatch(/\(\?<?[=!]/);
-  });
-
-  it('matches the snippet on the Zed page of the docs', () => {
-    const page = readFileSync(new URL('../../../../docs/guide/agents/zed.md', import.meta.url), 'utf8');
-    const snippet = /```json\r?\n([\s\S]*?)```/.exec(page)?.[1];
-    expect(JSON.parse(snippet ?? 'null')).toEqual(ZED_TOOL_PERMISSIONS);
+    expect(existsSync(path.join(dir, '.continue'))).toBe(false);
   });
 });
 
@@ -140,36 +53,28 @@ describe('aider read merge', () => {
     expect(addAgentsRead('read: ["a, b.md"]\n').kind).toBe('unsupported');
     expect(addAgentsRead('read: a\nread: b\n').kind).toBe('unsupported');
   });
-
-  it('removes only the lines it added', () => {
-    expect(removeAgentsRead('read:\n  - CONVENTIONS.md\n  - AGENTS.md  # slopbuckets\nmodel: sonnet\n')).toBe('read:\n  - CONVENTIONS.md\nmodel: sonnet\n');
-    expect(removeAgentsRead('read: AGENTS.md\n')).toBe('read: AGENTS.md\n');
-  });
 });
 
 describe('aider install', () => {
   const read = (dir: string) => readFileSync(path.join(dir, AIDER_CONFIG), 'utf8');
 
-  it('creates the config, runs a second time without changes, suggests lint-cmd and the git hook, and uninstalls', () => {
+  it('creates the config, runs a second time without changes, suggests test-cmd and the git hook', () => {
     const dir = makeProject({}, false);
     const steps = aiderAdapter.install(dir, { skill: null });
     expect(steps[0]).toEqual({ status: 'done', text: `Created ${AIDER_CONFIG} with "read: AGENTS.md"` });
-    expect(steps[1]).toMatchObject({ status: 'todo', text: expect.stringContaining('lint-cmd: "buckets check --file"') });
+    expect(steps[1]).toMatchObject({ status: 'todo', text: expect.stringContaining('`test-cmd: buckets check` and `auto-test: true`') });
+    expect(steps[1]!.text).not.toContain('--file');
+    expect(steps[1]!.text).not.toContain('lint-cmd');
     expect(steps[1]!.text).toContain('git-commit-verify: true');
     expect(steps[1]!.text).toContain('buckets init --git-hook');
     expect(aiderAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'kept', text: `${AIDER_CONFIG} already loads AGENTS.md` });
-    expect(aiderAdapter.uninstall(dir)).toEqual([{ status: 'done', text: `Removed ${AIDER_CONFIG}, which held only the slopbuckets line` }]);
-    expect(existsSync(path.join(dir, AIDER_CONFIG))).toBe(false);
-    expect(aiderAdapter.uninstall(dir)).toEqual([]);
   });
 
-  it("merges into the user's config and gives it back on uninstall", () => {
+  it("merges into the user's config", () => {
     const user = '# my aider settings\nmodel: sonnet\nread: CONVENTIONS.md\nauto-commits: false\n';
     const dir = makeProject({ [AIDER_CONFIG]: user }, false);
     expect(aiderAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done' });
     expect(read(dir)).toBe('# my aider settings\nmodel: sonnet\nread:\n  - CONVENTIONS.md\n  - AGENTS.md  # slopbuckets\nauto-commits: false\n');
     expect(aiderAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'kept' });
-    expect(aiderAdapter.uninstall(dir)[0]).toMatchObject({ status: 'done' });
-    expect(read(dir)).toBe('# my aider settings\nmodel: sonnet\nread:\n  - CONVENTIONS.md\nauto-commits: false\n');
   });
 });

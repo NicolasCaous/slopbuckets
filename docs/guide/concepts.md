@@ -1,451 +1,177 @@
 ---
 title: Concepts
-description: Buckets, the _/ folder, the DMZ with .self and .parent, the bucket graph, access rules, the layout, scripts and the lock.
+description: Buckets by glob, purpose, public files, dependsOn and packages with reasons, external, ignore, version, nested projects, the 18 rules and the advice.
 ---
 
 # Concepts
 
-## Why
+slopbuckets 2.0 keeps the architecture of the project in one file, `buckets.config.json`, at the project root, and AI agents keep that file up to date. Nothing else holds a rule: no folder convention, no naming scheme, no second file. An agent that reads the config knows every bucket, what it is for, what it may import and why.
 
-An AI agent solves each task by the shortest path, and the shortest path is usually an import from some other part of the project. After a few hundred tasks, every module depends on every other module.
+Two principles shape the format:
 
-Code review does not catch this, because each import looks reasonable on its own. slopbuckets moves the boundaries out of review and into a check that fails the build. A human owns the dependency graph. The AI owns the code inside each node.
+- Everything is explicit. No default hides a rule. A bucket lists its public files, or declares `null`. A file outside every bucket must be listed in `ignore`. Two globs that match the same file are a conflict. Every dependency on another bucket and every external package has its own entry with a reason.
+- Agents change the code and the config on their own. When the two diverge, the hooks say so, and both answers are valid. The git history of the config is the history of the architecture.
 
-Because the contracts are fixed, the code inside a bucket is disposable. If a bucket turns into a mess, you can delete its code and have the AI rewrite it from the contracts.
+## The config
+
+```json
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": ["**/*.test.ts", "scripts/**"],
+  "projects": ["packages/sdk"],
+  "buckets": {
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": ["src/billing/**", "!src/billing/stripe/**"],
+      "public": "src/billing/index.ts",
+      "dependsOn": {
+        "payments": "Charges each invoice through the gateway",
+        "log": "Logs failed charges with the invoice id"
+      },
+      "packages": {
+        "zod": "Validates the invoice payloads of the public API"
+      }
+    },
+    "payments": {
+      "purpose": "Talks to the payment gateway",
+      "files": ["src/payments/**"],
+      "public": ["src/payments/index.ts", "src/payments/webhook.ts"],
+      "dependsOn": {},
+      "packages": {
+        "stripe": "Calls the Stripe API for charges and refunds"
+      }
+    }
+  }
+}
+```
+
+Every path and glob is relative to the folder of the config and uses `/`. The [config reference](../reference/config) lists every field with its constraints.
+
+## version
+
+The format of the file, `"2.0"`. `buckets init` writes it, and you keep it as it is. A slopbuckets that is older than the config, such as 2.0 reading a `"2.1"` config, does not check that project. It reports the environment error `config-newer`, which says which version the config needs and to run `buckets update`, and `buckets check` exits with 3. The hooks show that message once per session and never deny an edit or block a stop because of it, so a team with mixed installs keeps working.
 
 ## Buckets
 
-The root of the project is a bucket. Its folder is `root` by default (the `root` field of the config). Each bucket contains only 3 kinds of things:
+A bucket is a set of files with one job. The key is its name: lowercase letters, digits and `-`, starting with a letter, such as `billing` or `payment-gateway`. Every bucket has five required fields, `purpose`, `files`, `public`, `dependsOn` and `packages`, and one optional field, `external`.
 
-- `_/`, the bucket's own code, where the AI can create any files and folders
-- `dmz/`, the contracts between its children, present when the bucket has children
-- child buckets
+### purpose
 
-```text
-root/
-  dmz/
-  _/                main.ts, app.module.ts
-  log/
-    _/
-  billing/
-    dmz/
-    _/              billing.module.ts
-    invoices/
-      _/
-    payments/
-      _/
-buckets.config.json
-buckets.lock.json
-```
+One line that says what the bucket does. Write it for the next agent, the one that decides where new code goes: "Issues and charges invoices", not "The billing bucket".
 
-The folder rules:
+### files
 
-1. A bucket holds only `_/`, `dmz/` and child buckets. A file directly in a bucket folder fails the check.
-2. Every other folder inside a bucket is a child bucket. Inside `_/`, nothing is a bucket.
-3. A `dmz/` folder in a bucket without children fails the check. A bucket with children may leave `dmz/` out, which counts as an empty DMZ.
-4. The `layout` key of the config can limit which bucket folders may exist. `buckets init` writes a layout that allows buckets down to two levels below the root, such as `root/billing/invoices`. See [Layout](#layout).
-5. Bucket names cannot start with `.`, and symbolic links or junctions are not allowed anywhere inside the root bucket folder, except the links that `buckets link add` registers in `<bucket>/_/links/<name>`.
-6. The lock records the list of buckets, so a new bucket folder fails the check until a human approves it.
-7. A folder inside `_/` with its own `buckets.config.json` is a separate, nested project, with its own `tsconfig.json`. The check skips it here and checks it on its own. See [Projects and links](./projects-and-links).
+Globs of the files that belong to the bucket. A glob that starts with `!` excludes files that an earlier glob matched, as in `["src/billing/**", "!src/billing/stripe/**"]`. A file belongs to exactly one bucket. A file in two buckets is `file-overlap`, and a glob that matches no file is `glob-empty`. While no glob of a bucket matches a file, as after a folder move, the check holds back the `dependency-unused`, `package-unused` and `export-unused` of that bucket, and while the project also has unowned files, the `export-unused` of every bucket. Those would tell the agent to delete correct entries.
 
-The name `_` cannot collide with a bucket name, and it marks in every path where the bucket tree ends and the code begins.
+Buckets follow files, not folders. A bucket can own one folder, part of a folder or files spread across several folders, so the config describes the project as it is instead of asking you to move files first.
 
-## Imports inside `_/`
+### public
 
-Every internal import uses the alias from `buckets.config.json`. `buckets init` generates a unique one, such as `@root-k3x9pm2a`, and the examples in these docs write `@root` to stay short. Relative imports fail everywhere, even inside the same `_/`.
+The files other buckets may import. `public` takes one of three forms:
 
-A file in `X/_/`, where `P` is the parent of `X`, may import only from:
+- one path, `"src/billing/index.ts"`, which fits most buckets;
+- a list of paths, `["src/payments/index.ts", "src/payments/webhook.ts"]`, for a bucket with separate entries, such as the server and client entries of a Next.js app or the subpath exports of a package;
+- `null`, which declares that the bucket exports nothing, such as an app entry point or the routes of a framework.
 
-- `X/_/`
-- `P/dmz/<provider>/X`, the contracts where `X` is the consumer
-- `X/dmz/<child>/.self`, the contracts the children of `X` offer to it
-- packages listed in `package.json`
-- Node built-in modules
-- a project linked in `X/_/links/<name>`, only through the alias of that project and its `.external.ts` files, values and types alike
-
-Also forbidden:
-
-- dynamic loading with `import()`, `require()`, `createRequire` or `import.meta.glob`
-- `import * as` from a DMZ file, because then the check cannot tell which symbols are used
-- sharing code without an import: a file in `_/` must be a module, with no `declare global`, no `export as namespace` and no `/// <reference>`
-- importing files of a nested project, or of the project around it
-
-Circular imports inside a single bucket are allowed. The bucket is the AI's free area.
-
-## The DMZ
-
-Inside `P/dmz/`, the folder is the provider and the file is the consumer. `dmz/sql/http.ts` lists everything `http` takes from `sql`. Three names are reserved:
-
-- `.self` is the bucket's own code in `P/_/`
-- `.parent` is what `P` receives from the level above
-- `.external` is what a child publishes to other projects, as in `P/dmz/<child>/.external.ts`. Another project links the source of this project and imports only these files. The consumers live outside the project, so the orphan rule skips it. See [Projects and links](./projects-and-links#publish-with-external-ts).
-
-| File in `billing/dmz/` | Meaning |
-|---|---|
-| `payments/invoices.ts` | what `invoices` takes from `payments` |
-| `.self/invoices.ts` | what `invoices` takes from `billing/_` |
-| `invoices/.self.ts` | what `billing/_` takes from `invoices` |
-| `.parent/invoices.ts` | what `invoices` takes from outside `billing` |
-| `invoices/.parent.ts` | what `invoices` exposes outside `billing` |
-
-`root/dmz/` has no `.parent`, because the root bucket has no parent. A child never receives from outside something its parent did not receive first, because `.parent/` only re-exports contracts where the parent is already the consumer.
-
-### What a DMZ file may contain
-
-A DMZ file can only re-export named symbols:
+A public file holds only named re-exports of files of its own bucket:
 
 ```ts
-export { query } from '@root/sql/_/query';
-export type { Row } from '@root/sql/_/types';
+export { charge, refund } from './client';
+export type { Invoice } from './types';
+export { createInvoice as default } from './create';
 ```
 
-Not allowed: `export *`, default exports, renames with `as`, imports, and any declaration in the file itself (type, function or constant).
+Anything else in a public file, such as a function, a constant or `export *`, is `public-not-interface`, and so is a re-export from another bucket. So the public files are the interface of the bucket and nothing else. Listing every file of a bucket does not get around this, because a file with code cannot be public. An import of any file of the bucket that `public` does not list is `import-private`. When the bucket is `null`, the message says "payments is closed".
 
-### Where each re-export may point
+### dependsOn
 
-The surface of a bucket `X` is `X/_/**` plus its `X/dmz/*/.parent` files.
+The buckets this bucket may import, each with a one-line reason. `{}` when it depends on nothing. A log bucket used by 50 buckets needs 50 entries, and each says why that bucket needs logging.
 
-| File in `P/dmz/` | May re-export from |
+- An import of a bucket that is not listed is `dependency-undeclared`. Its message shows the purpose of both buckets, because it asks for an architecture decision, and up to three buckets that already declare the target, with their reasons.
+- A listed bucket that no file imports is `dependency-unused`, so a stale reason never stays in the file.
+- A cycle in `dependsOn` is `config-cycle`. The code can only follow declared dependencies, so a cycle in the code needs a cycle in the config first, and the check looks only at the config for cycles. When declaring a missing dependency would close a cycle, the message of `dependency-undeclared` says so and offers only the code fix.
+
+To rename a bucket, rename its key and every `dependsOn` entry that names it in the same edit.
+
+### packages
+
+Every external module that the files of the bucket import, npm packages and Node built-ins, each with a one-line reason. `{}` when it imports none. An import of a package that is not listed is `package-undeclared`, and a listed package that no file of the bucket imports is `package-unused`.
+
+- The key is the package name without a subpath: an import of `lodash/merge` is the key `lodash`, and `@scope/pkg/server` is `@scope/pkg`.
+- A Node built-in takes the `node:` prefix: `fs`, `node:fs` and `fs/promises` are all `node:fs`.
+- Type-only imports count, so `import type { Request } from 'express'` needs `express`.
+- An npm package that is not installed still counts under its name.
+- Ignored files need no entry.
+
+A key in another form, such as `fs` or `lodash/merge`, is `config-invalid`, and its message names the right key.
+
+### external
+
+Optional. One line that says which code outside the project uses the public files, such as the entry of an npm package. With it, the bucket is exempt from `export-unused`, because its users are not in the project. A bucket with `external` may also re-export by name from the buckets in its own `dependsOn`, so the entry of a library can gather names from several buckets in one file.
+
+## ignore
+
+Globs of files outside the architecture, such as tests, scripts and tool configs. The check applies `ignore` before it matches any bucket glob, so `ignore` wins: an ignored file leaves the architecture and never conflicts with a bucket, even when a bucket's `files` also match it. A glob that starts with `!` takes files back out of `ignore`.
+
+An ignored file may import any file and needs no `packages` entry. A file of a bucket that imports an ignored file is `import-ignored`, because that dependency would not show in the config. `ignore` is not an escape hatch: code that belongs to a bucket goes in that bucket, generated code that a bucket imports included.
+
+## Which files count
+
+The check reads the files with the extensions of the adapter (`.ts .tsx .mts .cts .js .jsx .mjs .cjs`) that git sees, as `git ls-files -co --exclude-standard` lists them, so `.gitignore` applies and `node_modules` and build output stay out. Outside a git repository, it walks the folders and skips `node_modules` and folders that start with a dot.
+
+## Which imports count
+
+- `import`, `export ... from`, `import()` and `require()` with a string literal count as imports. Each file resolves them with the nearest `tsconfig.json` at or above it inside the project.
+- An import of another file of the project is checked against `dependsOn` and `public`.
+- An import of an npm package or a Node built-in is checked against `packages`.
+- A relative import, an import that matches a `paths` pattern of the tsconfig, or an import of a workspace package that does not resolve to a file is `import-unresolved`. While a bucket has one, the check holds back its `dependency-unused` and the `export-unused` that the missing import could explain, so a broken path never tells the agent to delete a correct reason.
+- An import of a file that exists but has no source extension, such as `./App.css`, `./card.module.css`, `./data.json` or `./logo.svg?url`, is no code edge, and the check ignores it whichever bucket's folder holds the file. A bundler query such as `?raw` or `?url` is dropped before the lookup.
+- `import()` and `require()` with anything other than a string literal are `import-dynamic`, because the check cannot see the target.
+- `import * as x`, `export * from`, and `import()` or `require()` without destructuring, when they point at another bucket, are `import-namespace`. They do not say which names the code uses, and `export-unused` needs to know. An `import()` that destructures, as in `const { a } = await import('./x')` or `import('./x').then(({ a }) => a)`, counts the names it takes.
+
+For `export-unused`, only imports from other buckets count. `import type` counts as a use, and so does a name imported through a private path. A name that only tests or ignored files import counts as unused, or one test would keep a dead export alive forever.
+
+## Nested projects
+
+`projects` lists folders that hold their own `buckets.config.json`. Their files leave this project, and each project is checked against its own config. A nested `buckets.config.json` that is not listed is `project-undeclared`. See [Nested projects](./nested-projects).
+
+## The rules
+
+| Rule | What it detects |
 |---|---|
-| `<child>/<consumer>.ts` | the surface of `<child>` |
-| `<child>/.self.ts` | the surface of `<child>` |
-| `<child>/.parent.ts` | the surface of `<child>` |
-| `.self/<consumer>.ts` | `P/_/**` |
-| `.parent/<consumer>.ts` | the contracts where `P` is the consumer, in the DMZ of the parent of `P` |
+| [`config-invalid`](../reference/rules#config-invalid) | The config is not valid JSON, misses a required field, has an empty reason, names a bucket that does not exist, or has a `packages` key that is not a package name |
+| [`config-cycle`](../reference/rules#config-cycle) | A cycle in the `dependsOn` graph |
+| [`dependency-undeclared`](../reference/rules#dependency-undeclared) | A file of A imports B, and `A.dependsOn` does not list B |
+| [`dependency-unused`](../reference/rules#dependency-unused) | `A.dependsOn` lists B, and no file of A imports B |
+| [`import-private`](../reference/rules#import-private) | A file of A imports a file of B that `B.public` does not list, or any file of B when `B.public` is `null`, and A declares B |
+| [`import-unresolved`](../reference/rules#import-unresolved) | A relative import, an import that matches a `paths` pattern, or an import of a workspace package does not resolve to a file |
+| [`import-ignored`](../reference/rules#import-ignored) | A file of a bucket imports an ignored file |
+| [`import-dynamic`](../reference/rules#import-dynamic) | `import()` or `require()` with an argument that is not a string literal |
+| [`import-namespace`](../reference/rules#import-namespace) | `import * as x`, `export * from`, or `import()` or `require()` without destructuring, pointing at another bucket |
+| [`file-unowned`](../reference/rules#file-unowned) | A file in no bucket and not in `ignore` |
+| [`file-overlap`](../reference/rules#file-overlap) | A file in two or more buckets |
+| [`glob-empty`](../reference/rules#glob-empty) | A glob of `files` or `ignore`, or a path of `projects`, that matches nothing |
+| [`public-missing`](../reference/rules#public-missing) | A file that `public` lists does not exist or does not belong to the bucket |
+| [`public-not-interface`](../reference/rules#public-not-interface) | A public file has code, uses `export *` or re-exports from another bucket |
+| [`project-undeclared`](../reference/rules#project-undeclared) | A nested `buckets.config.json` not listed in `projects` |
+| [`export-unused`](../reference/rules#export-unused) | A name in a public file of a bucket that no other bucket imports |
+| [`package-undeclared`](../reference/rules#package-undeclared) | A file of a bucket imports an npm package or a Node built-in that the bucket's `packages` does not list |
+| [`package-unused`](../reference/rules#package-unused) | The bucket's `packages` lists a package that no file of the bucket imports |
 
-### A path through two levels
+One problem gives one message. When A imports a private file of B and does not declare B, the check reports one `dependency-undeclared` that marks the private imports and lists both steps of the fix, not an `import-private` as well. `import-private` groups every private import between two buckets in one message.
 
-Here `invoices` gets the logger from `log`:
+Each rule has a full message that ends with what to do, and a one-line reminder. The [rules reference](../reference/rules) shows every message. [Hooks](./hooks) explains when the agent sees them.
 
-```ts
-// root/dmz/log/billing.ts
-export { logger } from '@root/log/_/logger';
+## Advice
 
-// root/billing/dmz/.parent/invoices.ts
-export { logger } from '@root/dmz/log/billing';
+Advice is a note on the quality of the config. It never fails the check, never enters the pending list of the hooks and never blocks a turn. `buckets check` prints it after the violations, and the stop hook adds it when it blocks for a violation anyway. After an edit of the config writes a purpose or reason with `reason-generic` advice, the next tool call shows that advice once, after the pending list. A turn that ends with no violation but wrote such a purpose or reason gets that advice once more at the stop, without a block.
 
-// root/billing/invoices/_/create-invoice.ts
-import { logger } from '@root/billing/dmz/.parent/invoices';
-```
-
-Each hop is one file. To find out what a bucket uses, open its DMZ files. A long path is harder for a human to follow, but the contracts are written for the AI, and for the AI a path is only a record of who consumes what.
-
-## The bucket graph
-
-The origin of a DMZ symbol is the bucket whose `_/` declares it. The check finds it by following the chain of re-exports. In the example above, the origin of `logger` is `log`, even though `invoices` imports it from a file in `billing/dmz/`.
-
-### No cycles
-
-Each bucket is a node. Every DMZ symbol that a `_/` imports adds an edge from the importing bucket to the symbol's origin. A cycle in this graph fails the check, and the report shows the cycle. For example, `invoices` takes the logger from `log`, and `log` takes something that `invoices` exposes upward.
-
-### No orphans
-
-Every DMZ symbol must be used. A symbol is in use when some `_/` file of the consumer imports it by name and references it, or when another DMZ re-exports it and that re-export is in use. Importing without using does not count, which is why the TypeScript adapter requires `noUnusedLocals`. An empty DMZ file is also an orphan.
-
-The check finds every orphan in one run and reports the whole chain, from origin to tip, so the AI can delete it in one pass:
-
-```text
-Orphan contracts
-  No _/ code imports these DMZ symbols, directly or through another DMZ.
-  dmz-orphan  logger  (origin root/log)
-    root/dmz/log/billing.ts               line 1
-    root/billing/dmz/.parent/invoices.ts  line 1
-    To fix, delete `logger` from each file above (delete a file once it is empty), or import it by name from root/billing/dmz/.parent/invoices.ts in the consumer's _/ code.
-```
-
-## Access rules
-
-The DMZ decides how code reaches another bucket. Access rules decide which buckets may reach which. They live in the `access` key of `buckets.config.json`, and only a human writes them. Without the key, the check skips them.
-
-```json
-{
-  "access": {
-    "default": "deny",
-    "allow": ["** -> root/log"],
-    "deny": []
-  }
-}
-```
-
-- `default` is `"allow"` or `"deny"`, and it is required. It decides an edge that no line matches.
-- `allow` and `deny` are lists of lines. Both are optional.
-- A line `A -> B` means "code in bucket A uses code that originates in bucket B". A is the bucket that imports. B is the origin, the bucket whose `_/` declares the symbol. The check follows the DMZ chain to find it, as [the bucket graph](#the-bucket-graph) describes, so in the example above `invoices` using `logger` is the edge `root/billing/invoices -> root/log`, whatever DMZ files `logger` passes through.
-
-The lines apply to the edges of the bucket graph, which come only from DMZ symbols. A parent that imports from its child through `.self` is an edge too. Imports of packages, Node built-ins and linked projects are not edges, and a bucket that uses its own code never counts.
-
-Under `"default": "deny"`, the `_/` code of a parent needs an allow line to use its children through `.self`. A line such as `root/billing -> root/billing/**` lets the code in `root/billing/_/` use every bucket below it. Without that line, each `.self` import is `access-denied`.
-
-### Patterns
-
-Each side of a line is a pattern over bucket paths. A bucket path is the folder path from the project, as the lock lists it: `root`, `root/log`, `root/teams/search`.
-
-- `**` as a whole segment matches zero or more bucket names. `root/teams/**` matches `root/teams` and every bucket below it, and `**` alone matches every bucket.
-- `*` matches any characters inside one name. `root/teams/*` matches each child of `root/teams` but not `root/teams` itself, and `root/team-*` matches `root/team-a`.
-- Every other character is literal. `root/teams` matches only that bucket.
-
-::: v-pre
-A group of alternatives matches one of its values, as in `root/{api,web}`. Commas separate the values. One name can hold several groups, and the four kinds of group differ in how the groups of one name relate to each other:
-
-| | Repeats allowed | No repeats |
-|---|---|---|
-| Any order | `{a,b}` | `<a,b>` |
-| Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
-
-- `{a,b}`: each group matches any of its values. `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/A+A` and `root/repository/C+B`, but not `root/repository/A+D` or `root/repository/A`.
-- `{{a,b}}`: the values of the `{{...}}` groups of one name never decrease from left to right. `root/repository/{{A,B,C}}+{{A,B,C}}` matches `A+A`, `A+B`, `B+B`, `B+C` and `C+C`, but not `B+A` or `C+A`.
-- `<a,b>`: the values of the `<...>` groups of one name differ from each other. `root/repository/<A,B,C>+<A,B,C>+<A,B,C>` matches the six orders `A+B+C`, `A+C+B`, `B+A+C`, `B+C+A`, `C+A+B` and `C+B+A`, but not `A+A+B`. The order still matters, so `A+B` and `B+A` are different buckets that both match `<A,B,C>+<A,B,C>`.
-- `<<a,b>>`: the values of the `<<...>>` groups of one name increase strictly from left to right. `root/repository/<<A,B,C>>+<<A,B,C>>` matches `A+B`, `A+C` and `B+C`, but not `B+A`, `A+A` or `C+B`. The order of the values decides, not the order of the list, so `<<C,B,A>>+<<C,B,A>>` matches `A+B` too.
-
-The sorted kinds compare values by plain character code, as JavaScript compares strings without a locale, so uppercase letters sort before lowercase ones: `<<a,B>>+<<a,B>>` matches `B+a`, not `a+B`. A name with a single group of any kind matches as if the group were `{a,b}`. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and mixing two of them is [`config-invalid`](../reference/rules#config-invalid). `{...}` mixes with any of them: `root/r/<<A,B>>-{x,y}-<<A,B>>` matches `root/r/A-x-B` but not `root/r/B-x-A`.
-
-`{{...}}`, `<...>` and `<<...>>` list exact values, so a `*` inside them is `config-invalid`. A value of `{a,b}` may hold a `*`, as in `{api,web-*}`. Groups cannot nest. A `|`, as in `{api|web}`, is `config-invalid` too, because no folder name may contain it on Windows. Separate the values with commas. A group needs at least one value, so `{}` is `config-invalid`, and so are an empty value, as in `{A,,B}`, and a value listed twice in one group, as in `<A,A>`.
-
-A script name in backticks stands for the values that [a script](#scripts) prints. Inside a group of any kind, it is one value between commas, and the script's values join the group and follow its rules: `` root/{shared,`repos`} `` matches `root/shared` and every name that `repos` prints, and `` root/<`repos`>+<`repos`> `` matches two different names it prints. Outside a group, `` `repos` `` means `` {`repos`} ``, so `` root/repository/`repos` `` matches each printed name. A script name mixed with other text in one value, as in `` {a`repos`} ``, is `config-invalid`, and so is a name that `scripts` does not list.
-:::
-
-Each side starts with the root path or with `**`. The root path cannot hold `{`, `}`, `<`, `>`, `*`, `,`, `|` or a backtick, because a line would read them as glob syntax. Bucket paths start with the `root` folder of the config, so with `"root": "src/root"` a line reads `src/root/teams/** -> src/root/log`. A side that starts with anything else is [`config-invalid`](../reference/rules#config-invalid). When the root folder moves, the check fails until a human rewrites the lines, instead of letting them match nothing.
-
-The spaces around `->` are optional. The lock and the review write each line in canonical form: `A -> B` with one space on each side, the values of each group sorted, and a group that holds only a script name written without braces. So `` root/{web,api}/{`repos`} `` is stored as `` root/{api,web}/`repos` ``, and the order of the values never changes what a line matches.
-
-### A worked example
-
-```text
-root/
-  _/                main.ts wires every module
-  log/              the shared logger
-  sql/              the database layer
-  teams/
-    billing/
-    payments/
-    search/
-```
-
-The human writes these rules:
-
-```json
-{
-  "access": {
-    "default": "deny",
-    "allow": [
-      "root -> root/**",
-      "** -> root/log",
-      "root/teams/** -> root/sql",
-      "root/teams/billing -> root/teams/payments"
-    ],
-    "deny": [
-      "root/teams/search -> root/sql"
-    ]
-  }
-}
-```
-
-Line by line:
-
-- `root -> root/**` lets the code in `root/_/` use every bucket, so `main.ts` can wire the modules together. It is also the line a parent needs to use its children through `.self`.
-- `** -> root/log` lets every bucket use the logger.
-- `root/teams/** -> root/sql` lets every team use the database layer.
-- `root/teams/billing -> root/teams/payments` lets billing call payments. No other team may, because no other line matches and `default` is `"deny"`.
-- The deny line carves search out of the teams line. Search reads from its own index and must not query the database. Both `root/teams/** -> root/sql` and the deny line match the edge from search to `sql`. The deny line names search exactly, so it is more specific and decides.
-
-| Edge | Result | Decided by |
-|---|---|---|
-| `root/teams/billing -> root/log` | allowed | `** -> root/log` |
-| `root/teams/payments -> root/sql` | allowed | `root/teams/** -> root/sql` |
-| `root/teams/search -> root/sql` | `access-denied` | the deny line `root/teams/search -> root/sql` |
-| `root/teams/search -> root/teams/payments` | `access-denied` | `default`, because no line matches |
-
-With `"default": "deny"`, every edge the project already has needs an allow line before the check passes again. `buckets inspect --json` lists, for each bucket, the buckets it imports from in `dependsOn`. To add rules to a large project one at a time, start with `"default": "allow"` and a few deny lines.
-
-### Which line decides
-
-Several lines can match one edge. The most specific one decides.
-
-The check counts the segments of each pattern by kind:
-
-::: v-pre
-| Count | Segment | Example |
-|---|---|---|
-| 1st | a literal name | `teams` |
-| 2nd | a name with `*`, a group or a script mixed in | `team-*`, `{api,web}`, `{{a,b}}`, `<a,b>`, `<<a,b>>`, `` `repos` `` |
-| 3rd | exactly `*` | `*` |
-| 4th | `**`, counted as minus one each | `**` |
-:::
-
-To compare two patterns, the check compares the first counts. The pattern with more literal names is more specific. When they have the same number, the second counts decide, then the third, then the fourth, where fewer `**` is more specific. Patterns with the same four counts are equally specific.
-
-| Pattern | Counts |
+| Advice | What it detects |
 |---|---|
-| `root/log` | 2, 0, 0, 0 |
-| `root/billing` | 2, 0, 0, 0 |
-| `root/billing/**` | 2, 0, 0, -1 |
-| `root/teams/**` | 2, 0, 0, -1 |
-| `root/**/payments` | 2, 0, 0, -1 |
-| `root/**` | 1, 0, 0, -1 |
-| `**/log` | 1, 0, 0, -1 |
+| [`reason-generic`](../reference/rules#advice) | A purpose or reason (of `dependsOn`, `packages` or `external`) has fewer than three words, or is only a bucket name and a generic verb such as uses, needs, calls, imports or depends on |
+| [`ignore-large`](../reference/rules#advice) | An `ignore` glob matches more than 20% of the source files, not counting tests, scripts, fixtures and examples, which then fall outside every rule |
 
-So `root/log` beats `root/**`, and `root/billing` beats `root/billing/**`. Where a segment sits in the pattern does not matter. `root/**/payments` and `root/teams/**` are equally specific, and so are `**/log` and `root/**`. When two such patterns sit in an allow line and a deny line with the same other side, the edge they both match is ambiguous.
+## Two valid answers
 
-A line beats another line when it is at least as specific on both sides and more specific on at least one. For each edge, the check:
-
-1. collects every line of both lists that matches the edge
-2. drops every line that another matching line beats
-3. lets `default` decide when no line matched
-4. lets the list decide when the lines left all come from that list
-5. fails the edge with `access-ambiguous` when lines from both lists are left
-
-The order of the lines in a list does not matter. The lock stores each list sorted, so moving a line up or down needs no approval. When a message names one of several lines left, it names the first in sorted order.
-
-Three short cases follow.
-
-An exception under `"default": "allow"`. Teams do not use each other, except billing, which calls payments:
-
-```json
-"default": "allow",
-"allow": ["root/teams/billing -> root/teams/payments"],
-"deny": ["root/teams/* -> root/teams/*"]
-```
-
-For `root/teams/billing -> root/teams/payments`, each side of the allow line has three literal names, where each side of the deny line has two. The allow line beats the deny line, and billing may call payments. For `root/teams/search -> root/teams/payments`, only the deny line matches.
-
-A carve-out on one side. In the worked example, the deny line `root/teams/search -> root/sql` and the allow line `root/teams/** -> root/sql` have the same right side. On the left side, `root/teams/search` has three literal names and `root/teams/**` has two. The deny line is more specific on one side and as specific on the other, so it wins.
-
-An ambiguous edge. Search may use anything, and nobody may use the database directly:
-
-```json
-"allow": ["root/teams/search -> root/**"],
-"deny": ["root/** -> root/sql"]
-```
-
-For `root/teams/search -> root/sql`, the allow line is more specific on the left side and the deny line is more specific on the right side. Neither beats the other, so the check fails the edge with `access-ambiguous` and names both lines. A human settles it with a line that is at least as specific as both on both sides. A line that names both buckets always works: `root/teams/search -> root/sql` in `allow` lets search query the database, and the same line in `deny` forbids it.
-
-The same line in both lists is `config-invalid`, and so is a line listed twice in one list. The check compares the canonical forms, so `root/{a,b}` and `root/{b,a}` are the same line. Overlapping patterns in the two lists are fine, because that is how an exception works.
-
-### When an import is denied
-
-`buckets check` exits with code 1 and reports the rule on the import line. Here the search team imported `query` from the database layer:
-
-```text
-root/teams/search/_/rank.ts
-  line 2  access-denied
-    Access denied: root/teams/search -> root/sql. This file imports `query` (declared in root/sql) from root/teams/dmz/.parent/search.ts, so code in root/teams/search uses code from root/sql. The line "root/teams/search -> root/sql" in access.deny of buckets.config.json is the most specific line that matches this edge. The re-export chain is root/teams/dmz/.parent/search.ts -> root/dmz/sql/teams.ts -> root/sql/_/query.ts. buckets.config.json belongs to a human, so an AI agent never edits it. Remove this dependency on root/sql (the import of `query` and the code that uses it), or stop and ask the human to change "access" in buckets.config.json.
-```
-
-The check also looks at DMZ files before any code imports them. When a DMZ file re-exports a symbol that no bucket allowed to import that file may use, it reports the rule on the export line of the DMZ file. A `.parent` or `.external` file is skipped, because its consumers live outside the bucket.
-
-The agent cannot edit `buckets.config.json`, because the [hooks](./claude-code#the-lock-guard) deny every write to it, as they do for the lock. It has two ways out:
-
-- remove the dependency and solve the task with the buckets it may use
-- stop and ask the human, with the exact line it proposes and why, such as "add `root/teams/search -> root/sql` to `access.allow`, so search can read live prices"
-
-For `access-ambiguous`, the message names the allow line and the deny line, and the agent asks the human for a line more specific than both.
-
-`access-unknown-bucket` reports a side without `*` or `{` that names no bucket, which usually means a bucket folder was renamed, moved or deleted. A pattern with wildcards that matches nothing is not an error.
-
-Every rule id and its messages are on the [rules reference](../reference/rules#access-rules).
-
-### Changing the rules
-
-A human edits `buckets.config.json` and approves the change like any other. The lock keeps the whole config, so the check reports `config-changed` with exit code 2. The text report of `buckets check` and the review list each line that changed:
-
-```text
-~ config changed          buckets.config.json
-    + access.allow  root/teams/search -> root/sql
-    - access.deny   root/teams/search -> root/sql
-```
-
-Locks written before version 4 kept only a hash of the config. When the config changed since such a lock, the review shows the whole current config instead and says the old values were not recorded. See [The approval flow](./approval#config-changes).
-
-## Layout
-
-Access rules decide which buckets may use which. The layout decides which bucket folders may exist. It lives in the `layout` key of `buckets.config.json`, and only a human writes it. Without the key, any bucket folder may exist.
-
-```json
-{
-  "layout": {
-    "default": "deny",
-    "allow": ["root/gpu/*", "root/*/*"],
-    "deny": ["root/legacy/**"]
-  }
-}
-```
-
-The layout has the shape of `access`, with one pattern per line instead of two:
-
-- `default` is `"allow"` or `"deny"`, and it is required. It decides a bucket folder that no line matches.
-- `allow` and `deny` are lists of patterns over bucket paths, with the syntax of [access patterns](#patterns). Both are optional. Each pattern starts with the root path or with `**`.
-- The most specific matching line decides, counted as in [Which line decides](#which-line-decides). An allow line and a deny line that are equally specific make the folder `layout-ambiguous`.
-
-A bucket also passes when no line allows it, if no deny line matches it and some allow line can match a bucket below it. So a layout that allows a bucket also lets its parents exist. `"allow": ["root/gpu/*"]` lets `root`, `root/gpu` and every child of `root/gpu` exist, and nothing else. `"allow": ["root/*/*"]` lets `root`, `root/billing` and `root/billing/invoices` exist, but not `root/billing/invoices/pdf`.
-
-With the layout above:
-
-| Bucket folder | Result | Decided by |
-|---|---|---|
-| `root/gpu/cuda` | allowed | `root/gpu/*` |
-| `root/billing/invoices` | allowed | `root/*/*` |
-| `root/billing` | allowed | `root/*/*` matches buckets below it |
-| `root/billing/invoices/pdf` | `layout-denied` | `default`, because no line matches it or a bucket below it |
-| `root/legacy` | `layout-denied` | the deny line `root/legacy/**` |
-
-`buckets init` writes `"layout": {"default": "deny", "allow": ["root/*/*"]}` with the root path of the project, so a new project allows buckets down to two levels below the root. Older configs limited the depth of the tree with a field of their own. The check now reports that field as [`config-invalid`](../reference/rules#config-invalid), and the message gives the layout that allows the same folders.
-
-The check reports `layout-denied` or `layout-ambiguous` on the bucket folder. A folder that fails is not a bucket, and the check does not look inside it, so a misplaced subtree gives one violation. The root bucket always exists. A layout that forbids it is reported, and the check goes on.
-
-The agent cannot change the layout. It moves the folder into the `_/` of its parent when the folder only organizes code, removes it, or stops and asks the human for the exact line it proposes, such as "add `root/billing/invoices/pdf` to `layout.allow`". The message proposes that line. When the folder holds folders that would be buckets, it proposes `root/billing/invoices/pdf/**` instead, so one line allows the whole subtree. When a deny line that names the folder decided, such as `root/legacy` or `root/legacy/**`, it proposes to remove that line. A folder whose name holds a character that a line reads as glob syntax, such as `{` or a comma, cannot be named by any line, so the message says to rename it.
-
-`buckets check --file` on a file inside a folder that fails the layout reports the violation of that folder, and so does the hook that checks each file an agent edits. Every rule id and its messages are on the [rules reference](../reference/rules#layout).
-
-## Scripts
-
-A list of names that changes often, such as the repositories of a team, can live in a file instead of the config. A script prints the list, and access and layout lines name the script in backticks. The `scripts` key of `buckets.config.json` maps each script name to a Node script, relative to the folder of the config:
-
-```json
-{
-  "scripts": { "repos": "tools/repos.mjs" },
-  "layout": {
-    "default": "deny",
-    "allow": ["root/repository/{shared,`repos`}"]
-  }
-}
-```
-
-```js
-// tools/repos.mjs prints the name of each repository in repos.json, one per line.
-import { readFileSync } from 'node:fs';
-
-for (const repo of JSON.parse(readFileSync('repos.json', 'utf8'))) console.log(repo.name);
-```
-
-A script name starts with a letter or `_` and holds only letters, digits, `_` and `-`. The names `__proto__`, `constructor` and `prototype` are `config-invalid`. The file must exist, and the paths of `scripts` are part of the config like any other value.
-
-The check runs each script before it matches any line, as `node <file>` with the project folder as the current folder, no arguments and a 10 second timeout. Each check runs each script once, also across nested projects that share it. The next check runs it again, so `buckets inspect` and `buckets refresh --web`, which keep running, see a new output on their next refresh. There is no sandbox: a script can do anything a Node program can, so keep it small and read only files of the project.
-
-Each line of the output is one value. The check strips a trailing `\r` and skips empty lines. A value must be a valid bucket name: no `/` or `\`, no `*`, `{`, `}`, `<`, `>`, `,`, `|` or backtick, no character that Windows forbids in a folder name, no space at either end, no leading `.`, no trailing `.`, and not `_` or `dmz`. A name that Windows reserves for a device is invalid too, in any case and with or without an extension: `con`, `prn`, `aux`, `nul`, `com1` to `com9` and `lpt1` to `lpt9`, so `NUL.txt` fails. The order of the lines and repeated lines do not matter.
-
-The check reports [`config-invalid`](../reference/rules#config-invalid) with the script name and the first lines of its stderr when a script exits with a code other than 0, runs longer than 10 seconds, prints no value or prints an invalid value. It runs every script and reports each one that fails, and it matches no line until every script works.
-
-The lock stores the output of each script in `scriptValues`, sorted and without repeats, next to the config. A script that prints other values, for example after `repos.json` changed, is a `config-changed` lock difference even when `buckets.config.json` is the same, so a new value waits for a human approval like a new line. The review lists the values added and removed per script:
-
-```text
-~ config changed          buckets.config.json
-    + `repos` output  billing-api
-    - `repos` output  old-web
-```
-
-## The lock
-
-`buckets.lock.json` records the last state a human approved:
-
-- the CLI version, and the adapter name, version and toolchain (such as `typescript@5.9.3`) that wrote it
-- the bucket tree
-- the config with the defaults filled in and its keys sorted, `access` included, so a change in formatting alone does not count. Locks older than version 4 kept only a hash of it
-- the values each script of the config printed
-- for every DMZ file, `.external.ts` files included, a hash of its text and a hash of the type signature of each symbol it re-exports. Line endings and a leading byte order mark do not change the text hash
-- the nested projects
-- every link, with its origin, mode, the alias of the origin and the signature hash of each symbol the origin publishes
-
-Each nested project has its own lock.
-
-The signature hash catches an AI that changes the signature of an exported function inside `_/` without touching any DMZ file. The DMZ text stays the same, but the signature changes and the check fails.
-
-The AI can edit any file, DMZ files included. It cannot edit the lock or `buckets.config.json`, because a human owns both. See [The approval flow](./approval) for how a change gets approved, and [Lock file](../reference/lockfile) for the exact shape of the file.
+Every violation that has two answers shows both, always in the same order: `fix code:` and then `fix config:`. The hook never prefers one. An import that breaks the config may be a mistake in the code, or a sign that the architecture should change. The agent that writes the code knows which, and when it changes the config, the reason it writes is what the next agent reads.

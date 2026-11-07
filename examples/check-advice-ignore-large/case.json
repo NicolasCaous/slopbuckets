@@ -1,0 +1,13 @@
+{
+  "description": "an ignore glob that matches more than 20% of the source files gets ignore-large advice",
+  "expect": {
+    "exitCode": 0,
+    "violations": [],
+    "advice": [
+      {
+        "advice": "ignore-large",
+        "at": "ignore[0]"
+      }
+    ]
+  }
+}

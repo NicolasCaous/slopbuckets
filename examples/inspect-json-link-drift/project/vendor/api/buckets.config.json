@@ -1,6 +1,0 @@
-{
-  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v1.json",
-  "adapter": "ts",
-  "root": "root",
-  "alias": "@api"
-}

@@ -1,0 +1,7 @@
+{
+  "description": "an import that renames with as counts as a use of the exported name",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

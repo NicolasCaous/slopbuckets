@@ -1,15 +1,18 @@
 ---
 title: Crush
-description: The PreToolUse hook that buckets init adds to .crush.json for Crush.
+description: The PreToolUse hook that buckets init writes for Crush, the only hook event Crush has.
 ---
 
 # Crush
 
-| Protection | Support | How |
+| Phase | Support | How |
 |---|---|---|
-| Block lock writes and plain refresh | yes | `PreToolUse` answers `deny` before the permission prompt |
-| Feedback after edits | no | Crush has no hook after a tool call |
-| Block the end of a turn | no | Crush has no hook at the end of a turn |
+| Warning on edit | yes | `PreToolUse` simulates the edit and returns the pending list in `context` |
+| Pending list on other tools | yes | the same `PreToolUse` hook, which has no matcher, returns the current pending list |
+| Interrupt on an invalid config | yes | `PreToolUse` answers `decision: "deny"` |
+| Interrupt at the end | no | Crush has no stop event |
+| Subagents | no | hooks do not run inside Crush sub-agents |
+| Compaction | no | Crush has no compaction event |
 
 ## Install
 
@@ -17,38 +20,44 @@ description: The PreToolUse hook that buckets init adds to .crush.json for Crush
 buckets init --agent crush
 ```
 
-It adds one hook and writes the shared instructions:
+It writes:
 
-- an entry in `hooks.PreToolUse` of `.crush.json`, or of `crush.json` when that is the file the project already has
+- one `PreToolUse` hook named `slopbuckets` with no matcher and a timeout of 60 seconds, which runs `buckets hook --agent crush pre-tool-use`. It goes in one file: the project's `.crushrc` or `crushrc` when one exists, as the line `hook add PreToolUse --name slopbuckets --command 'buckets hook --agent crush pre-tool-use' --timeout 60  # slopbuckets`, else an existing `.crush.json` or `crush.json`, else a new `.crush.json`. A crushrc wins over the JSON config, which is why `init` prefers it. An entry that an earlier `init` wrote in a JSON config stays there when you add a crushrc later, so delete it by hand.
 - the slopbuckets block in `AGENTS.md` and the skill in `.agents/skills/slopbuckets/SKILL.md`
 
-Your own hooks, settings and comments stay as they were. Crush reads the hook when it starts, with no switch to turn on.
+`init` also reminds you that Crush has no stop hook, and suggests `buckets init --git-hook`.
 
 ## How it works
 
-Before a call to `bash`, `edit`, `multiedit`, `write` or `download`, Crush runs `buckets hook --agent crush pre-tool-use` with `tool_name`, `tool_input` and `cwd` on stdin. The session folder is `CRUSH_PROJECT_DIR`. When a file tool's `file_path` is any `buckets.lock.json` or `buckets.config.json`, or a `bash` command names either file or runs `buckets refresh` with anything but exactly `--web` or `buckets update` without `--check` or `--json`, the hook prints `{"decision": "deny", "reason": "..."}`. Crush blocks the call before its permission prompt and shows the reason to the model.
+Crush sends `PreToolUse` the JSON `{ event, session_id, cwd, tool_name, tool_input }` on stdin for every tool of the top-level agent, and sets `CRUSH_PROJECT_DIR`, which the hook uses as the project folder.
 
-For every other call the hook prints nothing. It never answers `allow`, because Crush takes that as approval and skips its permission prompt.
+- For `write`, `edit` and `multiedit` the hook runs the `pre-edit` phase. It computes the new file from `tool_input`: `content` for `write`, or the file on disk with `old_string` and `new_string` applied, every occurrence with `replace_all`. An empty `old_string` on a missing or empty file creates it with `new_string`, as Crush's edit does. For `download` and `lsp_replace_symbol`, the new text is not in the input, so the hook shows the current pending list and marks the session as one that changed files.
+- For every other tool it runs the `pre-tool` phase, and `bash` calls also mark the session. `lsp_rename` can change many files, and their paths are not known before it runs, so the hook cannot simulate it.
+- With pending violations, the hook prints `{"context": "<pending list>"}` with no `decision`. Crush appends the text to the tool result. When the edit makes `buckets.config.json` worse, it prints `{"decision": "deny", "reason": "..."}`, which refuses that call alone. With nothing to say, it exits 0 with empty stdout.
 
 ## Limits
 
-- After an edit, nothing reports the problems in the file.
-- Nothing runs `buckets check` before the agent ends its turn.
-- Crush runs hooks only for the top-level agent. Calls made by a sub-agent, such as through the `agent` tool, are not checked.
-- The hooks fail open, like every slopbuckets integration. When the `buckets` command is missing, or the hook fails or times out, Crush lets the call through and no check runs.
+- After a project install, the hook command names the copy by the project folder that Crush sets, `node "$CRUSH_PROJECT_DIR/node_modules/slopbuckets/dist/index.js" hook ...`, so the hook finds it whatever folder the agent is in. Crush runs hooks in its embedded POSIX shell, which expands the variable.
+- `decision: "allow"` pre-approves the call and skips the permission prompt, so the hook never prints it.
+- Crush drops the `context` when the tool returns an error.
+- Crush has no stop event, so nothing runs `buckets check` before the agent stops. The `AGENTS.md` block tells the agent to run it.
+- Exit codes other than 0, 2 and 49 are non-blocking errors, so a missing `buckets` command lets the call through.
+- Crush runs hooks in its embedded POSIX shell on every system. Whether that shell finds `buckets.cmd` on Windows is not documented.
+- When `.crush.json` and a crushrc in the same folder both set `hooks`, the crushrc wins, and how the two merge is not documented.
 
-Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci). They hold the rules whatever the agent does.
+Rely on `buckets init --git-hook`, which runs `buckets check` before every commit, and on `buckets check` in [CI](../ci).
 
 ## Check that it works
 
-1. Start `crush` in the project.
-2. Ask it to "run buckets refresh". Crush should show that a hook denied the command, with the slopbuckets reason.
-3. Ask it to "add an empty line to buckets.lock.json". The write should be denied the same way.
+In a project where `billing` and `payments` are buckets and the public file of `payments` is `src/payments/index.ts`:
 
-By hand, from the project folder:
+1. Start Crush in the project.
+2. Ask it to add `import { charge } from '../payments/client';` to `src/billing/invoice.ts`. The tool result should end with the pending list and `billing -> payments: private file`.
+
+By hand, from the project folder, send the `write` call that creates a file with the violation:
 
 ```sh
-echo '{"event":"PreToolUse","cwd":"'"$PWD"'","tool_name":"bash","tool_input":{"command":"buckets refresh"}}' | buckets hook --agent crush pre-tool-use
+echo '{"event":"PreToolUse","session_id":"test","cwd":"'"$PWD"'","tool_name":"write","tool_input":{"file_path":"'"$PWD"'/src/billing/refund.ts","content":"import { charge } from \"../payments/client\";\n"}}' | buckets hook --agent crush pre-tool-use
 ```
 
-It prints `{"decision":"deny",...}`.
+It prints `{"context":"buckets: 1 pending. ..."}` and writes nothing to `src/billing/refund.ts`. Crush has no stop event, so there is no stop to try. Delete `.buckets/sessions/test.json` afterwards.

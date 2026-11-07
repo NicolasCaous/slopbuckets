@@ -1,0 +1,23 @@
+{
+  "description": "check --no-recursive checks only the root project, so the nested violation does not count",
+  "args": [
+    "check",
+    "--json",
+    "--no-recursive"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "file-unowned",
+        "file": "src/utils/date.ts",
+        "project": "."
+      }
+    ],
+    "stdoutJson": {
+      "projects": [
+        "."
+      ]
+    }
+  }
+}

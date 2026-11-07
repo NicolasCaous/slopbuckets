@@ -1,7 +1,7 @@
 {
   "name": "slopbuckets",
-  "version": "1.2.1",
-  "description": "Sealed folders for AI-written code. The AI writes anything inside a bucket, and a human approves every contract between buckets.",
+  "version": "2.0.0",
+  "description": "AI agents keep the architecture of a project in buckets.config.json, and hooks warn them when the code drifts from it.",
   "license": "MIT",
   "author": "Nicolas Caous",
   "type": "module",
@@ -26,19 +26,26 @@
   },
   "keywords": [
     "ai",
+    "ai-agents",
+    "agents-md",
     "architecture",
     "boundaries",
     "claude-code",
     "dependency-rules",
+    "hooks",
     "imports",
     "lint",
+    "modules",
     "monorepo",
     "typescript"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/build-inspect.mjs",
     "typecheck": "tsc --noEmit",
     "prepack": "node scripts/prepack.mjs"
+  },
+  "dependencies": {
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
     "@slopbuckets/adapter-ts": "*"

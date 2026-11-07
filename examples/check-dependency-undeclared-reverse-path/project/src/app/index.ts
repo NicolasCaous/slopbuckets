@@ -1,0 +1,1 @@
+export { shopName } from './name';

@@ -1,0 +1,9 @@
+{
+  "description": "buckets fix import-private re-exports the name and keeps the tsconfig alias, so the check passes afterwards",
+  "setup": [["fix", "import-private"]],
+  "args": ["check", "--json"],
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

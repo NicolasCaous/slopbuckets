@@ -1,7 +1,7 @@
 // A fake registry, clock, cache folder and process runner for the update check and `buckets update`.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { FetchLike, UpdateDeps } from '../core/update.js';
+import type { FetchLike, UpdateDeps } from '../update/update.js';
 
 export interface FakeUpdates extends UpdateDeps {
   /** Every URL the fake fetch was asked for. */

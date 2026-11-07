@@ -1,0 +1,8 @@
+{
+  "name": "@shop/billing",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  }
+}

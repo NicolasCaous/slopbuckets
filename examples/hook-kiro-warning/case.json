@@ -1,0 +1,60 @@
+{
+  "description": "Kiro: PreToolUse prints the pending list on stdout with exit 0, which the IDE adds to the context and the CLI ignores, and a config edit that would be invalid exits 2",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "kiro",
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "cwd": "${PROJECT}",
+        "session_id": "s-kiro-1",
+        "tool_name": "fs_write",
+        "tool_input": {
+          "command": "create",
+          "path": "${PROJECT}/src/billing/refund.ts",
+          "file_text": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+        }
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead",
+        "decision": "context",
+        "pending": [
+          "import-private"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "agent": "kiro",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n"
+      },
+      "payload": {
+        "hook_event_name": "PreToolUse",
+        "cwd": "${PROJECT}",
+        "session_id": "s-kiro-1",
+        "tool_name": "fs_write",
+        "tool_input": {
+          "command": "str_replace",
+          "path": "${PROJECT}/buckets.config.json",
+          "old_str": "\"payments\": \"Charges go through the gateway\"",
+          "new_str": "\"payments\": \"\""
+        }
+      },
+      "expect": {
+        "exitCode": 2,
+        "stderrIncludes": [
+          "buckets: edit not applied, buckets.config.json would be invalid.",
+          "buckets.billing.dependsOn.payments: reason is empty",
+          "fix config: write a one-line reason, for example \"payments\": \"<why billing needs payments>\""
+        ],
+        "pending": [
+          "import-private"
+        ]
+      }
+    }
+  ]
+}

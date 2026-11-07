@@ -1,0 +1,470 @@
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.dependsOn.log: reason is empty
+  fix config: write a one-line reason, for example "log": "<why billing needs log>"
+  [summary] buckets.billing.dependsOn.log: reason is empty (buckets.config.json)
+
+buckets.config.json: cycle billing -> payments -> billing
+  billing -> payments ("Charges go through the gateway"): src/billing/invoice.ts:3 imports charge from src/payments/index.ts
+  payments -> billing ("Marks invoices as paid"): no file of payments imports billing
+  choose one fix:
+  fix code: move the code that needs the reverse direction, so one dependency is no longer needed
+  fix config: remove one dependency of the cycle from dependsOn, or merge the buckets
+  [summary] buckets.config.json: cycle billing -> payments -> billing
+
+billing -> log: undeclared dependency
+  src/billing/invoice.ts:3 imports logError from src/log/index.ts
+  billing: Issues and charges invoices
+  log: Formats and writes application logs
+  choose one fix:
+  fix code: remove the import by moving the code that needs it into log, or by moving what it uses from log into billing
+  fix config: add "log": "<one-line reason>" to buckets.billing.dependsOn
+  [summary] billing -> log: undeclared dependency (src/billing/invoice.ts:3)
+
+billing -> log: declared but never imported ("Logs failed charges with the invoice id")
+  choose one fix:
+  fix code: if billing still needs log, import from a public file of log
+  fix config: remove "log" from buckets.billing.dependsOn
+  [summary] billing -> log: declared but never imported (buckets.billing.dependsOn)
+
+billing -> payments: private file
+  src/billing/invoice.ts:3 imports src/payments/client.ts
+  payments public: src/payments/index.ts
+  fix code: import from src/payments/index.ts instead, and add the re-exports it lacks: export { name } from './client'
+  [summary] billing -> payments: private file (src/billing/invoice.ts:3)
+
+src/billing/invoice.ts:4: '../payments/clinet' does not resolve
+  fix code: correct the path, or create the file it names
+  [summary] src/billing/invoice.ts:4: '../payments/clinet' does not resolve
+
+src/billing/invoice.ts:5 imports ignored file scripts/env.ts
+  choose one fix:
+  fix code: remove the import
+  fix config: take scripts/env.ts out of ignore and add it to a bucket's files
+  [summary] src/billing/invoice.ts:5 imports ignored file scripts/env.ts
+
+src/billing/load.ts:9: dynamic import with a non-literal path, cannot be checked
+  fix code: use a string literal path or a static import
+  [summary] src/billing/load.ts:9: non-literal import()
+
+src/billing/invoice.ts:2 imports * from payments, name each import
+  fix code: replace it with import { a, b } from '../payments', naming only what billing uses
+  [summary] src/billing/invoice.ts:2 imports * from payments
+
+src/utils/date.ts: in no bucket and not ignored
+  choose one fix:
+  fix code: move the file into a folder that a bucket owns
+  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file
+  [summary] src/utils/date.ts: in no bucket
+
+src/billing/stripe/charge.ts: in billing (src/billing/**) and stripe (src/billing/stripe/**)
+  choose one fix:
+  fix code: move the file so only one glob matches it
+  fix config: add "!src/billing/stripe/**" to buckets.billing.files, or narrow buckets.stripe.files
+  [summary] src/billing/stripe/charge.ts: in two buckets
+
+buckets.billing.files: src/billing-old/** matches no file
+  choose one fix:
+  fix code: create a file that src/billing-old/** matches
+  fix config: remove "src/billing-old/**" from buckets.billing.files
+  [summary] buckets.billing.files: src/billing-old/** matches no file
+
+buckets.payments.public: src/payments/api.ts does not exist
+  choose one fix:
+  fix code: create src/payments/api.ts
+  fix config: in buckets.payments.public, replace src/payments/api.ts with an existing file of payments or remove it, and use null when no public file remains
+  [summary] buckets.payments.public: src/payments/api.ts does not exist
+
+buckets.payments.public: src/payments/index.ts:4 has code, public files only hold named re-exports
+  fix code: move the code to another file of payments and re-export it by name from src/payments/index.ts
+  [summary] buckets.payments.public: has code (src/payments/index.ts:4)
+
+packages/sdk/buckets.config.json: nested project not listed in projects
+  choose one fix:
+  fix code: delete packages/sdk/buckets.config.json if it is not a project
+  fix config: add "packages/sdk" to projects
+  [summary] packages/sdk/buckets.config.json: not listed in projects
+
+payments: export refund is not imported by any bucket (src/payments/index.ts:4)
+  choose one fix:
+  fix code: remove refund from src/payments/index.ts, or import it where a bucket needs it
+  fix config: if code outside this project uses it, add "external": "<one-line reason>" to buckets.payments
+  [summary] payments: export refund not imported by any bucket (src/payments/index.ts:4)
+
+billing: undeclared package lodash
+  src/billing/invoice.ts:6 imports 'lodash/merge'
+  billing: Issues and charges invoices
+  choose one fix:
+  fix code: remove the import
+  fix config: add "lodash": "<one-line reason>" to buckets.billing.packages
+  [summary] billing: undeclared package lodash (src/billing/invoice.ts:6)
+
+billing: package node:fs declared but never imported ("Writes invoice PDFs to the export folder")
+  choose one fix:
+  fix code: if billing still needs node:fs, import it in a file of billing
+  fix config: remove "node:fs" from buckets.billing.packages
+  [summary] billing: package node:fs declared but never imported (buckets.billing.packages)
+
+buckets.config.json: invalid, other rules skipped
+  not valid JSON: Expected ',' or '}' after property value in JSON at position 120
+  fix config: fix the JSON syntax of buckets.config.json
+  [summary] buckets.config.json: not valid JSON
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.public: must be a file path, a non-empty array of file paths, or null
+  fix config: write buckets.billing.public as a file path, a non-empty array of file paths, or null
+  [summary] buckets.billing.public: must be a file path, a non-empty array of file paths, or null (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  version: must be a version string such as "2.0"
+  fix config: write version as a version string such as "2.0"
+  [summary] version: must be a version string such as "2.0" (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  the top level: "version" is missing
+  fix config: add "version": "2.0" to the top level
+  [summary] the top level: "version" is missing (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing: "purpose" is missing
+  fix config: add "purpose": "<one-line purpose>" to buckets.billing
+  [summary] buckets.billing: "purpose" is missing (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing: "public" is missing
+  fix config: add "public" to buckets.billing: the path of a file of billing, a list of such paths, or null if billing exports nothing
+  [summary] buckets.billing: "public" is missing (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing: "packages" is missing
+  fix config: add "packages": {} to buckets.billing
+  [summary] buckets.billing: "packages" is missing (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  the top level: "buckets" is missing
+  fix config: add "buckets": {} to the top level
+  [summary] the top level: "buckets" is missing (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing: unknown field "description"
+  fix config: remove "description" from buckets.billing; buckets.billing takes only purpose, files, public, dependsOn, packages and external
+  [summary] buckets.billing: unknown field "description" (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  the top level: unknown field "root"
+  fix config: this is a slopbuckets 1.x config; rename it to buckets.config.1x.json, run buckets init, and design the buckets again
+  [summary] the top level: unknown field "root" (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.purpose: purpose is empty
+  fix config: write one line in buckets.billing.purpose that says what billing does
+  [summary] buckets.billing.purpose: purpose is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.files: files is empty
+  fix config: add a glob such as "src/billing/**" to buckets.billing.files
+  [summary] buckets.billing.files: files is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.files[1]: glob is empty
+  fix config: write a glob in buckets.billing.files[1], or remove the entry
+  [summary] buckets.billing.files[1]: glob is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.external: external is empty
+  fix config: write one line in buckets.billing.external that says which code outside the project uses it, or remove "external"
+  [summary] buckets.billing.external: external is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.public: public is empty
+  fix config: set buckets.billing.public to the path of a file of billing, a list of such paths, or null
+  [summary] buckets.billing.public: public is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.public[1]: path is empty
+  fix config: write the path of a file of billing in buckets.billing.public[1], or remove the entry
+  [summary] buckets.billing.public[1]: path is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.packages.lodash: reason is empty
+  fix config: write a one-line reason, for example "lodash": "<why billing needs lodash>"
+  [summary] buckets.billing.packages.lodash: reason is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  projects[0]: path is empty
+  fix config: write a folder in projects[0], or remove the entry
+  [summary] projects[0]: path is empty (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.purpose: purpose has more than one line
+  fix config: rewrite buckets.billing.purpose as one line
+  [summary] buckets.billing.purpose: purpose has more than one line (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.Billing_Core: bucket name must use lowercase letters, digits and -, starting with a letter
+  fix config: rename the bucket to "billing-core" and update every dependsOn that names it
+  [summary] buckets.Billing_Core: bucket name must use lowercase letters, digits and -, starting with a letter (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.dependsOn.lgo: bucket lgo does not exist
+  fix config: remove "lgo" from buckets.billing.dependsOn, or add a bucket named lgo
+  [summary] buckets.billing.dependsOn.lgo: bucket lgo does not exist (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing: removed while dependsOn still names it, and buckets.invoicing is new
+  fix config: to rename billing to invoicing, rename the key and every dependsOn entry that names billing in the same edit: buckets.api.dependsOn and buckets.mail.dependsOn
+  [summary] buckets.billing: removed while dependsOn still names it, and buckets.invoicing is new (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.packages["lodash/merge"]: "lodash/merge" is not a package name
+  fix config: rename the key to "lodash"; keys are package names without a subpath, and Node built-ins as node:<name>
+  [summary] buckets.billing.packages["lodash/merge"]: "lodash/merge" is not a package name (buckets.config.json)
+
+buckets.config.json: invalid, other rules skipped
+  buckets.billing.packages.fs: "fs" is not a package name
+  fix config: rename the key to "node:fs"; keys are package names without a subpath, and Node built-ins as node:<name>
+  [summary] buckets.billing.packages.fs: "fs" is not a package name (buckets.config.json)
+
+billing -> log: undeclared dependency
+  src/billing/invoice.ts:3 imports logError from src/log/index.ts
+  src/billing/refund.ts:1 imports logError, type LogLevel from src/log/index.ts
+  src/billing/retry.ts:7 imports logWarn from src/log/index.ts
+  src/billing/tax.ts:2 imports logError from src/log/index.ts
+  src/billing/webhook.ts:4 imports logError from src/log/index.ts
+  billing: Issues and charges invoices
+  log: Formats and writes application logs
+  api depends on log: Logs every request with its status
+  mail depends on log: Logs bounced and rejected mail
+  payments depends on log: Logs gateway timeouts and declines
+  choose one fix:
+  fix code: remove the imports by moving the code that needs them into log, or by moving what they use from log into billing
+  fix config: add "log": "<one-line reason>" to buckets.billing.dependsOn
+  [summary] billing -> log: undeclared dependency (src/billing/invoice.ts:3 and 4 more)
+
+billing -> payments: undeclared dependency, imports private files
+  src/billing/invoice.ts:3 imports charge, type ChargeResult from src/payments/client.ts (private)
+  src/billing/refund.ts:2 imports refund from src/payments/index.ts
+  src/billing/types.ts:1 imports type Card from src/payments/client.ts (private)
+  billing: Issues and charges invoices
+  payments: Talks to the payment gateway
+  payments public: src/payments/index.ts
+  choose one fix:
+  fix code: remove the imports by moving the code that needs them into payments, or by moving what they use from payments into billing
+  fix config: add "payments": "<one-line reason>" to buckets.billing.dependsOn, then import from src/payments/index.ts instead, and add the re-exports it lacks: export { charge } from './client', export type { Card, ChargeResult } from './client'
+  [summary] billing -> payments: undeclared dependency, imports private files (src/billing/invoice.ts:3 and 2 more)
+
+billing -> app: undeclared dependency, app is closed
+  src/billing/invoice.ts:3 imports routes from src/app/routes.ts (private)
+  billing: Issues and charges invoices
+  app: Starts the server and wires every route
+  app public: none
+  choose one fix:
+  fix code: remove the import by moving the code that needs it into app, or by moving what it uses from app into billing
+  fix config: add "app": "<one-line reason>" to buckets.billing.dependsOn, then set buckets.app.public to a file of app that re-exports what billing needs
+  [summary] billing -> app: undeclared dependency, app is closed (src/billing/invoice.ts:3)
+
+log -> billing: undeclared dependency
+  src/log/format.ts:8 imports type Invoice from src/billing/index.ts
+  log: Formats and writes application logs
+  billing: Issues and charges invoices
+  api depends on billing: Lists the invoices of a customer
+  no config fix: declaring billing in buckets.log.dependsOn would create the cycle log -> billing -> log, so move the code
+  fix code: remove the import by moving the code that needs it into billing, or by moving what it uses from billing into log
+  [summary] log -> billing: undeclared dependency (src/log/format.ts:8)
+
+payments -> payment-webhooks: undeclared dependency
+  src/payments/client.ts:2 imports onRefund from src/payment-webhooks/index.ts
+  payments: Talks to the payment gateway
+  payment-webhooks: Receives the events the gateway posts
+  payment-webhooks -> payments is undeclared too, and declaring both directions makes the cycle payments -> payment-webhooks -> payments, so declare one and move the code of the other
+  choose one fix:
+  fix code: remove the import by moving the code that needs it into payment-webhooks, or by moving what it uses from payment-webhooks into payments
+  fix config: add "payment-webhooks": "<one-line reason>" to buckets.payments.dependsOn
+  [summary] payments -> payment-webhooks: undeclared dependency (src/payments/client.ts:2)
+
+mail -> payments: payments is closed
+  src/mail/receipt.ts:3 imports charge from src/payments/client.ts
+  payments public: none
+  choose one fix:
+  fix code: remove the import
+  fix config: set buckets.payments.public to a file of payments that re-exports what mail needs
+  [summary] mail -> payments: payments is closed (src/mail/receipt.ts:3)
+
+billing -> payments: private files
+  src/billing/invoice.ts:3 imports charge, type ChargeResult from src/payments/gateway/stripe.ts
+  src/billing/types.ts:1 imports type Card from src/payments/gateway/stripe.ts
+  payments public: src/payments/index.ts
+  fix code: import from src/payments/index.ts instead, and add the re-exports it lacks: export { charge } from './gateway/stripe', export type { Card, ChargeResult } from './gateway/stripe'
+  [summary] billing -> payments: private files (src/billing/invoice.ts:3 and 1 more)
+
+web -> payments: private file
+  src/web/checkout.tsx:5 imports type Session from src/payments/server/session.ts
+  payments public: src/payments/index.ts, src/payments/server.ts
+  fix code: import from a public file of payments instead, and add the re-exports it lacks; in src/payments/index.ts they read: export type { Session } from './server/session'
+  [summary] web -> payments: private file (src/web/checkout.tsx:5)
+
+src/web/page.tsx:2: '@/lib/db' matches the tsconfig paths pattern @/* and does not resolve
+  fix code: correct the path or the paths entry for @/* in tsconfig.json, or create the file it names
+  [summary] src/web/page.tsx:2: '@/lib/db' does not resolve
+
+src/web/page.tsx:3: workspace package '@acme/ui' does not resolve
+  fix code: install the dependencies, or point '@acme/ui' at its sources with a paths entry in tsconfig.json
+  [summary] src/web/page.tsx:3: '@acme/ui' does not resolve
+
+src/web/page.tsx:4: 'src/promotions/index' names no file under the tsconfig baseUrl
+  fix code: correct the path, or create the file it names
+  [summary] src/web/page.tsx:4: 'src/promotions/index' does not resolve
+
+src/billing/load.ts:12: require with a non-literal path, cannot be checked
+  fix code: use a string literal path or a static import
+  [summary] src/billing/load.ts:12: non-literal require()
+
+src/billing/index.ts:1 re-exports * from payments, name each export
+  fix code: replace it with export { a, b } from '../payments', naming only what other files import
+  [summary] src/billing/index.ts:1 re-exports * from payments
+
+src/billing/lazy.ts:6 imports * from payments with import(), name each import
+  fix code: destructure what billing uses, as in const { a, b } = await import('../payments')
+  [summary] src/billing/lazy.ts:6 imports * from payments
+
+src/billing/old.cjs:2 imports * from payments with require(), name each import
+  fix code: destructure what billing uses, as in const { a, b } = require('../payments')
+  [summary] src/billing/old.cjs:2 imports * from payments
+
+src/legacy/** (42 files): in no bucket and not ignored
+  choose one fix:
+  fix code: move the files into folders that buckets own
+  fix config: add src/legacy/** to a bucket's files, or to ignore if it is not product code, such as tests, scripts or generated files
+  [summary] src/legacy/** (42 files): in no bucket
+
+buckets.config.json: no buckets yet, 197 files are in no bucket
+  scripts/** (4 files)
+  src/app/** (40 files)
+  src/components/** (120 files)
+  src/lib/** (31 files)
+  next.config.ts
+  src/middleware.ts
+  fix config: design the first architecture as the SKILL section "The first architecture after buckets init" says: read what each folder does, put tests, scripts and generated files in ignore, and give each domain its own bucket
+  [summary] buckets.config.json: no buckets yet (197 files in no bucket)
+
+buckets.billing.files: !src/billing/stripe/** excludes no file
+  fix config: remove "!src/billing/stripe/**" from buckets.billing.files
+  [summary] buckets.billing.files: !src/billing/stripe/** excludes no file
+
+ignore: scripts/** matches no file
+  fix config: remove "scripts/**" from ignore
+  [summary] ignore: scripts/** matches no file
+
+projects: packages/sdk has no buckets.config.json
+  choose one fix:
+  fix code: create packages/sdk/buckets.config.json
+  fix config: remove "packages/sdk" from projects
+  [summary] projects: packages/sdk has no buckets.config.json
+
+buckets.payments.public: src/log/index.ts belongs to log, not to payments
+  choose one fix:
+  fix code: move src/log/index.ts into a folder that buckets.payments.files matches
+  fix config: in buckets.payments.public, replace src/log/index.ts with an existing file of payments or remove it, and use null when no public file remains
+  [summary] buckets.payments.public: src/log/index.ts belongs to log
+
+buckets.payments.public: src/payments/index.test.ts is ignored, not in payments
+  choose one fix:
+  fix code: move src/payments/index.test.ts into a folder that buckets.payments.files matches
+  fix config: in buckets.payments.public, replace src/payments/index.test.ts with an existing file of payments or remove it, and use null when no public file remains
+  [summary] buckets.payments.public: src/payments/index.test.ts is ignored
+
+buckets.payments.public: src/pay/index.ts is in no bucket, not in payments
+  choose one fix:
+  fix code: move src/pay/index.ts into a folder that buckets.payments.files matches
+  fix config: in buckets.payments.public, replace src/pay/index.ts with an existing file of payments or remove it, and use null when no public file remains
+  [summary] buckets.payments.public: src/pay/index.ts is in no bucket
+
+buckets.payments.public: src/payments/index.ts:2 uses export *, name each export
+  fix code: replace it with export { a, b } from './x', naming only what other buckets import
+  [summary] buckets.payments.public: uses export * (src/payments/index.ts:2)
+
+buckets.payments.public: src/payments/index.ts:3 re-exports from log (src/log/format.ts)
+  fix code: remove the re-export; buckets that need it import from a public file of log and declare log in dependsOn
+  [summary] buckets.payments.public: re-exports from log (src/payments/index.ts:3)
+
+billing: undeclared package node:fs
+  src/billing/export.ts:1 imports 'node:fs'
+  src/billing/pdf.ts:2 imports 'fs/promises'
+  billing: Issues and charges invoices
+  log declares node:fs: Appends log lines to the log file
+  choose one fix:
+  fix code: remove the imports, or move the code that needs node:fs into log
+  fix config: add "node:fs": "<one-line reason>" to buckets.billing.packages
+  [summary] billing: undeclared package node:fs (src/billing/export.ts:1 and 1 more)
+
+[advice]
+buckets.billing.dependsOn.log: "Uses log" only names a bucket and a generic verb
+  fix config: say what billing takes from log and why, so the next agent can judge the dependency
+
+[advice]
+ignore[1]: src/legacy/** matches 120 of 300 source files (40%)
+  those 120 files are outside every rule: no bucket owns them and none of their imports is checked
+  fix config: keep only tests, scripts, tool configs and generated files in ignore, and put product code in buckets
+
+[advice]
+buckets.billing.purpose: "Billing code" has fewer than 3 words
+  fix config: say what billing does, so the next agent knows which code belongs in it
+
+[advice]
+buckets.billing.packages.lodash: "Needs lodash" has fewer than 3 words
+  fix config: say what billing uses lodash for
+
+[advice]
+buckets.api.external: "External" has fewer than 3 words
+  fix config: say which code outside the project uses the public files, such as the npm package entry
+
+[interrupt]
+buckets: edit not applied, buckets.config.json would be invalid.
+  buckets.billing.dependsOn.log: reason is empty
+  fix config: write a one-line reason, for example "log": "<why billing needs log>"
+
+[interrupt, applied]
+buckets: buckets.config.json is now invalid. Every other check is off until it is fixed.
+  buckets.billing.dependsOn.log: reason is empty
+  fix config: write a one-line reason, for example "log": "<why billing needs log>"
+
+[advice note]
+buckets advice: 1 note on the config. Advice does not fail the check or block the turn.
+
+buckets.billing.dependsOn.log: "Uses log" only names a bucket and a generic verb
+  fix config: say what billing takes from log and why, so the next agent can judge the dependency
+
+[stop, repeated, with advice]
+buckets: 1 structure violation remains. Fix the code or edit buckets.config.json. Either is valid.
+
+billing -> log: declared but never imported ("Logs failed charges with the invoice id")
+  choose one fix:
+  fix code: if billing still needs log, import from a public file of log
+  fix config: remove "log" from buckets.billing.dependsOn
+
+These were also left at the end of an earlier turn. If you leave them, tell the user which ones and why.
+
+buckets advice: 1 note on the config. Advice does not fail the check or block the turn.
+
+buckets.billing.dependsOn.log: "Uses log" only names a bucket and a generic verb
+  fix config: say what billing takes from log and why, so the next agent can judge the dependency
+
+[check --summary]
+buckets check: 5 structure violations, and could not check 1 project. Fix the code or edit buckets.config.json. Either is valid.
+
+By rule:
+  1 dependency-undeclared
+  1 import-private
+  1 file-unowned
+  2 export-unused
+
+By bucket:
+  2 billing
+  1 log
+  3 payments
+  1 no bucket
+
+Advice: 1 reason-generic, 1 ignore-large. Advice does not fail the check.
+
+packages/sdk: cannot check (config-newer): buckets.config.json has version "2.1", which needs slopbuckets 2.1 or later, and this is slopbuckets 2.0.0. Run buckets update, then run buckets check again.
+
+Run buckets check without --summary to see each violation with its fixes.

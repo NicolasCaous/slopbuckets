@@ -1,0 +1,51 @@
+{
+  "description": "Claude Code: deleting the last importer of payments through Bash leaves the dependency and the export unused, and Stop blocks",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-delete",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-delete.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rm src/billing/retry.ts",
+          "description": "Run a command"
+        },
+        "tool_use_id": "toolu_28"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "files": {
+        "src/billing/retry.ts": null
+      },
+      "payload": {
+        "session_id": "s-claude-delete",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-delete.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: declared but never imported (\"Charges go through the gateway\")\n  choose one fix:\n  fix code: if billing still needs payments, import from a public file of payments\n  fix config: remove \"payments\" from buckets.billing.dependsOn\n\npayments: export charge is not imported by any bucket (src/payments/index.ts:1)\n  choose one fix:\n  fix code: remove charge from src/payments/index.ts, or import it where a bucket needs it\n  fix config: if code outside this project uses it, add \"external\": \"<one-line reason>\" to buckets.payments",
+        "stdoutJson": {
+          "decision": "block",
+          "reason": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: declared but never imported (\"Charges go through the gateway\")\n  choose one fix:\n  fix code: if billing still needs payments, import from a public file of payments\n  fix config: remove \"payments\" from buckets.billing.dependsOn\n\npayments: export charge is not imported by any bucket (src/payments/index.ts:1)\n  choose one fix:\n  fix code: remove charge from src/payments/index.ts, or import it where a bucket needs it\n  fix config: if code outside this project uses it, add \"external\": \"<one-line reason>\" to buckets.payments"
+        }
+      }
+    }
+  ]
+}

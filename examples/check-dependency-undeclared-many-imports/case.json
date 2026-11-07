@@ -1,0 +1,30 @@
+{
+  "description": "several imports of the same undeclared bucket give one violation that lists them all",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "dependency-undeclared",
+        "file": "src/app/a.ts",
+        "line": 1
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "dependency-undeclared",
+          "imports": [
+            {
+              "file": "src/app/a.ts",
+              "line": 1
+            },
+            {
+              "file": "src/app/b.ts",
+              "line": 1
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

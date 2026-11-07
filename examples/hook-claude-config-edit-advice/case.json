@@ -1,0 +1,92 @@
+{
+  "description": "Claude Code: after an Edit of buckets.config.json writes a weak reason, the next pre-tool shows the advice on it once, without the advice the config had before, and the clean stop still notes it",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-edit-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-edit-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"log\": \"Writes the startup line to the application log\"",
+          "new_string": "\"log\": \"Uses log\"",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_01"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "buckets.config.json": "{\r\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\r\n  \"version\": \"2.0\",\r\n  \"buckets\": {\r\n    \"app\": {\r\n      \"purpose\": \"Starts the program and wires the billing routes\",\r\n      \"files\": [\r\n        \"src/app/**\"\r\n      ],\r\n      \"public\": null,\r\n      \"dependsOn\": {\r\n        \"billing\": \"Uses billing\",\r\n        \"log\": \"Uses log\"\r\n      },\r\n      \"packages\": {}\r\n    },\r\n    \"billing\": {\r\n      \"purpose\": \"Issues and charges invoices\",\r\n      \"files\": [\r\n        \"src/billing/**\"\r\n      ],\r\n      \"public\": \"src/billing/index.ts\",\r\n      \"dependsOn\": {\r\n        \"payments\": \"Charges each invoice through the payment gateway\"\r\n      },\r\n      \"packages\": {}\r\n    },\r\n    \"payments\": {\r\n      \"purpose\": \"Talks to the payment gateway\",\r\n      \"files\": [\r\n        \"src/payments/**\"\r\n      ],\r\n      \"public\": \"src/payments/index.ts\",\r\n      \"dependsOn\": {},\r\n      \"packages\": {}\r\n    },\r\n    \"log\": {\r\n      \"purpose\": \"Formats and writes application logs\",\r\n      \"files\": [\r\n        \"src/log/**\"\r\n      ],\r\n      \"public\": \"src/log/index.ts\",\r\n      \"dependsOn\": {},\r\n      \"packages\": {}\r\n    }\r\n  }\r\n}\r\n"
+      },
+      "payload": {
+        "session_id": "s-claude-config-edit-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-edit-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/app/main.ts"
+        },
+        "tool_use_id": "toolu_02"
+      },
+      "expect": {
+        "exitCode": 0,
+        "decision": "context",
+        "message": "buckets advice: 1 note on the config. Advice does not fail the check or block the turn.\n\nbuckets.app.dependsOn.log: \"Uses log\" only names a bucket and a generic verb\n  fix config: say what app takes from log and why, so the next agent can judge the dependency",
+        "pending": []
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-config-edit-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-edit-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/app/main.ts"
+        },
+        "tool_use_id": "toolu_03"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "payload": {
+        "session_id": "s-claude-config-edit-advice",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-config-edit-advice.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "Stop",
+        "stop_hook_active": false,
+        "last_assistant_message": "Done."
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutJson": {
+          "systemMessage": "buckets advice: 1 note on the config. Advice does not fail the check or block the turn.\n\nbuckets.app.dependsOn.log: \"Uses log\" only names a bucket and a generic verb\n  fix config: say what app takes from log and why, so the next agent can judge the dependency"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "description": "public can list several files: an import of any of them is public, and every listed file is checked on its own",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "public-missing",
+        "file": "src/billing/client.ts"
+      }
+    ]
+  }
+}

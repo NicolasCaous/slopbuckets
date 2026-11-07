@@ -1,0 +1,19 @@
+{
+  "description": "two buckets that depend on each other give config-cycle",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-cycle",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-cycle"
+        }
+      ]
+    }
+  }
+}

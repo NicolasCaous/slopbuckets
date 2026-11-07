@@ -1,0 +1,8 @@
+{
+  "name": "@shop/app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@shop/billing": "*"
+  }
+}

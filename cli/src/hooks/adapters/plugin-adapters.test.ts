@@ -1,185 +1,228 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hookCommand } from '../../commands/hook.js';
-import { approve, fakeIo, testContext } from '../../testing/harness.js';
-import { cleanupProjects, fileExists, LOGGER_PROJECT, makeProject, readFile, writeFile } from '../../testing/fixture.js';
-import { CONFIG_DENY_REASON, LOCK_DENY_REASON, UPDATE_DENY_REASON } from '../core.js';
+import { HOOK_PHASES, type HookCore, type HookDecision, type HookInput, type HookPhase } from '../../contract/hooks.js';
+import { cleanupProjects, fileExists, makeProject, readFile } from '../../testing/fixture.js';
+import { fakeIo, testContext } from '../../testing/harness.js';
+import { normalizeHarnessPath, parseHookInput } from '../input.js';
 import { PLUGIN_MARKER } from '../plugin-file.js';
-import { LOWERCASE_READ_DENY_REASON, lowercaseReadTool, parsePluginInput } from '../plugin-protocol.js';
+import { pluginHandlers, type ToolTable } from '../plugin-protocol.js';
+import { ampPlugin, opencodePlugin, piPlugin } from '../plugins/sources.js';
 import { findAdapter } from '../registry.js';
-import { AMP_PLUGIN_FILE, ampToolCall } from './amp.js';
-import { OPENCODE_PLUGIN_FILE, opencodeToolCall } from './opencode.js';
-import { PI_PLUGIN_FILE, piToolCall } from './pi.js';
+import { AMP_PLUGIN_FILE, AMP_TOOLS } from './amp.js';
+import { OPENCODE_PLUGIN_FILE, OPENCODE_TOOLS } from './opencode.js';
+import { PI_PLUGIN_FILE, PI_TOOLS } from './pi.js';
 
 afterEach(cleanupProjects);
 
-async function hook(agent: string, event: string, input: unknown, dir: string) {
-  const io = fakeIo({ cwd: dir, stdin: typeof input === 'string' ? input : JSON.stringify(input) });
-  const code = await hookCommand(testContext(), io, ['--agent', agent, event]);
-  const lines = io.out.trim().split('\n');
-  return { code, answer: JSON.parse(lines[lines.length - 1]!) as Record<string, string>, lines: lines.length, err: io.err };
+/** Runs one protocol call with a core that records its input and answers `decision`. */
+async function call(table: ToolTable, event: string, stdin: unknown, decision: HookDecision | Error = { kind: 'silent' }, dir = makeProject({}, false)) {
+  const inputs: HookInput[] = [];
+  const core: HookCore = async (input) => {
+    inputs.push(input);
+    if (decision instanceof Error) throw decision;
+    return decision;
+  };
+  const io = fakeIo({ cwd: dir, stdin: typeof stdin === 'string' ? stdin : JSON.stringify(stdin) });
+  const handler = pluginHandlers(table, ...HOOK_PHASES)[event as HookPhase];
+  const code = await handler({ ...testContext(), hookCore: core }, io, parseHookInput(await io.readStdin()));
+  return { code, out: io.out, err: io.err, input: inputs[0]!, dir };
 }
 
-const input = (raw: Record<string, unknown>) => parsePluginInput(JSON.stringify(raw)).input;
+const line = (value: unknown) => `${JSON.stringify(value)}\n`;
+const at = (dir: string, file: string) => path.resolve(dir, file);
 
-/** For each harness: a call that writes the lock, a shell call, a call that edits a file and the deny reason. */
-const CASES = [
-  {
-    name: 'opencode V1',
-    agent: 'opencode',
-    write: (file: string) => ({ api: 'v1', tool: 'write', args: { filePath: file, content: '{}' } }),
-    shell: (command: string) => ({ api: 'v1', tool: 'bash', args: { command } }),
-    reason: LOWERCASE_READ_DENY_REASON,
-  },
-  {
-    name: 'opencode V2',
-    agent: 'opencode',
-    write: (file: string) => ({ api: 'v2', tool: 'edit', args: { path: file, oldString: 'a', newString: 'b' } }),
-    shell: (command: string) => ({ api: 'v2', tool: 'shell', args: { command } }),
-    reason: LOWERCASE_READ_DENY_REASON,
-  },
-  {
-    name: 'pi',
-    agent: 'pi',
-    write: (file: string) => ({ tool: 'write', args: { path: file, content: '{}' } }),
-    shell: (command: string) => ({ tool: 'bash', args: { command } }),
-    reason: LOWERCASE_READ_DENY_REASON,
-  },
-  {
-    name: 'amp',
-    agent: 'amp',
-    write: (file: string) => ({ tool: 'edit_file', paths: [file] }),
-    shell: (command: string) => ({ tool: 'Bash', command }),
-    reason: LOCK_DENY_REASON,
-  },
-];
-
-describe.each(CASES)('buckets hook --agent $agent ($name)', ({ agent, write, shell, reason }) => {
-  it('denies a write to the lock with the reason, and allows other writes', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect(await hook(agent, 'pre-tool-use', { cwd: dir, ...write(path.join(dir, 'buckets.lock.json')) }, dir)).toEqual({
-      code: 0,
-      answer: { decision: 'deny', reason },
-      lines: 1,
-      err: '',
-    });
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write('buckets.lock.json') }, dir)).answer.decision).toBe('deny');
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write(path.join(dir, 'root/_/main.ts')) }, dir)).answer).toEqual({ decision: 'allow' });
+describe('plugin protocol round trips', () => {
+  it('pre-tool: a call that edits nothing reaches the core as pre-tool and answers its context', async () => {
+    const dir = makeProject({}, false);
+    const r = await call(OPENCODE_TOOLS, 'pre-tool', { cwd: dir, sessionId: 's1', tool: 'read', args: { filePath: 'a.ts' } }, { kind: 'context', text: 'buckets: 1 pending' }, dir);
+    expect(r).toMatchObject({ code: 0, out: line({ kind: 'context', text: 'buckets: 1 pending' }), err: '' });
+    expect(r.input).toEqual({ phase: 'pre-tool', sessionId: 's1', agentId: null, cwd: normalizeHarnessPath(dir), root: normalizeHarnessPath(dir), toolName: 'read', edits: [], isShell: false, stopHookActive: false });
   });
 
-  it('denies a write or a shell command on the root or a nested buckets.config.json with the config reason', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const deny = { decision: 'deny', reason: reason === LOCK_DENY_REASON ? CONFIG_DENY_REASON : lowercaseReadTool(CONFIG_DENY_REASON) };
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write(path.join(dir, 'buckets.config.json')) }, dir)).answer).toEqual(deny);
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...write('root/log/_/engine/buckets.config.json') }, dir)).answer).toEqual(deny);
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('cat buckets.config.json') }, dir)).answer).toEqual(deny);
+  it('pre-tool: a write becomes pre-edit with the new text, and a deny comes back', async () => {
+    const r = await call(OPENCODE_TOOLS, 'pre-tool', { tool: 'write', args: { filePath: 'buckets.config.json', content: '{' } }, { kind: 'deny', text: 'config invalid' });
+    expect(r.out).toBe(line({ kind: 'deny', text: 'config invalid' }));
+    expect(r.input).toMatchObject({ phase: 'pre-edit', toolName: 'write', edits: [{ path: at(r.dir, 'buckets.config.json'), content: '{' }], isShell: false });
   });
 
-  it('denies plain buckets refresh and allows buckets refresh --web', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('buckets refresh') }, dir)).answer.decision).toBe('deny');
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('cat buckets.lock.json') }, dir)).answer.decision).toBe('deny');
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('buckets refresh --web > refresh.log 2>&1 &') }, dir)).answer).toEqual({ decision: 'allow' });
-    expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell('ls') }, dir)).answer).toEqual({ decision: 'allow' });
+  it('pre-edit is handled like pre-tool, so a read stays pre-tool', async () => {
+    const r = await call(PI_TOOLS, 'pre-edit', { tool: 'read', args: { path: 'a.ts' } });
+    expect(r.input.phase).toBe('pre-tool');
+    expect(r.out).toBe(line({ kind: 'silent' }));
   });
 
-  it('denies buckets update without --check or --json with the update reason, and allows the report forms', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    for (const command of ['buckets update', 'buckets update 1.2.0', 'buckets update --yes', 'npx slopbuckets update']) {
-      expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell(command) }, dir)).answer).toEqual({ decision: 'deny', reason: UPDATE_DENY_REASON });
-    }
-    for (const command of ['buckets update --check', 'buckets update --json', 'npm update']) {
-      expect((await hook(agent, 'pre-tool-use', { cwd: dir, ...shell(command) }, dir)).answer).toEqual({ decision: 'allow' });
+  it('pre-tool: a shell call is marked, and silent comes back as silent', async () => {
+    for (const [table, tool] of [
+      [OPENCODE_TOOLS, 'bash'],
+      [OPENCODE_TOOLS, 'shell'],
+      [PI_TOOLS, 'powershell'],
+    ] as const) {
+      const r = await call(table, 'pre-tool', { tool, args: { command: 'rm src/a.ts' } });
+      expect(r.input).toMatchObject({ phase: 'pre-tool', isShell: true, edits: [] });
+      expect(r.out).toBe(line({ kind: 'silent' }));
     }
   });
 
-  it('returns the check of an edited file with a violation, and nothing for a clean one', async () => {
-    const dir = makeProject({ ...LOGGER_PROJECT, 'root/_/main.ts': "import x from './x';\n" });
-    const bad = await hook(agent, 'post-tool-use', { cwd: dir, ...write(path.join(dir, 'root/_/main.ts')) }, dir);
-    expect(bad.code).toBe(0);
-    expect(bad.answer.feedback).toContain('root/_/main.ts');
-    expect(bad.answer.feedback).toContain('import-relative');
-    expect((await hook(agent, 'post-tool-use', { cwd: dir, ...write(path.join(dir, 'root/log/_/logger.ts')) }, dir)).answer).toEqual({});
-    expect((await hook(agent, 'post-tool-use', { cwd: dir, ...shell('ls') }, dir)).answer).toEqual({});
+  it('stop and subagent-stop: carry stopHookActive and answer a block', async () => {
+    const stop = await call(PI_TOOLS, 'stop', { sessionId: 's1', stopHookActive: true, tool: 'ignored' }, { kind: 'block', text: 'buckets: 2 remain' });
+    expect(stop.out).toBe(line({ kind: 'block', text: 'buckets: 2 remain' }));
+    expect(stop.input).toMatchObject({ phase: 'stop', toolName: null, edits: [], isShell: false, stopHookActive: true, sessionId: 's1' });
+    const sub = await call(AMP_TOOLS, 'subagent-stop', { sessionId: 'T-2', agentId: 'a1' }, { kind: 'block', text: 'x' });
+    expect(sub.out).toBe(line({ kind: 'block', text: 'x' }));
+    expect(sub.input).toMatchObject({ phase: 'subagent-stop', sessionId: 'T-2', agentId: 'a1', stopHookActive: false });
   });
 
-  it('blocks the stop when the check fails, and not when it passes or is already active', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const failing = await hook(agent, 'stop', { cwd: dir }, dir);
-    expect(failing.answer.block).toContain('lock-missing');
-    expect((await hook(agent, 'stop', { cwd: dir, active: true }, dir)).answer).toEqual({});
-    await approve(dir);
-    expect((await hook(agent, 'stop', { cwd: dir }, dir)).answer).toEqual({});
+  it('post-compact: reaches the core and answers silent', async () => {
+    const r = await call(OPENCODE_TOOLS, 'post-compact', { sessionId: 's1' });
+    expect(r.input.phase).toBe('post-compact');
+    expect(r.out).toBe(line({ kind: 'silent' }));
   });
 
-  it('allows on invalid input and always answers with one JSON line', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect((await hook(agent, 'pre-tool-use', 'not json', dir)).answer).toEqual({ decision: 'allow' });
-    expect((await hook(agent, 'post-tool-use', '[]', dir)).answer).toEqual({});
-  });
-});
-
-describe('opencode tool mapping', () => {
-  it('reads V1 filePath, patchText and bash workdir', () => {
-    expect(opencodeToolCall(input({ tool: 'edit', args: { filePath: 'a.ts' } }))).toEqual({ action: { kind: 'write', paths: ['a.ts'] }, edited: ['a.ts'] });
-    expect(opencodeToolCall(input({ api: 'v1', tool: 'edit', args: { path: 'a.ts' } }))).toEqual({ action: { kind: 'write', paths: [] }, edited: [] });
-    const patch = '*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: src/b.ts\n@@\n-a\n+b\n*** Delete File: buckets.lock.json\n*** End Patch';
-    expect(opencodeToolCall(input({ api: 'v1', tool: 'apply_patch', args: { patchText: patch } }))).toEqual({
-      action: { kind: 'write', paths: ['src/a.ts', 'src/b.ts', 'buckets.lock.json'] },
-      edited: ['src/b.ts'],
-    });
-    expect(opencodeToolCall(input({ api: 'v1', tool: 'bash', args: { command: 'ls', workdir: 'sub' } })).action).toEqual({ kind: 'shell', command: 'ls', cwd: 'sub' });
-    expect(opencodeToolCall(input({ api: 'v1', tool: 'shell', args: { command: 'ls' } })).action).toEqual({ kind: 'other' });
+  it('uses root when the plugin sends one, else cwd', async () => {
+    const r = await call(PI_TOOLS, 'stop', { cwd: '/repo/sub', root: '/repo' });
+    expect(r.input).toMatchObject({ cwd: '/repo/sub', root: '/repo' });
   });
 
-  it('reads V2 path, patch and shell', () => {
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'write', args: { path: 'a.ts' } })).edited).toEqual(['a.ts']);
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'write', args: { filePath: 'a.ts' } })).edited).toEqual([]);
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'patch', args: { patchText: '*** Add File: x.ts\n+1' } })).edited).toEqual(['x.ts']);
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'apply_patch', args: { patchText: '*** Add File: x.ts\n+1' } })).action).toEqual({ kind: 'other' });
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'shell', args: { command: 'ls' } })).action).toEqual({ kind: 'shell', command: 'ls' });
-    expect(opencodeToolCall(input({ api: 'v2', tool: 'read', args: { path: 'buckets.lock.json' } })).action).toEqual({ kind: 'other' });
+  it('answers silent for a decision the phase does not allow', async () => {
+    expect((await call(PI_TOOLS, 'stop', {}, { kind: 'deny', text: 'no' })).out).toBe(line({ kind: 'silent' }));
+    expect((await call(PI_TOOLS, 'post-compact', {}, { kind: 'context', text: 'no' })).out).toBe(line({ kind: 'silent' }));
+    expect((await call(PI_TOOLS, 'pre-tool', { tool: 'read' }, { kind: 'block', text: 'no' })).out).toBe(line({ kind: 'silent' }));
   });
 
-  it('denies a patch that deletes the lock through the CLI', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const patchText = '*** Begin Patch\n*** Delete File: buckets.lock.json\n*** End Patch';
-    expect((await hook('opencode', 'pre-tool-use', { cwd: dir, api: 'v1', tool: 'apply_patch', args: { patchText } }, dir)).answer.decision).toBe('deny');
-    expect((await hook('opencode', 'pre-tool-use', { cwd: dir, api: 'v2', tool: 'patch', args: { patchText } }, dir)).answer.decision).toBe('deny');
+  it('fails open: a crash of the core answers silent with exit code 0 and a note on stderr', async () => {
+    const r = await call(PI_TOOLS, 'pre-tool', { tool: 'write', args: { path: 'a.ts', content: '' } }, new Error('boom'));
+    expect(r.code).toBe(0);
+    expect(r.out).toBe(line({ kind: 'silent' }));
+    expect(r.err).toContain('buckets hook pre-tool: unexpected error: Error: boom');
   });
 
-  it('runs the subagent check on subagent-stop', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    expect((await hook('opencode', 'subagent-stop', { cwd: dir }, dir)).answer.block).toContain('lock-missing');
+  it('reads malformed input as an empty call', async () => {
+    for (const stdin of ['not json', '[]', '']) {
+      const r = await call(PI_TOOLS, 'pre-tool', stdin);
+      expect(r.input).toMatchObject({ phase: 'pre-tool', toolName: null, sessionId: null, edits: [] });
+      expect(r.out).toBe(line({ kind: 'silent' }));
+    }
   });
 });
 
-describe('pi and amp tool mapping', () => {
-  it('maps Pi bash, powershell, edit and write', () => {
-    expect(piToolCall(input({ tool: 'powershell', args: { command: 'Get-Content buckets.lock.json' } })).action).toEqual({ kind: 'shell', command: 'Get-Content buckets.lock.json' });
-    expect(piToolCall(input({ tool: 'edit', args: { path: 'a.ts', edits: [] } })).edited).toEqual(['a.ts']);
-    expect(piToolCall(input({ tool: 'read', args: { path: 'buckets.lock.json' } })).action).toEqual({ kind: 'other' });
+describe('edits and their new text', () => {
+  const edits = async (table: ToolTable, call_: Record<string, unknown>, files: Record<string, string> = {}) => {
+    const dir = makeProject(files, false);
+    const r = await call(table, 'pre-tool', { cwd: dir, ...call_ }, { kind: 'silent' }, dir);
+    return { edits: r.input.edits, dir, isShell: r.input.isShell };
+  };
+
+  it('OpenCode edit: applies oldString and newString to the file on disk, both lines', async () => {
+    const v1 = await edits(OPENCODE_TOOLS, { tool: 'edit', args: { filePath: 'src/a.ts', oldString: 'one', newString: 'two' } }, { 'src/a.ts': 'one one\n' });
+    expect(v1.edits).toEqual([{ path: at(v1.dir, 'src/a.ts'), content: 'two one\n' }]);
+    const v2 = await edits(OPENCODE_TOOLS, { tool: 'edit', args: { path: 'src/a.ts', oldString: 'one', newString: 'two', replaceAll: true } }, { 'src/a.ts': 'one one\n' });
+    expect(v2.edits).toEqual([{ path: at(v2.dir, 'src/a.ts'), content: 'two two\n' }]);
+    const created = await edits(OPENCODE_TOOLS, { tool: 'edit', args: { filePath: 'src/new.ts', oldString: '', newString: 'x' } });
+    expect(created.edits).toEqual([{ path: at(created.dir, 'src/new.ts'), content: 'x' }]);
   });
 
-  it('maps the paths and the command the Amp plugin extracted', () => {
-    expect(ampToolCall(input({ tool: 'x', paths: ['file:///tmp/a.ts', 3] })).edited).toEqual([path.normalize('/tmp/a.ts').replace(/\\/g, '/')]);
-    expect(ampToolCall(input({ tool: 'x', command: 'ls', commandCwd: 'sub' })).action).toEqual({ kind: 'shell', command: 'ls', cwd: 'sub' });
-    expect(ampToolCall(input({ tool: 'x' })).action).toEqual({ kind: 'other' });
+  it('leaves the text out when the edit would not apply', async () => {
+    const r = await edits(OPENCODE_TOOLS, { tool: 'edit', args: { filePath: 'src/a.ts', oldString: 'missing', newString: 'two' } }, { 'src/a.ts': 'one\n' });
+    expect(r.edits).toEqual([{ path: at(r.dir, 'src/a.ts') }]);
+    const noFile = await edits(PI_TOOLS, { tool: 'edit', args: { path: 'gone.ts', edits: [{ oldText: 'a', newText: 'b' }] } });
+    expect(noFile.edits).toEqual([{ path: at(noFile.dir, 'gone.ts') }]);
   });
 
-  it('refuses events a harness does not have', async () => {
-    const dir = makeProject(LOGGER_PROJECT);
-    const io = fakeIo({ cwd: dir, stdin: '{}' });
-    expect(await hookCommand(testContext(), io, ['--agent', 'pi', 'subagent-stop'])).toBe(1);
-    expect(io.err).toContain('Events: pre-tool-use, post-tool-use, stop.');
+  it('Pi edit: applies the edits list in order, and the legacy top-level pair', async () => {
+    const r = await edits(PI_TOOLS, { tool: 'edit', args: { path: 'a.ts', edits: [{ oldText: 'a', newText: 'b' }, { oldText: 'c', newText: 'd' }] } }, { 'a.ts': 'a c\n' });
+    expect(r.edits).toEqual([{ path: at(r.dir, 'a.ts'), content: 'b d\n' }]);
+    const legacy = await edits(PI_TOOLS, { tool: 'edit', args: { path: 'a.ts', oldText: 'a', newText: 'z' } }, { 'a.ts': 'a\n' });
+    expect(legacy.edits[0]!.content).toBe('z\n');
+    const write = await edits(PI_TOOLS, { tool: 'write', args: { path: 'b.ts', content: 'new' } });
+    expect(write.edits).toEqual([{ path: at(write.dir, 'b.ts'), content: 'new' }]);
+  });
+
+  it('Amp: takes the paths and command the plugin sends, and the text from the raw arguments', async () => {
+    const edit = await edits(AMP_TOOLS, { tool: 'edit_file', paths: ['src/a.ts'], args: { path: 'src/a.ts', old_str: 'a', new_str: 'b' } }, { 'src/a.ts': 'a\n' });
+    expect(edit.edits).toEqual([{ path: at(edit.dir, 'src/a.ts'), content: 'b\n' }]);
+    const create = await edits(AMP_TOOLS, { tool: 'create_file', paths: ['n.ts'], args: { path: 'n.ts', content: 'x' } });
+    expect(create.edits).toEqual([{ path: at(create.dir, 'n.ts'), content: 'x' }]);
+    const two = await edits(AMP_TOOLS, { tool: 'x', paths: ['a.ts', 'b.ts', 7], args: {} });
+    expect(two.edits).toEqual([{ path: at(two.dir, 'a.ts') }, { path: at(two.dir, 'b.ts') }]);
+    const shell = await edits(AMP_TOOLS, { tool: 'Bash', command: 'sed -i s/a/b/ a.ts', paths: ['a.ts'] });
+    expect(shell).toMatchObject({ edits: [], isShell: true });
+    const read = await edits(AMP_TOOLS, { tool: 'Read', paths: [], args: { path: 'a.ts' } });
+    expect(read).toMatchObject({ edits: [], isShell: false });
+  });
+
+  it('apply_patch: adds, updates with an anchor, deletes and moves', async () => {
+    const patch = [
+      '*** Begin Patch',
+      '*** Add File: src/new.ts',
+      '+export const n = 1;',
+      '*** Update File: src/a.ts',
+      '@@ function f() {',
+      ' const a = 1;',
+      '-const b = 2;',
+      '+const b = 3;',
+      '*** Delete File: src/old.ts',
+      '*** Update File: src/m.ts',
+      '*** Move to: src/moved.ts',
+      '@@',
+      '-x',
+      '+y',
+      '*** End Patch',
+    ].join('\n');
+    const files = { 'src/a.ts': 'const b = 2;\nfunction f() {\nconst a = 1;\nconst b = 2;\n}\n', 'src/old.ts': '', 'src/m.ts': 'x\n' };
+    const r = await edits(OPENCODE_TOOLS, { tool: 'apply_patch', args: { patchText: patch } }, files);
+    expect(r.edits).toEqual([
+      { path: at(r.dir, 'src/new.ts'), content: 'export const n = 1;\n' },
+      { path: at(r.dir, 'src/a.ts'), content: 'const b = 2;\nfunction f() {\nconst a = 1;\nconst b = 3;\n}\n' },
+      { path: at(r.dir, 'src/old.ts'), content: null },
+      { path: at(r.dir, 'src/m.ts'), content: null },
+      { path: at(r.dir, 'src/moved.ts'), content: 'y\n' },
+    ]);
+  });
+
+  it('apply_patch: keeps CRLF line ends and leaves the text out when a hunk does not match', async () => {
+    const crlf = await edits(OPENCODE_TOOLS, { tool: 'patch', args: { patchText: '*** Begin Patch\n*** Update File: a.ts\n@@\n a\n-b\n+c\n*** End Patch' } }, { 'a.ts': 'a\r\nb\r\n' });
+    expect(crlf.edits).toEqual([{ path: at(crlf.dir, 'a.ts'), content: 'a\r\nc\r\n' }]);
+    const miss = await edits(OPENCODE_TOOLS, { tool: 'patch', args: { patchText: '*** Update File: a.ts\n@@\n-zzz\n+c' } }, { 'a.ts': 'a\n' });
+    expect(miss.edits).toEqual([{ path: at(miss.dir, 'a.ts') }]);
   });
 });
 
 describe.each([
-  { agent: 'opencode', spec: OPENCODE_PLUGIN_FILE },
-  { agent: 'pi', spec: PI_PLUGIN_FILE },
-  { agent: 'amp', spec: AMP_PLUGIN_FILE },
-])('$agent install and uninstall', ({ agent, spec }) => {
+  { agent: 'opencode', events: ['pre-edit', 'pre-tool', 'stop', 'subagent-stop', 'post-compact'], missing: ['pre-tool-use'] },
+  { agent: 'pi', events: ['pre-edit', 'pre-tool', 'stop', 'post-compact'], missing: ['subagent-stop', 'post-tool-use'] },
+  { agent: 'amp', events: ['pre-edit', 'pre-tool', 'stop', 'subagent-stop'], missing: ['post-compact'] },
+])('buckets hook --agent $agent', ({ agent, events, missing }) => {
+  it('lists its events and answers each with one JSON decision line', async () => {
+    expect(findAdapter(agent)!.events).toEqual(events);
+    const dir = makeProject({}, false);
+    for (const event of events) {
+      const io = fakeIo({ cwd: dir, stdin: JSON.stringify({ cwd: dir, sessionId: 's1', tool: 'read', args: {} }) });
+      expect(await hookCommand(testContext(), io, ['--agent', agent, event])).toBe(0);
+      const lines = io.out.trim().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(typeof JSON.parse(lines[0]!).kind).toBe('string');
+    }
+  });
+
+  it('lets events it does not have through with a note, the 1.x names included', async () => {
+    const dir = makeProject({}, false);
+    for (const event of missing) {
+      const io = fakeIo({ cwd: dir, stdin: '{}' });
+      expect(await hookCommand(testContext(), io, ['--agent', agent, event])).toBe(0);
+      expect(io.err).toContain(`Events: ${events.join(', ')}.`);
+    }
+  });
+});
+
+/** The start of a plugin file as slopbuckets 1.x wrote it. */
+const PLUGIN_1X = `// @ts-nocheck\n// ${PLUGIN_MARKER}: the slopbuckets plugin. It runs "buckets hook --agent x pre-tool-use".\nexport default {};\n`;
+
+describe.each([
+  { agent: 'opencode', spec: { ...OPENCODE_PLUGIN_FILE, content: opencodePlugin() }, plugin: opencodePlugin },
+  { agent: 'pi', spec: { ...PI_PLUGIN_FILE, content: piPlugin() }, plugin: piPlugin },
+  { agent: 'amp', spec: { ...AMP_PLUGIN_FILE, content: ampPlugin() }, plugin: ampPlugin },
+])('$agent install', ({ agent, spec, plugin }) => {
   const adapter = findAdapter(agent)!;
   const primary = `${spec.dir}/${spec.name}`;
   const alt = `${spec.dir}/${spec.altName}`;
@@ -194,11 +237,15 @@ describe.each([
     expect(fileSteps(adapter.install(dir, { skill: null }))).toEqual([{ status: 'kept', text: `The slopbuckets plugin for ${spec.title} in ${primary} is up to date` }]);
   });
 
-  it('updates an outdated copy of its own plugin in place', () => {
-    const dir = makeProject({ [primary]: `// ${PLUGIN_MARKER} old\n` }, false);
-    expect(fileSteps(adapter.install(dir, { skill: null }))[0]!.status).toBe('done');
-    expect(readFile(dir, primary)).toBe(spec.content);
-    expect(fileExists(dir, alt)).toBe(false);
+  it('migrates a 1.x plugin in place, under either name, and is idempotent after that', () => {
+    for (const name of [primary, alt]) {
+      const dir = makeProject({ [name]: PLUGIN_1X }, false);
+      expect(fileSteps(adapter.install(dir, { skill: null }))).toEqual([{ status: 'done', text: `Updated the slopbuckets plugin for ${spec.title} in ${name}` }]);
+      expect(readFile(dir, name)).toBe(spec.content);
+      expect(readFile(dir, name)).not.toContain('pre-tool-use');
+      expect(fileExists(dir, name === primary ? alt : primary)).toBe(false);
+      expect(fileSteps(adapter.install(dir, { skill: null }))[0]!.status).toBe('kept');
+    }
   });
 
   it('never clobbers a user file with the same name', () => {
@@ -208,9 +255,28 @@ describe.each([
     expect(readFile(dir, primary)).toBe('export default function mine() {}\n');
     expect(readFile(dir, alt)).toBe(spec.content);
     expect(fileSteps(adapter.install(dir, { skill: null }))[0]!.status).toBe('kept');
-    // Uninstall removes only the plugin of slopbuckets.
-    expect(adapter.uninstall(dir)).toEqual([{ status: 'done', text: `Removed the slopbuckets plugin for ${spec.title} from ${alt}` }]);
-    expect(readFile(dir, primary)).toBe('export default function mine() {}\n');
+  });
+
+  it('writes the command of a local install into the plugin, and switches back on the next install', () => {
+    const dir = makeProject({}, false);
+    const local = 'node ./node_modules/slopbuckets/dist/index.js';
+    expect(fileSteps(adapter.install(dir, { skill: null, command: local }))[0]!.status).toBe('done');
+    expect(readFile(dir, primary)).toBe(plugin(local));
+    expect(readFile(dir, primary)).toContain(`const COMMAND = ${JSON.stringify(local)};`);
+    expect(fileSteps(adapter.install(dir, { skill: null }))).toEqual([{ status: 'done', text: `Updated the slopbuckets plugin for ${spec.title} in ${primary}` }]);
+    expect(readFile(dir, primary)).toBe(spec.content);
+  });
+
+  it('uninstall removes only its own plugin file, and the folder it left empty', () => {
+    const dir = makeProject({}, false);
+    adapter.install(dir, { skill: null });
+    expect(adapter.uninstall(dir)).toEqual([{ status: 'done', text: `Removed the slopbuckets plugin for ${spec.title} from ${primary}` }]);
+    expect(fileExists(dir, spec.dir)).toBe(false);
+    expect(adapter.uninstall(dir)).toEqual([]);
+    const mine = makeProject({ [primary]: 'export default function mine() {}\n' }, false);
+    adapter.install(mine, { skill: null });
+    expect(adapter.uninstall(mine)).toEqual([{ status: 'done', text: `Removed the slopbuckets plugin for ${spec.title} from ${alt}` }]);
+    expect(readFile(mine, primary)).toBe('export default function mine() {}\n');
   });
 
   it('fails without writing when both names hold user files', () => {
@@ -220,22 +286,6 @@ describe.each([
     expect(steps[0]!.status).toBe('failed');
     expect(readFile(dir, primary)).toBe('a\n');
     expect(readFile(dir, alt)).toBe('b\n');
-  });
-
-  it('uninstalls its plugin and the empty folder, and does nothing the second time', () => {
-    const dir = makeProject({}, false);
-    adapter.install(dir, { skill: null });
-    expect(adapter.uninstall(dir)).toEqual([{ status: 'done', text: `Removed the slopbuckets plugin for ${spec.title} from ${primary}` }]);
-    expect(fileExists(dir, spec.dir)).toBe(false);
-    expect(adapter.uninstall(dir)).toEqual([]);
-  });
-
-  it('keeps the plugin folder when it holds other files', () => {
-    const dir = makeProject({}, false);
-    writeFile(dir, `${spec.dir}/other.ts`, 'x\n');
-    adapter.install(dir, { skill: null });
-    adapter.uninstall(dir);
-    expect(fileExists(dir, `${spec.dir}/other.ts`)).toBe(true);
   });
 });
 

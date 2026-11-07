@@ -1,0 +1,16 @@
+{
+  "description": "two buckets that import each other with neither direction declared each get dependency-undeclared that says the opposite direction is undeclared too, since declaring both makes a cycle",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      { "rule": "dependency-undeclared", "file": "src/app/main.ts", "line": 1 },
+      { "rule": "dependency-undeclared", "file": "src/billing/charge.ts", "line": 1 }
+    ],
+    "stdoutJson": {
+      "violations": [
+        { "rule": "dependency-undeclared", "from": "app", "to": "billing", "reversePath": null, "reverseUndeclared": true },
+        { "rule": "dependency-undeclared", "from": "billing", "to": "app", "reversePath": null, "reverseUndeclared": true }
+      ]
+    }
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "description": "Auggie: after a launch-process call Stop blocks once on end_turn, and the same stop again stays silent",
+  "steps": [
+    {
+      "hook": "pre-tool",
+      "event": "post-tool-use",
+      "agent": "auggie",
+      "files": {
+        "src/billing/refund.ts": "import { charge } from '../payments/client';\n\nexport function refund(amount: number): string {\n  return charge(-amount);\n}\n",
+        "src/utils/date.ts": "export function today(): string {\n  return new Date().toISOString().slice(0, 10);\n}\n"
+      },
+      "payload": {
+        "hook_event_name": "PostToolUse",
+        "conversation_id": "c-auggie-1",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "tool_name": "launch-process",
+        "tool_input": {
+          "command": "git apply ../refactor.patch"
+        },
+        "is_mcp_tool": false,
+        "tool_output": "ok",
+        "tool_error": null,
+        "file_changes": []
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "auggie",
+      "payload": {
+        "hook_event_name": "Stop",
+        "conversation_id": "c-auggie-1",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "agent_stop_cause": "end_turn"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 2 structure violations remain. Fix the code or edit buckets.config.json. Either is valid.\n\nbilling -> payments: private file\n  src/billing/refund.ts:1 imports charge from src/payments/client.ts\n  payments public: src/payments/index.ts\n  fix code: import from src/payments/index.ts instead\n\nsrc/utils/date.ts: in no bucket and not ignored\n  choose one fix:\n  fix code: move the file into a folder that a bucket owns\n  fix config: add it to a bucket's files, or to ignore if it is not product code, such as a test, a script or a generated file"
+      }
+    },
+    {
+      "hook": "stop",
+      "event": "stop",
+      "agent": "auggie",
+      "payload": {
+        "hook_event_name": "Stop",
+        "conversation_id": "c-auggie-1",
+        "workspace_roots": [
+          "${PROJECT}"
+        ],
+        "agent_stop_cause": "end_turn"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true
+      }
+    }
+  ]
+}

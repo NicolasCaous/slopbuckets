@@ -1,0 +1,7 @@
+{
+  "description": "an import of an npm workspace package by name resolves to the file of its bucket",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

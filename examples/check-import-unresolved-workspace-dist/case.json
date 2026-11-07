@@ -1,0 +1,13 @@
+{
+  "description": "a workspace package whose exports point at a build output outside the listing is import-unresolved",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "import-unresolved",
+        "file": "packages/app/src/main.ts",
+        "line": 1
+      }
+    ]
+  }
+}

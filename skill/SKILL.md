@@ -1,202 +1,367 @@
 ---
 name: slopbuckets
-description: Rules for working in a project that uses slopbuckets (has a buckets.config.json). Use before editing any file under the root bucket folder, before adding an import between folders, and whenever buckets check fails.
+description: How to work in a project that has a buckets.config.json. Use it for any code change there, before you add a file, an import between folders or an import of an npm package or Node module, whenever a slopbuckets hook reports pending items or blocks the end of a turn, and when you design or change the buckets in buckets.config.json, including right after `buckets init` and when you translate an Nx, eslint-plugin-boundaries, Sheriff or dependency-cruiser setup.
 ---
 
 # Working in a slopbuckets project
 
-This project is split into buckets. Each bucket is a sealed folder. You can write any code inside a bucket. Code in one bucket reaches another bucket only through contract files in `dmz/` folders, and a human approves every contract change.
+`buckets.config.json` at the project root holds the architecture: the buckets, the job of each one, its public files, the buckets and external packages it depends on, and why. You and other agents own this file. Nobody approves changes to it. The slopbuckets hooks compare the code with the file and tell you where they disagree. Fixing the code and editing the file are both valid answers, and you decide which one is right.
 
-Read `buckets.config.json` to find the root bucket folder (`root` by default), the import alias, the `access` rules and the `layout`. Never edit it: it belongs to the human. `buckets init` generates a unique alias such as `@root-k3x9pm2a`; older projects use `@root`. The examples below write `@root`.
+Read the file before you write code. It is the only place where the rules of this project live: no folder names, naming conventions or secondary files add rules. To read one bucket instead of the whole file, run `buckets show <bucket>`. It prints the bucket, its dependencies and packages with their reasons, the buckets that depend on it and its violations.
 
-## Reading the structure before you edit
-
-Run `buckets inspect --json` to see the whole project before you change contracts or add imports between buckets. It prints one JSON object and exits:
-
-- `projects`: the current project first (`.`), then every nested project, each with its `buckets`, `contracts`, `imports`, `violations`, `lockChanges`, `links` and `external` surface.
-- `buckets[]`: `offers` and `consumes` list the DMZ files of each bucket, `dependsOn` and `dependents` list the buckets it imports from and the buckets that import from it, and `rewriteCost` says how many contract symbols a rewrite must keep.
-- `contracts[].symbols[]`: `origin` is the bucket that declares the symbol, `chain` lists the files from the DMZ file to the declaration, `signature.text` is the declaration and `importers` lists every `_/` file that imports it, with the line.
-- `violations[]` carries the same messages as `buckets check`, plus `cycle`, `chain` (for orphans) or `target` (for forbidden imports).
-
-Use it to find the DMZ file a symbol already passes through, or the shortest path for a new one, instead of opening files one by one. `buckets inspect` without `--json` serves the same data as a read-only page on `127.0.0.1` for the human. It never writes to the project and never approves anything, so you may run either form at any time.
-
-When the human asks for a picture of the structure, `buckets inspect --export mermaid` prints the bucket graph of every project as a Mermaid flowchart and `buckets inspect --export svg` prints the map, both without a server. When the human wants the whole page to share, `buckets inspect --export html --out inspect.html` writes it as one HTML file that works without a server. Add `--out <file>` to write a file instead of printing. It refuses to write over `buckets.lock.json`.
-
-## Folder rules
-
-- A bucket contains only `_/`, `dmz/` and child buckets.
-- All code of a bucket lives in its `_/` folder. Inside `_/` you can create any files and folders.
-- Every other folder inside a bucket is a child bucket. Do not create one to organize code. Creating a bucket needs human approval, and the `layout` of the config may forbid it.
-- Do not put files directly in a bucket folder.
-- Do not create symlinks or junctions inside the root folder. `buckets link add` is the only way to place a link, in `<bucket>/_/links/<name>`.
-
-## Import rules
-
-- Use the alias for every internal import. Never use relative imports, not even inside the same `_/` folder.
-- Code in `X/_/` can import from:
-  - `X/_/`
-  - DMZ files of the parent bucket where `X` is the consumer: `P/dmz/<provider>/X.ts`
-  - DMZ files where a child of `X` provides to `X`: `X/dmz/<child>/.self.ts`
-  - packages listed in `package.json` and Node built-ins
-- Never use `import()`, `require()`, `createRequire`, `import.meta.glob` or `import * as` from a DMZ file. `vi.mock`, `jest.mock` and `new URL('...', import.meta.url)` follow the same rules as an import of their string.
-- Never share code without imports: every file in `_/` is a module, with no `declare global`, no `export as namespace` and no `/// <reference>`. `declare module '@root/...'` counts as an import of that file. Keep ambient declaration files such as `vite-env.d.ts` outside the root folder.
-- Importing a DMZ symbol counts as a use only if the code references it. Re-exporting it from `_/` counts only when another file of the same bucket imports it from there and references it.
-
-## DMZ rules
-
-Inside `P/dmz/`, the folder is the provider and the file is the consumer. `dmz/sql/http.ts` holds everything `http` takes from `sql`. `.self` means the code in `P/_/`. `.parent` means what `P` receives from the level above.
-
-A DMZ file contains only these two kinds of statements:
-
-```ts
-export { query } from '@root/sql/_/query';
-export type { Row } from '@root/sql/_/types';
-```
-
-No renames with `as`, no `export *`, no default exports, no declarations, no logic.
-
-When a bucket needs something from another bucket, add the symbol to the right DMZ file, creating the file if needed. To reach a bucket that is not a sibling, add one re-export per level, so every hop is a file. Every DMZ symbol must be used by some code. Remove contracts that nothing uses anymore, and remove the whole chain, not only the last file.
-
-The bucket graph cannot have cycles. If bucket A uses something from B, B cannot use anything from A, directly or through other buckets.
-
-## Access rules
-
-`buckets.config.json` may have an `access` key that says which buckets may use which:
+## Reading buckets.config.json
 
 ```json
-"access": {
-  "default": "deny",
-  "allow": ["** -> root/log", "root/teams/** -> root/sql"],
-  "deny": ["root/teams/search -> root/sql"]
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": ["**/*.test.ts", "scripts/**", "*.config.ts"],
+  "projects": ["packages/sdk"],
+  "buckets": {
+    "app": {
+      "purpose": "Starts the HTTP server and wires the routes",
+      "files": ["src/main.ts", "src/routes/**"],
+      "public": null,
+      "dependsOn": {
+        "billing": "Routes create and list invoices",
+        "log": "Logs each request with its status"
+      },
+      "packages": { "express": "Serves the HTTP routes" }
+    },
+    "billing": {
+      "purpose": "Issues and charges invoices",
+      "files": ["src/billing/**"],
+      "public": "src/billing/index.ts",
+      "dependsOn": {
+        "payments": "Charges each invoice through the gateway",
+        "log": "Logs failed charges with the invoice id"
+      },
+      "packages": {
+        "zod": "Validates the invoice payloads of the public API",
+        "node:fs": "Writes invoice PDFs to the export folder"
+      }
+    },
+    "payments": {
+      "purpose": "Talks to the payment gateway",
+      "files": ["src/payments/**"],
+      "public": ["src/payments/index.ts", "src/payments/webhook.ts"],
+      "dependsOn": {},
+      "packages": { "stripe": "Calls the Stripe API for charges and refunds" }
+    },
+    "log": {
+      "purpose": "Formats and writes application logs",
+      "files": ["src/log/**"],
+      "public": "src/log/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    }
+  }
 }
 ```
 
-A line `A -> B` means code in bucket A uses code declared in bucket B's `_/`, whatever DMZ files the symbol passes through. Bucket paths start with the root folder, such as `root/teams/search`. Each side is a pattern, and each pattern starts with the root path or with `**`:
+The top level has these fields:
 
-| Pattern | Matches | Example |
-|---|---|---|
-| `**` | zero or more bucket names | `root/teams/**` matches `root/teams` and every bucket below it |
-| `*` | any characters inside one name | `root/team-*` matches `root/team-a` |
-| `{a,b}` | one of the alternatives | `root/{api,web}` matches `root/api` and `root/web` |
-| `{{a,b}}` | one of the alternatives, and the `{{...}}` groups of one name match values that never decrease | `root/{{A,B,C}}+{{A,B,C}}` matches `root/A+A` and `root/A+B`, not `root/B+A` |
-| `<a,b>` | one of the alternatives, and the `<...>` groups of one name match different values | `root/<A,B,C>+<A,B,C>` matches `root/A+B` and `root/B+A`, not `root/A+A` |
-| `<<a,b>>` | one of the alternatives, and the `<<...>>` groups of one name match values in strictly increasing order | `root/<<A,B,C>>+<<A,B,C>>` matches `root/A+B`, `root/A+C` and `root/B+C`, not `root/B+A` |
-| `` `name` `` | the values the script `name` of `scripts` prints, as one value of a group or, alone, as `` {`name`} `` | `` root/{shared,`repos`} `` matches `root/shared` and each repository name that `repos` prints |
+- `version` is the format of the file, `"2.0"`. Keep the value `buckets init` wrote. A slopbuckets older than the config does not check it: `buckets check` exits with 3 and says to run `buckets update`, and the hooks show that message once and deny nothing because of it.
+- `ignore` lists globs of files outside the architecture, such as tests and scripts. The check removes these files before it matches any bucket glob, so `ignore` wins over `files`: a file that `ignore` matches is ignored even when a bucket's `files` also match it, and it never conflicts with a bucket. A glob that starts with `!` takes files back out of `ignore`.
+- `projects` lists folders of nested projects, each with its own `buckets.config.json`.
+- `buckets` maps a name (lowercase letters, digits and `-`, starting with a letter) to a bucket.
 
-The four kinds of group differ in whether the groups of one name may repeat a value and whether their values must be sorted from left to right:
+Every bucket has five required fields and one optional field:
 
-| | Repeats allowed | No repeats |
-|---|---|---|
-| Any order | `{a,b}` | `<a,b>` |
-| Sorted, left to right | `{{a,b}}` | `<<a,b>>` |
+- `purpose` is one line that says what the bucket does.
+- `files` is a non-empty list of globs relative to the config. A glob that starts with `!` excludes files an earlier glob matched.
+- `public` names the files other buckets may import. It is one path, a list of paths, or `null` when the bucket exports nothing.
+- `dependsOn` maps each bucket this one may import to a one-line reason. Write `{}` when it depends on nothing. Every dependency is its own entry with its own reason, even toward a bucket that fifty others use.
+- `packages` maps every external module that the files of the bucket import, npm packages and Node built-ins, to a one-line reason. Write `{}` when it imports none. The section [Packages](#packages) says which key an import takes.
+- `external` is optional: a one-line reason that says which code outside the project uses the public files, such as the entry of an npm package.
 
-Separate alternatives with commas. A `|` is `config-invalid`, so never write `{api|web}`. A `{{...}}`, `<...>` or `<<...>>` group lists exact values, without `*`, and groups never nest. One name may use only one of `{{...}}`, `<...>` and `<<...>>`, and `{...}` mixes with any of them. The sorted kinds compare values by character code, so uppercase letters sort before lowercase ones. One name can hold several groups: `root/repository/{A,B,C}+{A,B,C}` matches `root/repository/C+B`. Write the lines you propose to the human in this syntax.
+What the check reads: files with the extensions `.ts .tsx .mts .cts .js .jsx .mjs .cjs` that git sees (tracked, or untracked and not gitignored). Outside a git repository it walks the folders and skips `node_modules` and folders that start with a dot. Each file resolves its imports with the nearest `tsconfig.json` at or above it inside the project, as the TypeScript language server does.
 
-A script name in backticks stands for the names that a script listed in the `scripts` key prints, one per line. Each check runs each script once. When a script fails, prints nothing or prints an invalid name, the check reports `config-invalid` with its stderr. Fix a mistake you made in the script or in the file it reads, or stop and ask the human. A script that prints other values than the lock recorded is `config-changed`, so a human approves the new values with `buckets refresh`. The file a script reads decides what the lines match, like the config, so never change it to make a denied import or folder pass. Ask the human instead.
+Every file the check reads must be in exactly one bucket or in `ignore`. With the config above, `src/billing/invoice.ts` may import `src/payments/index.ts`, `src/payments/webhook.ts` and `src/log/index.ts`, and nothing else from other buckets. It may import `zod`, `node:fs` and `fs/promises`, and no other package. `src/payments/client.ts` may not import anything from `billing`, because `payments.dependsOn` is empty.
 
-When several lines match, the most specific one decides, and `default` decides when none matches. A pattern with more literal bucket names is more specific. On a tie, more names with `*` or a group mixed in win, then more segments that are exactly `*`, then fewer `**`. Where a segment sits does not matter, so `root/**/payments` and `root/teams/**` are equally specific. Read the lines before you add a dependency between buckets, and pick a path they allow.
+## The rules
 
-Under `"default": "deny"`, a parent's `_/` code that imports from a child through `.self` needs an allow line too, such as `root/billing -> root/billing/**`.
+| Rule | What it reports |
+|---|---|
+| `config-invalid` | the config is not valid JSON, misses a required field, has an empty reason, names a bucket that does not exist, or has a `packages` key that is not a package name |
+| `config-cycle` | the `dependsOn` graph has a cycle |
+| `dependency-undeclared` | a file of A imports B, and `A.dependsOn` does not list B |
+| `dependency-unused` | `A.dependsOn` lists B, and no file of A imports B |
+| `import-private` | a file of A imports a file of B that `B.public` does not list, or any file of B when `B.public` is `null`, and A declares B |
+| `import-unresolved` | a relative import, an import that matches a tsconfig `paths` pattern, or an import of a workspace package does not resolve to a file |
+| `import-ignored` | a bucket file imports an ignored file |
+| `import-dynamic` | `import()` or `require()` with an argument that is not a string literal |
+| `import-namespace` | `import * as x`, `export * from`, or `import()` or `require()` without destructuring, pointing at another bucket |
+| `file-unowned` | a file is in no bucket and not ignored |
+| `file-overlap` | a file is in two or more buckets |
+| `glob-empty` | a glob of `files` or `ignore`, or a folder of `projects`, matches nothing |
+| `public-missing` | a file that `public` lists does not exist or is not a file of the bucket |
+| `public-not-interface` | a public file has code, uses `export *` or re-exports from another bucket |
+| `project-undeclared` | a nested `buckets.config.json` is not listed in `projects` |
+| `export-unused` | a name exported by a public file is not imported by any other bucket |
+| `package-undeclared` | a bucket file imports an npm package or a Node built-in that the bucket's `packages` does not list |
+| `package-unused` | the bucket's `packages` lists a package that no file of the bucket imports |
 
-- `access-denied`: the importing bucket may not use the origin bucket. Remove the dependency and solve the task with the buckets you may use. If the task needs that dependency, stop and ask the human, with the exact line you propose, the list it goes in and why, such as: "Add `root/teams/search -> root/sql` to `access.allow`, so search can read live prices." Do not work around the rule by copying the code or routing it through another bucket.
-- `access-ambiguous`: an allow line and a deny line both match, and neither is more specific than the other on both sides. Stop and ask the human to add a line that names both buckets, such as `root/teams/search -> root/sql`, in the list that should win. Quote the two lines from the message.
-- `access-unknown-bucket`: a line names a bucket that does not exist, usually because a bucket folder was renamed or moved. If you renamed or moved it, move it back. Otherwise ask the human to fix the line.
-- Never edit `buckets.config.json` to get past a rule, not even to fix a typo. A hook blocks it in agents with slopbuckets hooks.
+When A imports a private file of B and A does not declare B, the check reports one `dependency-undeclared` that marks the private imports, not an `import-private` too. Its fix lists both steps.
 
-## Layout
+Code can only follow declared dependencies, so a cycle in the code always shows up as a cycle in the config. `import()` and `require()` with a string literal count as normal imports. An `import()` counts only the names it destructures, also in the `import('x').then(({ a }) => ...)` form that `React.lazy` and `next/dynamic` use.
 
-`buckets.config.json` may have a `layout` key that says which bucket folders may exist:
+While an import of a bucket does not resolve, the check holds back the `dependency-unused` of that bucket and the `export-unused` that the missing import could explain, so it never tells you to delete a reason that a broken path hides. Fix `import-unresolved` first. It often means the dependencies are not installed or a `paths` alias is stale after a move.
+
+### Advice
+
+Advice is a note on the quality of the config. It never fails the check and never blocks a turn. `buckets check` prints it after the violations, and the stop hook adds it when it blocks for a violation anyway. When an edit of the config writes a purpose or reason with `reason-generic` advice, the next tool call shows that advice once, after the pending list, and does not block. Rewrite that purpose or reason so that it says what the code does. When a turn ends with no violation but wrote such a purpose or reason, the stop hook also shows that advice once to the user and lets the turn end.
+
+| Advice | What it reports |
+|---|---|
+| `reason-generic` | a purpose or reason (of `dependsOn`, `packages` or `external`) has fewer than three words, or is only a bucket name and a generic verb such as uses, needs, calls, imports or depends on |
+| `ignore-large` | an `ignore` glob matches more than 20% of the source files, not counting tests, scripts, fixtures and examples, which then fall outside every rule |
+
+## How the hooks behave
+
+The hooks stay silent while the code matches the config. They cost no tokens then.
+
+When something disagrees, the hook adds a pending list to your context before each tool call, of any tool, until the list is empty. Before an edit, the list includes the effect of that edit, simulated in memory. The list starts with a header and has up to three sections:
+
+```
+buckets: 3 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check
+
+[NEW]
+billing -> payments: private file
+  src/billing/invoice.ts:3 imports src/payments/client.ts
+  payments public: src/payments/index.ts
+  fix code: import from src/payments/index.ts instead, and add the re-exports it lacks: export { name } from './client'
+
+[OLD]
+billing -> log: undeclared dependency (src/billing/invoice.ts:3)
+src/utils/date.ts: in no bucket
+
+[RESOLVED]
+src/billing/stripe/charge.ts: in two buckets
+```
+
+- `[NEW]` shows a pending item in full, once. Each full item ends with what to do: `fix code:`, then `fix config:` when both paths make sense, with the exact names, files and keys. When both are there, a `choose one fix:` line comes above them. The two fix lines are alternatives, and you pick one. You can act without opening anything.
+- `[OLD]` repeats items you already saw as one-line reminders, without the fixes. Run `buckets check` to see them in full again.
+- `[RESOLVED]` lists items that went away since the last call, once.
+
+You may leave items pending while you work through a multi-step change. At the end of the turn, if the session changed files, the stop hook runs the full check. With items left, it blocks the stop once and lists all of them in full, under a header such as `buckets: 3 structure violations remain.` Fix them or change the config, then finish. Subagents get the same block when they stop. When the same items were also left at the end of an earlier turn, the block says so. If you still leave them, tell the user which ones and why.
+
+An edit that makes `buckets.config.json` worse, with a config problem that was not there or more of them, is denied and never reaches the disk. The message names the field and the fix. To rename a bucket, rename its key and every `dependsOn` entry that names it in the same edit. A config that is already invalid, for example after a merge, shows in the pending list, and edits that fix it one problem at a time go through. Every other rule only warns before a tool call.
+
+In a repository with several projects, the hook finds the project of each edited file from its path: the nearest `buckets.config.json` at or above the file. An edit in `packages/sdk/` is checked against `packages/sdk/buckets.config.json`, whichever folder the session was opened in.
+
+Both fixes are valid. The hook never prefers one. Choose the code fix when the code broke a design that still makes sense. Choose the config fix when the design was wrong, outdated or missing a decision. Do not pick the config fix only because it is fewer keystrokes: a config edit changes the rules for every later agent.
+
+Some agents cannot add context before a tool call. They get the warning after the edit instead. Run `buckets check` before you finish when you do not know whether your agent has a slopbuckets stop hook. A git pre-commit hook may run it too.
+
+## Where a new file lives
+
+1. Read the purposes. Pick the bucket whose job covers what the file does.
+2. Put the file in a folder that the bucket's `files` globs match. Check that no other bucket's globs match it too.
+3. If the code is needed by other buckets, re-export its names from a public file of its bucket, and add the dependency with a reason to each bucket that imports it.
+4. If the file imports an npm package or a Node module, add it to the bucket's `packages` with a reason, unless it is there already.
+5. If no purpose covers the job, decide between widening the purpose of the closest bucket and creating a bucket. See the next section.
+6. Tests, scripts and tool configs go under globs in `ignore`, not in a bucket. Generated files that bucket code imports go in a bucket. See [Framework conventions and generated code](#framework-conventions-and-generated-code).
+
+Never create a file in a folder no bucket owns and leave it unowned. Never drop a file into a bucket whose purpose does not mention its job just to make the check pass.
+
+## When to create a bucket
+
+Create a bucket when a group of files has one job you can state in one line, other code uses that job through a small set of names, and the files can change without the users noticing. A domain such as billing, search or auth is the usual unit. An adapter to an outside system, such as a payment gateway or a database client, is another.
+
+Do not create a bucket for:
+- one helper function or one type. Put it in the bucket that uses it, or in the bucket whose job it belongs to.
+- each folder. Folders inside a bucket organize code freely and add no rules.
+- a technical layer (`controllers`, `services`, `models`) when the code is organized by domain.
+- code that only one bucket uses and that has no job of its own.
+
+## When to declare a dependency and when to move the code
+
+When a file of A needs something from B, ask whether A's job uses B's job. If you can write a reason that says what A does with B, such as "Charges each invoice through the gateway", declare it: add `"b": "<reason>"` to `A.dependsOn` and import from a public file of B.
+
+Move the code instead when:
+- the thing you need belongs to A's job and sits in B by accident. Move it into A.
+- only A uses it. Move it into A and drop it from B's public file.
+- the dependency would create a cycle. Move the code that needs the reverse direction so one direction disappears, or merge the two buckets if they are one job. When B already reaches A through `dependsOn`, the message says `no config fix:` and names the cycle the entry would create.
+- the reason you would write is "uses one helper" or repeats the bucket name. That is a sign the helper is in the wrong bucket.
+
+Remove a dependency as soon as the last import from it goes away. `dependency-unused` reports it, with the old reason, so you can check whether the reason still holds.
+
+## Packages
+
+Every external import of a bucket file needs an entry in that bucket's `packages`, with a reason, like a bucket in `dependsOn`. External means an npm package or a Node built-in.
+
+- The key is the package name without a subpath. `lodash/merge` is the key `lodash`, and `@scope/pkg/server` is `@scope/pkg`.
+- Node built-ins use the `node:` prefix. `fs`, `node:fs` and `fs/promises` all count as `node:fs`. A key such as `fs` or `lodash/merge` is `config-invalid`, and its message names the right key.
+- Type-only imports count. `import type { Request } from 'express'` needs `express`.
+- An npm package that is not installed still counts under its name.
+- Ignored files need no entry.
+- A workspace package that lives in another project, such as a sibling package with its own config, is a package of this project and goes in `packages` too.
+
+The reason says what the bucket uses the package for: `"stripe": "Calls the Stripe API for charges and refunds"`, not `"stripe": "Uses stripe"`. When a second bucket starts to import a package, ask whether the code belongs in the bucket that already declares it. The `package-undeclared` message lists up to three buckets that declare the package, with their reasons, so you can tell. A package such as `jsonwebtoken` that two buckets both use is often one job split in two.
+
+## Purposes and reasons
+
+Purposes and reasons are how earlier agents' decisions reach later ones. The next agent reads them to decide where code goes and whether a new import fits the design. The check shows them in its messages: `dependency-undeclared` prints the purpose of both buckets and up to three buckets that already declare the target, with their reasons, and `dependency-unused` prints the reason.
+
+A purpose names the job and the boundary, in one line:
+- Good: `Issues and charges invoices`, `Talks to the payment gateway`, `Parses and validates buckets.config.json`.
+- Bad: `Billing stuff`, `The billing bucket`, `Helpers`, `Business logic`.
+
+A reason says what the dependent bucket does with the other one:
+- Good: `"payments": "Charges each invoice through the gateway"`, `"log": "Logs failed charges with the invoice id"`.
+- Bad: `"payments": "Depends on payments"`, `"log": "Uses log"`, `"payments": "Needed for import"`.
+
+Write a reason that would let the next agent tell whether a new import from the same bucket belongs. When the dependency grows to cover a new use, update the reason. The `reason-generic` advice flags purposes and reasons under three words and reasons that only name a bucket with a generic verb. It also flags a purpose made only of bucket names and filler words such as does, job, stuff, things and handles, like "Does the billing job".
+
+### Accepted debt
+
+Sometimes a dependency is wrong and you keep it for now, because the fix is out of the scope of your task. Declare it, and start its reason with `debt:`, then say what is wrong and how it goes away:
 
 ```json
-"layout": {
-  "default": "deny",
-  "allow": ["root/gpu/*", "root/*/*"],
-  "deny": ["root/legacy/**"]
+"dependsOn": {
+  "orders": "debt: reads the order table to count retries; move the counter into billing"
 }
 ```
 
-Each line is one pattern, with the syntax of the access patterns above. The most specific matching line decides, and `default` decides when none matches. A bucket also passes when no deny line matches it and an allow line can match a bucket below it, so `root/*/*` lets `root`, `root/billing` and `root/billing/invoices` exist, but not `root/billing/invoices/pdf`. Without `layout`, any bucket folder may exist. Read the layout before you create a bucket folder.
+The check treats it as any other reason, and the next agent finds every accepted debt with a search for `"debt:`. Use it for a dependency you decided to keep. Do not use it to silence a dependency you did not think about.
 
-- `layout-denied`: the layout forbids this bucket folder. If the folder only organizes code, move its contents into the `_/` of its parent bucket. Otherwise remove it, or stop and ask the human with the exact line you propose, the list it goes in and why, such as: "Add `root/billing/invoices/pdf` to `layout.allow`, so the PDF renderer gets its own bucket." The message proposes the change: the folder path, the path followed by `/**` when folders below it would be buckets too, or the removal of a deny line that names the folder. When it says no line can name the folder, rename the folder instead.
-- `layout-ambiguous`: an allow line and a deny line match the folder equally. Stop and ask the human to add a line more specific than both, such as the path of the folder itself, in the list that should win. Quote the two lines from the message.
+## The public file
 
-## Nested projects
-
-A folder inside some bucket's `_/` that holds its own `buckets.config.json` is a nested project. It has its own root folder, alias, `buckets.lock.json` and rules.
-
-- The enclosing project does not scan a nested project and never imports from it. A nested project never imports from the enclosing one either. Projects share code only through links, described below. A nested project that links the enclosing project always gets a copy, because a junction there would contain the nested project itself.
-- A `buckets.config.json` anywhere else inside the root folder fails the check with `project-misplaced`. Move the project into a subfolder of a bucket's `_/`.
-- To create one, run `buckets init` inside a subfolder of a bucket's `_/`. It generates a unique alias and skips the hooks and the skill, which the enclosing project already has.
-- `buckets check` checks the current project and every nested one. Each violation and lock difference in `--json` has a `project` field (`.` is the project where the check ran), and `file` is relative to that project. `buckets check --no-recursive` checks only the current project.
-
-## Sharing code between projects
-
-A link works like a git submodule: it brings the source of another slopbuckets project into a bucket of this one, and this project compiles and runs that code with its own tools. Values and types can both cross a link.
-
-### Publishing
-
-A bucket publishes code to other projects with `<parent>/dmz/<bucket>/.external.ts`, which follows the DMZ syntax and may only re-export from the surface of `<bucket>`:
+The public files of a bucket are the only files other buckets may import. Together they are the bucket's interface and hold nothing else.
 
 ```ts
-// root/dmz/server/.external.ts in the project with alias @root-k3x9pm2a
-export { handle } from '@root-k3x9pm2a/server/_/router';
-export type { AppRouter } from '@root-k3x9pm2a/server/_/router';
+// src/payments/index.ts
+export { charge, refund } from './client';
+export type { Charge, Refund } from './types';
+export { createGateway as default } from './gateway';
 ```
 
-- `.external.ts` is exempt from the orphan rule, because its consumers live in other projects.
-- Other projects import only these files. Everything else in the project stays private, so you may change it freely as long as the published signatures stay the same.
-- The project's own lock pins each published signature like any DMZ symbol. A project that links this one has its own lock entry for them too: a changed signature, or a symbol added or removed, needs approval there as well.
+- A public file holds only named re-exports: `export { a } from './x'`, `export type { T } from './y'` and renames with `as`, including to `default`. Any declaration, statement or `export *` is `public-not-interface`.
+- Re-export types with `export type { T }`. With `isolatedModules`, which Next.js turns on, `export { T }` of a type is a TypeScript error, and the fix lines of the check write `export type` for names that every import takes as types only.
+- It re-exports only from its own bucket. A bucket that needs another bucket's names imports them from that bucket's public file and declares the dependency. The one exception is a bucket with `external`, see below.
+- Keep the interface small. Export what other buckets import today, not what they might import later.
+- Every export must have a consumer in another bucket. Imports from tests or ignored files do not count, so a test cannot keep a dead export alive. `import type` counts as a use.
+- Name what you import. `import * as x from '../payments'` hides which names are used and is reported.
 
-### Consuming
+`public` takes three forms:
 
-- Every project has its own import alias, such as `@root-k3x9pm2a` (`buckets init` generates one). Two linked projects must not share an alias; `buckets link add` refuses a collision and explains how to resolve it.
-- Run `buckets link add <name> <folder of the other project>` inside the bucket that needs the code (or pass `--bucket <path>`). The folder is the one that holds the other project's `buckets.config.json`. The command:
-  - places the other project's root folder in `<bucket>/_/links/<name>/`, as a junction or symlink when it can (kept out of git through `.gitignore`), or as a copy (`--copy`, or when a link cannot be created) of the `.external.ts` files and every file they import, in the same paths, which you commit
-  - records the link, its mode and the origin's alias in `buckets.links.json`
-  - adds `"<origin alias>/*": ["./<root>/<bucket>/_/links/<name>/*"]` to `compilerOptions.paths` in `tsconfig.json`, or prints that line when it cannot edit the file safely; add it by hand then
-  - adds `<root>/<bucket>/_/links/<name>` to `exclude` in `tsconfig.json`, so `tsc` compiles only the linked files your code imports and not the whole other project, or prints the line to add by hand
-  - prints the alias settings for any Vite, Next or webpack config it finds. It never edits those files; add the alias there yourself.
-- Import the linked project through its alias and its `.external` files only, from the bucket that owns the link:
+- One path, `"public": "src/billing/index.ts"`, for most buckets.
+- A list, `"public": ["src/user/index.ts", "src/user/server.ts"]`, when the bucket has separate entries: a server and a client entry in Next.js, the subpath exports of a package, or one entry per NestJS module surface that a single barrel would tangle into cycles. Each file in the list follows the same rules. Do not list every file of the bucket: a file with code cannot be public.
+- `null`, for a bucket that nothing imports, such as an app entry point, CLI commands or the route files of a framework. Any import of a closed bucket is reported.
 
-  ```ts
-  import { handle, type AppRouter } from '@root-k3x9pm2a/dmz/server/.external';
-  ```
+`"external": "<reason>"` says that code outside this project uses the public files, such as the entry of an npm package or the exports a framework loads by name. It exempts the bucket from `export-unused`. A bucket with `external` may also re-export by name from the buckets in its own `dependsOn`, so a library entry can gather the names of several buckets in one file. Do not add `external` to keep an unused export alive.
 
-  Importing any other file of the link fails the check with `link-forbidden-import`. If you need something that is not published, the other project must add it to a `.external.ts` file, and its human approves that.
-- The packages that linked files import must resolve where each tool looks for them. For a copy, both type checking and runtime look in this project: add the packages to this project's `package.json`. For a junction or symlink, they look in two places. At runtime, Node and bundlers follow the link to the other project, so run `npm install` there. For type checking, `tsc` here reads the linked files through the link path and looks in this project's `node_modules`, so install each package (or its `@types` package) here too, for example as a devDependency. `link-missing-dependency` (exit code 1) names the package and the file, and says "missing for type checking" (install it in this project) or "missing at runtime" (install it in the other project).
-- Files inside a link are not checked against this project's rules (the other project checks them), and you never edit them.
-- A new or removed link (`link-added`, `link-removed`) and a published symbol that changed, appeared or went away (`link-changed`) are lock differences, exit code 2. Ask for approval as for any contract change. A change inside the other project that keeps the published signatures needs no approval.
-- After a clone, or when the check reports `link-missing`, run `buckets link sync`. It recreates every link in `buckets.links.json` that is missing and leaves existing copies alone.
-- `link-drift` means the origin of a copy changed since the copy was made. Run `buckets link update <name>`, fix the code that breaks, then ask for approval if the check still reports a difference.
-- `buckets link remove <name>` deletes a link, its entry, and its `paths` and `exclude` entries in `tsconfig.json`. Remove its imports and any bundler alias too. Until a human approves the removal, the check reports a leftover import of the removed link's alias as `import-unresolved` and says the link was removed.
-- Do not create other symlinks or junctions inside the root folder, and do not edit files in `_/links/`.
+## When to split a bucket
 
-## The lock and approvals
+Split a bucket when:
+- its purpose needs "and" to join two unrelated jobs.
+- its dependents use disjoint parts of its public files. The bucket panel of `buckets inspect` shows "May want to split" when its dependents fall into two or more groups that share no exported name.
+- part of it has dependencies or packages the rest does not need.
+- its public files keep growing with names that only one dependent uses.
 
-- Never write any `buckets.lock.json`, the nested ones included, under any name or path: no short names, links, wildcards or scripts that compute the name. A hook blocks it in agents with slopbuckets hooks. To read a lock, use your file reading tool (Read in Claude Code), not a shell command.
-- Never create, edit, move or delete any `buckets.config.json`, the nested ones included. A human owns it, and a hook blocks it in agents with slopbuckets hooks, also for shell commands that name it. Read it with your file reading tool. When a task needs a change in it, stop and ask the human with the exact lines you need and why.
-- Never run plain `buckets refresh`. Only a human runs it, in a terminal. A hook blocks it in agents with slopbuckets hooks.
-- Never run `buckets update` without `--check` or `--json`. Only a human updates the CLI, in a terminal, and a hook blocks it in agents with slopbuckets hooks. `buckets update --check` and `buckets update --json` only report, so you may run them. A command may start with a line such as ``slopbuckets 1.2.0 is available (installed 1.1.0). Run `buckets update`.`` on stderr. A new CLI version makes `buckets check` stop with exit code 3 until a human approves the version change, so finish the task, then tell the human the version the notice showed.
-- Run `buckets check` before you finish a task. In agents with slopbuckets hooks, a hook at the end of the turn also runs it, and a git pre-commit hook may run it too.
-- A hook may hand you a check report: after an edit, when a tool call is refused, or at the end of a turn as a message that starts with `[slopbuckets]`. Treat it like the output of `buckets check`. Fix what it reports, or explain why you cannot.
-- When the session is open in a folder above the projects, the end-of-turn hook checks each project you changed, and its report starts each section with the project folder. Run `buckets check` and `buckets refresh --web` in that folder.
+To split, add the new bucket with its own `files`, exclude those files from the old bucket with a `!` glob or move them to a new folder, give the new bucket its public file, move the matching `dependsOn` and `packages` entries, and update the imports and `dependsOn` of every bucket that used the moved names. Run `buckets check` and work through the list.
 
-What to do with each exit code of `buckets check`:
+## The first architecture after buckets init
+
+`buckets init` writes a config with `"buckets": {}`, so every file starts unowned. `buckets check` then reports one item that lists the folders with their file counts:
+
+```
+buckets.config.json: no buckets yet, 197 files are in no bucket
+  scripts/** (4 files)
+  src/app/** (40 files)
+  src/components/** (120 files)
+  src/lib/** (31 files)
+  next.config.ts
+  src/middleware.ts
+```
+
+1. Read the code enough to know what each folder does. Do not put `src/**` in one bucket or in `ignore`.
+2. Add globs for tests, scripts, tool configs and fixtures to `ignore`. Generated files that bucket code imports stay out of `ignore`.
+3. Group the rest by domain. One bucket per domain folder is the usual start. Give the app entry point and the framework's route files their own bucket with `"public": null`.
+4. For each bucket, write `purpose`, `files`, `public`, `"dependsOn": {}` and `"packages": {}`. Point `public` at the existing `index.ts` if the folder has one, or create a file with named re-exports.
+5. Run `buckets check`. On a large project, `buckets check --summary` first prints the counts per rule and per bucket. `dependency-undeclared` lists the imports that cross buckets today. For each one, declare the dependency with a real reason, or move the code. `package-undeclared` lists the packages each bucket imports: declare each with a reason.
+6. Fix the private imports with `buckets fix import-private`. It adds the missing re-exports to the public file of each imported bucket and points the imports at it, keeping their alias or relative style. `--dry-run` prints the plan first. It never edits `dependsOn`, so the undeclared dependencies stay reported for you to decide. It skips imports of a bucket with `"public": null`.
+7. Fix `public-not-interface` by moving code out of the public file. Remove the names `export-unused` reports.
+8. Repeat until `buckets check` exits 0.
+
+Expect several rounds. A first pass that declares every import as a dependency is a starting point. Look for dependencies whose reasons you could not write well, and move that code.
+
+## Translating another boundary tool
+
+A project may already describe its boundaries in another tool. Translate it into buckets, then run `buckets check` and declare what the code really does. Every tool below writes rules that cover many edges at once, by tag, type or path pattern. slopbuckets has no such rule: each edge the code uses is one `dependsOn` entry with its own reason, and an edge the old rules allowed but no code uses is not declared.
+
+- Nx: each project (a folder with `project.json`) becomes a bucket, with the project folder as `files` and its entry file, usually `src/index.ts` behind the tsconfig path alias, as `public`. The tags and `depConstraints` of `@nx/enforce-module-boundaries` become the `dependsOn` entries that the imports need, each with a reason. An app project becomes a bucket with `"public": null`.
+- eslint-plugin-boundaries: each element of `boundaries/elements` becomes a bucket per folder it matches. A `features/*` pattern with a capture becomes one bucket per feature, and the `pattern` becomes `files`. The files that `boundaries/entry-point` allows become `public`. The `allow` lists of `boundaries/element-types` become `dependsOn` entries for the edges that exist.
+- Sheriff: each module of `sheriff.config.ts` becomes a bucket, and its barrel `index.ts` becomes `public`. A module pattern with a placeholder such as `<domain>` becomes one bucket per folder. The tag rules of `depRules` become `dependsOn` entries for the edges that exist.
+- dependency-cruiser: the folders that the `from` and `to` paths of the rules name become buckets. A `forbidden` rule between two folders is the absence of a `dependsOn` entry, and an `allowed` rule becomes the entries the imports need. `no-circular` is `config-cycle`, and `not-to-unresolvable` is `import-unresolved`.
+
+Keep the old tool until the config passes, then remove its rules, so the project has one place for its architecture.
+
+## Framework conventions and generated code
+
+Some files are loaded by a framework and never imported. Some are written by a generator. Both need a bucket.
+
+- Routes and pages that a framework finds by convention, such as Next.js `app/` and `pages/`, `middleware.ts`, Remix routes or SvelteKit routes, go in a bucket with `"public": null`. Nothing imports them, and their exports, such as `default`, `metadata` or `GET`, are read by the framework. The route bucket declares the domain buckets it calls in `dependsOn`. A large app may split its routes into one bucket per area.
+- A NestJS app gets one bucket per module folder, with `main.ts` and the root module in a bucket with `"public": null`.
+- ORM entities of tables that reference each other go in the same bucket. A relation such as `@ManyToOne(() => User)` imports in both directions, and two buckets that import each other's entities form a cycle. The bucket that owns the tables is the only one that queries them, and other buckets go through its public files.
+- A generated file that bucket code imports goes in a bucket, never in `ignore`, because a bucket file that imports an ignored file is reported. Put it in the bucket whose job the generator serves, such as an API client generated from an OpenAPI spec in the bucket that talks to that API, and re-export from a hand-written public file what other buckets need. Generated code under `node_modules`, such as `@prisma/client`, is a package and goes in `packages`.
+- Tool configs at the root, such as `next.config.ts`, `vite.config.ts` or `eslint.config.js`, go in `ignore`.
+
+## ignore
+
+Use `ignore` for files that are not part of the product code: tests, test fixtures, scripts, and build and tool configs. Ignored files may import private files of any bucket, so tests can reach internals. They need no `packages` entries.
+
+Do not use `ignore` to silence a rule. A product file in `ignore` drops out of every check, and the next agent loses the information. If bucket code imports an ignored file, `import-ignored` reports it: move that file into a bucket. An `ignore` glob that covers more than 20% of the source files, not counting tests, scripts, fixtures and examples, gets `ignore-large` advice.
+
+## Monorepos and nested projects
+
+Give each package or app of a monorepo, a folder with its own `package.json`, its own `buckets.config.json`, and list its folder in `projects` of the config at the root. A folder listed in `projects` holds its own buckets and rules. Its files leave the enclosing project: no bucket there may list them, and the enclosing project's rules do not apply to them. `buckets check` checks the current project and every nested one, and `buckets check --no-recursive` checks only the current one.
+
+- Each project resolves imports with its own `tsconfig.json`, so a nested project with code needs one in its folder.
+- An import of another package of the monorepo is an external import for the importing project: declare the package in `packages` of the importing bucket. Inside one project, an import of a workspace package that does not resolve, for example before the install, is `import-unresolved`.
+- The root config of a monorepo whose code all lives in packages has `"buckets": {}` and puts its own scripts and tool configs in `ignore`. When every file of the root itself is ignored, the root needs no `tsconfig.json`.
+- A package that publishes its entry to npm marks that bucket with `external`.
+
+To add a nested project, create `buckets.config.json` in its folder with `{"version": "2.0", "buckets": {}}`, and add the folder to `projects` of the enclosing config. A nested `buckets.config.json` that `projects` does not list is `project-undeclared`. The hooks installed at the root already cover the nested project, because they find the config from the path of each edited file.
+
+## What to avoid
+
+- A `utils`, `shared` or `common` bucket that every bucket depends on. It collects unrelated code with no job, and its reasons all read "uses a helper". Put each helper in the bucket whose job it serves. Keep a bucket that many depend on only when it has a real job, such as `log`, and give each dependent its own reason.
+- A dependency created only to make one import pass. If the reason is weak, move the code.
+- Making everything public, or re-exporting a whole bucket in its public file. Export the names other buckets use.
+- `ignore` as an escape hatch for product code that breaks a rule.
+- Buckets per technical layer (`controllers`, `services`, `repositories`) when the project is organized by domain.
+- Reasons and purposes that repeat the bucket name, such as `"log": "Uses log"`.
+- One giant bucket, such as a single bucket with `src/**`. Every rule then passes and the check says nothing about the architecture.
+- Coupling that does not pass through imports: the same database table, event topic, environment variable, cache key or dependency injection token used by two buckets. The check cannot see it. Give each table, topic or key one owning bucket, and let other buckets go through that bucket's public file.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `buckets check` | runs every rule and prints all violations in full, as the stop hook does, then the advice |
+| `buckets check --summary` | prints only the number of violations per rule and per bucket, for a first look at a large project |
+| `buckets check --json` | the same result as JSON: the exit code, one object per violation with its `rule`, `project` and the files, lines and buckets of the message, the environment errors and the advice |
+| `buckets check --no-recursive` | checks only the current project, not the nested ones |
+| `buckets show <bucket>` | prints one bucket: purpose, files, public files, dependencies and packages with their reasons, dependents and violations; `<project>:<bucket>` names a bucket of a nested project, and `--json` prints JSON |
+| `buckets fix import-private` | adds the re-exports that private imports need to the public file of the imported bucket and points the imports at it; `--bucket <name>` fixes only the imports into that bucket, `--public <file>` with it picks the public file and adds it to `public` when it is new, `--dry-run` prints the plan |
+| `buckets fmt` | rewrites `buckets.config.json` with its keys and buckets in a fixed order, so parallel edits merge cleanly; `--check` only reports |
+| `buckets inspect --json` | prints the whole architecture: per project, the buckets with purpose, glob counts, public exports and their consumers, dependencies with import counts, packages, dependents, the edges between buckets (`used`, `unused`, `undeclared`), the violations and the advice |
+| `buckets inspect` | serves the same data as a read-only page on `127.0.0.1` for the user |
+| `buckets doctor` | checks the install: PATH, versions, `tsconfig.json`, TypeScript, unresolved imports, skill copies and the commands the hooks run |
+
+Use `buckets inspect --json` or `buckets show` to see who imports a public export before you remove it, which buckets depend on a bucket before you split it, and the whole graph before you redesign.
+
+Exit codes of `buckets check`:
 
 | Code | Meaning | What you do |
 |---|---|---|
-| 0 | everything passes | finish |
-| 1 | a rule is broken | fix it, or explain why you cannot |
-| 2 | the rules pass, but contracts changed since the last approval | ask the human to approve, as described below |
-| 3 | environment problem | stop and show the human the message from the check |
+| 0 | the code matches the config | finish |
+| 1 | violations remain | fix the code or the config, then run it again |
+| 3 | environment problem: the check could not run, for example with no `tsconfig.json`, or a config `version` newer than the CLI | read the message; fix it if it is part of your task, otherwise show it to the human |
+| 64 | the command line is wrong, such as an unknown option | fix the command; every command prints its usage |
 
-### Asking for approval (exit code 2)
+Advice never changes the exit code.
 
-1. Run `buckets refresh --web` in the background, with exactly that one flag. It prints the changes and, on its last line, a link to a review page on `127.0.0.1`.
-2. Send the link to the human with a short summary: which DMZ files changed, which buckets, nested projects or links were created or removed, and why you made each change. With nested projects the page has one section per project, and the human approves each one on its own.
-3. Wait for the command to finish. Do not open the page or call its endpoints yourself. The human reads the page, clicks Approve and types the confirmation code shown on the page into a window of the operating system. Never ask the human for that code and never try to type it.
-4. Exit code 0 means the human approved and the lock is written. Exit code 1 means the human cancelled, approved only some projects, or the page closed after 30 minutes without activity (2 hours at most). Do not retry on your own. Ask the human what to change.
-
-If `buckets refresh --web` says it cannot ask for approval on this machine (an SSH session, a container or no desktop), ask the human to run `buckets refresh` in their own terminal. The human can always choose to approve that way instead.
-
-If you are a subagent and the check fails because of something outside your task, say so in your final message. The orchestrator decides what to do.
+If you are a subagent and the check fails because of something outside your task, say so in your final message, with the violations. The orchestrator decides what to do.

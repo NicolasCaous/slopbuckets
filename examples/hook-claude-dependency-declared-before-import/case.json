@@ -1,0 +1,92 @@
+{
+  "description": "Claude Code: declaring a dependency before the import exists warns with dependency-unused, resolved once the import is written",
+  "steps": [
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "payload": {
+        "session_id": "s-claude-dependency-first",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-dependency-first.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "${PROJECT}/buckets.config.json",
+          "old_string": "\"payments\": \"Charges go through the gateway\"",
+          "new_string": "\"payments\": \"Charges go through the gateway\",\n        \"log\": \"Logs the failed charges of billing\"",
+          "replace_all": false
+        },
+        "tool_use_id": "toolu_09"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> log: declared but never imported (\"Logs the failed charges of billing\")\n  choose one fix:\n  fix code: if billing still needs log, import from a public file of log\n  fix config: remove \"log\" from buckets.billing.dependsOn",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 1 pending. Fix the code or edit buckets.config.json. Either is valid. Full detail: buckets check\n\n[NEW]\nbilling -> log: declared but never imported (\"Logs the failed charges of billing\")\n  choose one fix:\n  fix code: if billing still needs log, import from a public file of log\n  fix config: remove \"log\" from buckets.billing.dependsOn"
+          }
+        },
+        "pending": [
+          "dependency-unused"
+        ]
+      }
+    },
+    {
+      "hook": "pre-edit",
+      "event": "pre-tool-use",
+      "files": {
+        "buckets.config.json": "{\n  \"$schema\": \"https://nicolascaous.github.io/slopbuckets/schema/v2.json\",\n  \"version\": \"2.0\",\n  \"buckets\": {\n    \"app\": {\n      \"purpose\": \"Starts the program and wires each part\",\n      \"files\": [\n        \"src/app/**\"\n      ],\n      \"public\": null,\n      \"dependsOn\": {\n        \"billing\": \"Bills the orders of each customer\",\n        \"log\": \"Logs the startup of the app\"\n      },\n      \"packages\": {}\n    },\n    \"billing\": {\n      \"purpose\": \"Issues and charges invoices\",\n      \"files\": [\n        \"src/billing/**\"\n      ],\n      \"public\": \"src/billing/index.ts\",\n      \"dependsOn\": {\n        \"payments\": \"Charges go through the gateway\",\n        \"log\": \"Logs the failed charges of billing\"\n      },\n      \"packages\": {}\n    },\n    \"payments\": {\n      \"purpose\": \"Talks to the payment gateway\",\n      \"files\": [\n        \"src/payments/**\"\n      ],\n      \"public\": \"src/payments/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    },\n    \"log\": {\n      \"purpose\": \"Formats and writes application logs\",\n      \"files\": [\n        \"src/log/**\"\n      ],\n      \"public\": \"src/log/index.ts\",\n      \"dependsOn\": {},\n      \"packages\": {}\n    }\n  }\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-dependency-first",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-dependency-first.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/invoice.ts",
+          "content": "import { charge } from '../payments';\nimport { logLine } from '../log';\n\nexport function bill(amount: number): string {\n  const result = charge(amount);\n  logLine(result);\n  return result;\n}\n"
+        },
+        "tool_use_id": "toolu_10"
+      },
+      "expect": {
+        "exitCode": 0,
+        "message": "buckets: 0 pending.\n\n[RESOLVED]\nbilling -> log: declared but never imported (buckets.billing.dependsOn)",
+        "stdoutJson": {
+          "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": "buckets: 0 pending.\n\n[RESOLVED]\nbilling -> log: declared but never imported (buckets.billing.dependsOn)"
+          }
+        },
+        "pending": []
+      }
+    },
+    {
+      "hook": "pre-tool",
+      "event": "pre-tool-use",
+      "files": {
+        "src/billing/invoice.ts": "import { charge } from '../payments';\nimport { logLine } from '../log';\n\nexport function bill(amount: number): string {\n  const result = charge(amount);\n  logLine(result);\n  return result;\n}\n"
+      },
+      "payload": {
+        "session_id": "s-claude-dependency-first",
+        "transcript_path": "/home/dev/.claude/projects/example/s-claude-dependency-first.jsonl",
+        "cwd": "${PROJECT}",
+        "permission_mode": "default",
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "${PROJECT}/src/billing/invoice.ts"
+        },
+        "tool_use_id": "toolu_11"
+      },
+      "expect": {
+        "exitCode": 0,
+        "stdoutEmpty": true,
+        "pending": []
+      }
+    }
+  ]
+}

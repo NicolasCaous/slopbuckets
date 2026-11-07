@@ -1,0 +1,22 @@
+{
+  "description": "an export that only an ignored test imports still gives export-unused",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "export-unused",
+        "file": "src/billing/index.ts",
+        "line": 2
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "export-unused",
+          "bucket": "billing",
+          "name": "refund"
+        }
+      ]
+    }
+  }
+}

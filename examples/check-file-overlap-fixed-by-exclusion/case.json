@@ -1,0 +1,7 @@
+{
+  "description": "a ! glob that excludes the other bucket folder removes the overlap",
+  "expect": {
+    "exitCode": 0,
+    "violations": []
+  }
+}

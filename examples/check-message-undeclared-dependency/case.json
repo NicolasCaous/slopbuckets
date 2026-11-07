@@ -1,0 +1,10 @@
+{
+  "description": "the text output of an undeclared dependency shows both purposes and both fixes",
+  "args": [
+    "check"
+  ],
+  "expect": {
+    "exitCode": 1,
+    "message": "buckets check: 1 structure violation. Fix the code or edit buckets.config.json. Either is valid.\n\napp -> billing: undeclared dependency\n  src/app/main.ts:1 imports charge from src/billing/index.ts\n  app: Starts the program and wires each part\n  billing: Issues and charges invoices\n  choose one fix:\n  fix code: remove the import by moving the code that needs it into billing, or by moving what it uses from billing into app\n  fix config: add \"billing\": \"<one-line reason>\" to buckets.app.dependsOn"
+  }
+}

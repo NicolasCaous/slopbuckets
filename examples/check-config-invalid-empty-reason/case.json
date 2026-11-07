@@ -1,0 +1,29 @@
+{
+  "description": "a dependsOn entry with an empty reason gives config-invalid",
+  "expect": {
+    "exitCode": 1,
+    "violations": [
+      {
+        "rule": "config-invalid",
+        "file": "buckets.config.json"
+      }
+    ],
+    "stdoutJson": {
+      "violations": [
+        {
+          "rule": "config-invalid",
+          "project": ".",
+          "problem": {
+            "kind": "empty",
+            "at": [
+              "buckets",
+              "app",
+              "dependsOn",
+              "billing"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

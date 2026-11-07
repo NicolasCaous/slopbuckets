@@ -1,132 +1,126 @@
-// The Gemini CLI adapter with Gemini payloads: BeforeTool, AfterTool and AfterAgent.
+// The Gemini CLI adapter with Gemini payloads: BeforeTool denies only, AfterTool carries the pending list (the
+// post-tool fallback), AfterAgent blocks once.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanupProjects, makeProject, readFile } from '../../testing/fixture.js';
-import {
-  cleanProject,
-  feedbackFor,
-  installSuite,
-  line,
-  LOCK_DENY_REASON,
-  guardedNames,
-  newSessionId,
-  REFRESH_ALLOWED,
-  REFRESH_DENIED,
-  runAdapter,
-  stopReportFor,
-  violationProject,
-  asUpdateDeny,
-  UPDATE_ALLOWED,
-  UPDATE_DENIED,
-} from './adapter-test-kit.js';
+import { line, runAdapter } from './adapter-test-kit.js';
 import { geminiAdapter } from './gemini.js';
+import { crashingCore, decisionCases, fakeCore, restoreCoreAfterEach, TEXT } from './json-test-kit.js';
 
 afterEach(cleanupProjects);
-
-const DENY = line({ decision: 'deny', reason: LOCK_DENY_REASON });
+restoreCoreAfterEach();
 
 function payload(dir: string, event: string, extra: Record<string, unknown>) {
-  return { session_id: newSessionId(), transcript_path: path.join(dir, '.gemini', 'chat.json'), cwd: dir, hook_event_name: event, timestamp: '2026-10-04T12:00:00.000Z', ...extra };
+  return { session_id: 'g-1', transcript_path: path.join(dir, 't.json'), cwd: dir, hook_event_name: event, timestamp: '2026-10-24T10:00:00Z', ...extra };
 }
 
-const tool = (dir: string, event: string, name: string, input: Record<string, unknown>) => payload(dir, event, { tool_name: name, tool_input: input });
+const before = (dir: string, name: string, input: Record<string, unknown>) => payload(dir, 'BeforeTool', { tool_name: name, tool_input: input });
+const after = (dir: string, name: string, input: Record<string, unknown>) => payload(dir, 'AfterTool', { tool_name: name, tool_input: input, tool_response: { llmContent: 'ok' } });
+const project = () => makeProject({ 'src/a.ts': 'export const a = 1;\n' });
 
-describe('gemini before-tool', () => {
-  it('allows ordinary calls with no output', async () => {
-    const dir = violationProject();
-    expect(await runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'write_file', { file_path: path.join(dir, 'root/_/x.ts'), content: 'x' }), dir)).toEqual({ code: 0, out: '', err: '' });
-    expect(await runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'run_shell_command', { command: 'npm test', dir_path: 'root' }), dir)).toEqual({ code: 0, out: '', err: '' });
+describe('gemini phases', () => {
+  it('BeforeTool simulates an edit without a session, and skips calls that edit nothing', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(geminiAdapter, 'before-tool', before(dir, 'replace', { file_path: path.join(dir, 'src/a.ts'), old_string: '1', new_string: '2', instruction: 'bump' }), dir);
+    await runAdapter(geminiAdapter, 'before-tool', before(dir, 'run_shell_command', { command: 'ls' }), dir);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ phase: 'pre-edit', sessionId: null, edits: [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 2;\n' }] });
   });
 
-  it('denies write_file and replace on the lock under any name', async () => {
-    const dir = violationProject();
-    for (const [name, as] of guardedNames(dir)) {
-      expect(await runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'write_file', { file_path: name, content: '{}' }), dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
-      const replace = tool(dir, 'BeforeTool', 'replace', { file_path: name, old_string: '"a"', new_string: '"b"', expected_replacements: 1 });
-      expect(await runAdapter(geminiAdapter, 'before-tool', replace, dir)).toEqual(as({ code: 0, out: DENY, err: '' }));
+  it('AfterTool runs a pre-edit of the files on disk, or a pre-tool, with the session', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(geminiAdapter, 'after-tool', after(dir, 'write_file', { file_path: path.join(dir, 'src/a.ts'), content: 'ignored' }), dir, { GEMINI_PROJECT_DIR: dir });
+    await runAdapter(geminiAdapter, 'after-tool', after(dir, 'run_shell_command', { command: 'npm test', is_background: false }), dir);
+    await runAdapter(geminiAdapter, 'after-tool', after(dir, 'read_file', { file_path: 'src/a.ts' }), dir);
+    expect(calls.map((c) => [c.phase, c.sessionId, c.edits, c.isShell])).toEqual([
+      ['pre-edit', 'g-1', [{ path: path.join(dir, 'src', 'a.ts'), content: 'export const a = 1;\n' }], false],
+      ['pre-tool', 'g-1', [], true],
+      ['pre-tool', 'g-1', [], false],
+    ]);
+  });
+
+  it('AfterAgent is the stop, with stop_hook_active', async () => {
+    const dir = project();
+    const calls = fakeCore();
+    await runAdapter(geminiAdapter, 'after-agent', payload(dir, 'AfterAgent', { prompt: 'p', prompt_response: 'r', stop_hook_active: true }), dir);
+    expect(calls.map((c) => [c.phase, c.stopHookActive])).toEqual([['stop', true]]);
+  });
+});
+
+describe('gemini answers', () => {
+  const edit = (dir: string) => before(dir, 'write_file', { file_path: 'src/c.ts', content: 'c' });
+  decisionCases(geminiAdapter, 'before-tool', edit, project, { deny: { code: 0, out: line({ decision: 'deny', reason: TEXT }) } });
+  const context = line({ hookSpecificOutput: { hookEventName: 'AfterTool', additionalContext: TEXT } });
+  decisionCases(geminiAdapter, 'after-tool', (dir) => after(dir, 'write_file', { file_path: 'src/a.ts' }), project, { context: { code: 0, out: context } });
+  decisionCases(geminiAdapter, 'after-tool', (dir) => after(dir, 'run_shell_command', { command: 'ls' }), project, { context: { code: 0, out: context } });
+  decisionCases(geminiAdapter, 'after-agent', (dir) => payload(dir, 'AfterAgent', { stop_hook_active: false }), project, { block: { code: 0, out: line({ decision: 'deny', reason: TEXT }) } });
+});
+
+describe('gemini fails open', () => {
+  it('exits with 0 and prints nothing when the core crashes', async () => {
+    const dir = project();
+    crashingCore();
+    for (const event of geminiAdapter.events) {
+      const result = await runAdapter(geminiAdapter, event, before(dir, 'write_file', { file_path: 'x.ts', content: '' }), dir);
+      expect(result).toMatchObject({ code: 0, out: '' });
     }
   });
 
-  it('denies plain buckets refresh or an installing buckets update and allows buckets refresh --web', async () => {
-    const dir = violationProject();
-    const run = (command: string) => runAdapter(geminiAdapter, 'before-tool', tool(dir, 'BeforeTool', 'run_shell_command', { command, description: 'approve', dir_path: '.' }), dir);
-    for (const command of REFRESH_DENIED) expect(await run(command)).toEqual({ code: 0, out: DENY, err: '' });
-    for (const command of REFRESH_ALLOWED) expect(await run(command)).toEqual({ code: 0, out: '', err: '' });
-    for (const command of UPDATE_DENIED) expect(await run(command)).toEqual(asUpdateDeny({ code: 0, out: DENY, err: '' }));
-    for (const command of UPDATE_ALLOWED) expect(await run(command)).toEqual({ code: 0, out: '', err: '' });
-  });
-
-  it('takes the session folder from GEMINI_PROJECT_DIR', async () => {
-    const dir = violationProject();
-    const input = tool(dir, 'BeforeTool', 'write_file', { file_path: 'buckets.lock.json', content: '{}' });
-    delete (input as Record<string, unknown>).cwd;
-    expect((await runAdapter(geminiAdapter, 'before-tool', input, makeProject({}, false), { GEMINI_PROJECT_DIR: dir })).out).toBe(DENY);
-  });
-});
-
-describe('gemini after-tool', () => {
-  it('reports the violations of an edited file in additionalContext', async () => {
-    const dir = violationProject();
-    const feedback = await feedbackFor(dir, 'root/_/main.ts');
-    const replace = tool(dir, 'AfterTool', 'replace', { file_path: path.join(dir, 'root', '_', 'main.ts'), old_string: 'a', new_string: 'b' });
-    const out = line({ hookSpecificOutput: { hookEventName: 'AfterTool', additionalContext: feedback } });
-    expect(await runAdapter(geminiAdapter, 'after-tool', { ...replace, tool_response: { llmContent: 'ok' } }, dir)).toEqual({ code: 0, out, err: '' });
-    const clean = tool(dir, 'AfterTool', 'write_file', { file_path: 'root/log/_/logger.ts', content: 'x' });
-    expect(await runAdapter(geminiAdapter, 'after-tool', clean, dir)).toEqual({ code: 0, out: '', err: '' });
-  });
-});
-
-describe('gemini after-agent', () => {
-  it('denies the end of the turn once with the report, and lets the retry finish', async () => {
-    const dir = violationProject();
-    const report = await stopReportFor(dir);
-    const first = payload(dir, 'AfterAgent', { prompt: 'fix it', prompt_response: 'Done.', stop_hook_active: false });
-    expect(await runAdapter(geminiAdapter, 'after-agent', first, dir)).toEqual({ code: 0, out: line({ decision: 'deny', reason: report }), err: '' });
-    expect(await runAdapter(geminiAdapter, 'after-agent', { ...first, stop_hook_active: true }, dir)).toEqual({ code: 0, out: '', err: '' });
-  });
-
-  it('says nothing for a clean project', async () => {
-    const dir = await cleanProject();
-    expect(await runAdapter(geminiAdapter, 'after-agent', payload(dir, 'AfterAgent', { stop_hook_active: false }), dir)).toEqual({ code: 0, out: '', err: '' });
+  it('ends every command with `; exit 0`, so a missing buckets command does not deny', () => {
+    const dir = makeProject({}, false);
+    geminiAdapter.install(dir, { skill: null });
+    const json = JSON.parse(readFile(dir, '.gemini/settings.json'));
+    const commands = Object.values(json.hooks as Record<string, { hooks: { command: string }[] }[]>).flatMap((groups) => groups.flatMap((g) => g.hooks.map((h) => h.command)));
+    expect(commands).toEqual(['buckets hook --agent gemini before-tool; exit 0', 'buckets hook --agent gemini after-tool; exit 0', 'buckets hook --agent gemini after-agent; exit 0']);
   });
 });
 
 describe('gemini install', () => {
-  installSuite(geminiAdapter, {
-    file: '.gemini/settings.json',
-    userText: [
-      '{',
-      '  // Team settings',
-      '  "context": { "fileName": ["AGENTS.md", "GEMINI.md"] },',
-      '  "hooks": {',
-      '    "BeforeTool": [',
-      '      // our own guard',
-      '      { "matcher": "run_shell_command", "hooks": [{ "name": "audit", "type": "command", "command": "node audit.js", "timeout": 5000 }] }',
-      '    ]',
-      '  }',
-      '}',
-      '',
-    ].join('\n'),
-    freshUninstallDeletes: false,
-    fresh(json) {
-      expect(json).toEqual({
-        hooks: {
-          BeforeTool: [{ matcher: 'write_file|replace|run_shell_command', hooks: [{ type: 'command', command: 'buckets hook --agent gemini before-tool', name: 'slopbuckets-guard', timeout: 30000 }] }],
-          AfterTool: [{ matcher: 'write_file|replace', hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-tool', name: 'slopbuckets-check-file', timeout: 300000 }] }],
-          AfterAgent: [{ hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-agent', name: 'slopbuckets-check', timeout: 600000 }] }],
-        },
-        context: { fileName: ['AGENTS.md', 'GEMINI.md'] },
-      });
+  const FRESH = {
+    hooks: {
+      BeforeTool: [{ matcher: 'write_file|replace', hooks: [{ type: 'command', command: 'buckets hook --agent gemini before-tool; exit 0', name: 'slopbuckets-config-guard', timeout: 60000 }] }],
+      AfterTool: [{ matcher: '.*', hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-tool; exit 0', name: 'slopbuckets-pending', timeout: 60000 }] }],
+      AfterAgent: [{ hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-agent; exit 0', name: 'slopbuckets-check', timeout: 600000 }] }],
     },
+    context: { fileName: ['AGENTS.md', 'GEMINI.md'] },
+  };
+
+  it('installs into a fresh project and runs a second time without changes', () => {
+    const dir = makeProject({}, false);
+    expect(geminiAdapter.install(dir, { skill: null }).map((s) => s.status)).toEqual(['done', 'done', 'todo']);
+    const text = readFile(dir, '.gemini/settings.json');
+    expect(JSON.parse(text)).toEqual(FRESH);
+    expect(geminiAdapter.install(dir, { skill: null })).toEqual([{ status: 'kept', text: 'Gemini CLI hooks are already in .gemini/settings.json' }]);
+    expect(readFile(dir, '.gemini/settings.json')).toBe(text);
   });
 
-  it('points context.fileName at AGENTS.md only when the user has not set it', () => {
-    const fresh = makeProject({}, false);
-    expect(geminiAdapter.install(fresh, { skill: null }).map((s) => s.status)).toEqual(['done', 'done', 'todo']);
-    const own = makeProject({ '.gemini/settings.json': '{ "context": { "fileName": "GEMINI.md" } }\n' }, false);
-    const steps = geminiAdapter.install(own, { skill: null });
-    expect(steps.map((s) => s.status)).toEqual(['done', 'todo', 'todo']);
-    expect(steps[1]!.text).toContain('Add "AGENTS.md" to "context.fileName"');
-    expect(JSON.parse(readFile(own, '.gemini/settings.json')).context).toEqual({ fileName: 'GEMINI.md' });
+  it("keeps the user's hooks and comments", () => {
+    const user = ['{', '  // mine', '  "context": { "fileName": "AGENTS.md" },', '  "hooks": { "AfterAgent": [{ "hooks": [{ "type": "command", "command": "say done" }] }] }', '}', ''].join('\n');
+    const dir = makeProject({ '.gemini/settings.json': user }, false);
+    expect(geminiAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'done' });
+    expect(readFile(dir, '.gemini/settings.json')).toContain('// mine');
+    expect(readFile(dir, '.gemini/settings.json')).toContain('say done');
+  });
+
+  it('migrates a 1.x install to the fail-open commands and the AfterTool fallback', () => {
+    const v1 = {
+      hooks: {
+        BeforeTool: [{ matcher: 'write_file|replace|run_shell_command', hooks: [{ type: 'command', command: 'buckets hook --agent gemini before-tool', name: 'slopbuckets-guard', timeout: 30000 }] }],
+        AfterTool: [{ matcher: 'write_file|replace', hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-tool', name: 'slopbuckets-check-file', timeout: 300000 }] }],
+        AfterAgent: [{ hooks: [{ type: 'command', command: 'buckets hook --agent gemini after-agent', name: 'slopbuckets-check', timeout: 600000 }] }],
+      },
+      context: { fileName: ['AGENTS.md', 'GEMINI.md'] },
+    };
+    const dir = makeProject({ '.gemini/settings.json': JSON.stringify(v1, null, 2) }, false);
+    expect(geminiAdapter.install(dir, { skill: null })[0]).toEqual({ status: 'done', text: 'Updated the Gemini CLI hooks in .gemini/settings.json (BeforeTool, AfterTool, AfterAgent)' });
+    expect(JSON.parse(readFile(dir, '.gemini/settings.json'))).toEqual(FRESH);
+    expect(geminiAdapter.install(dir, { skill: null })[0]).toMatchObject({ status: 'kept' });
+  });
+
+  it('refuses a config it cannot merge into', () => {
+    const dir = makeProject({ '.gemini/settings.json': '[1]\n' }, false);
+    expect(geminiAdapter.install(dir, { skill: null })).toEqual([expect.objectContaining({ status: 'failed' })]);
   });
 });

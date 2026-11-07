@@ -1,0 +1,157 @@
+{
+  "$schema": "https://nicolascaous.github.io/slopbuckets/schema/v2.json",
+  "version": "2.0",
+  "ignore": [
+    "**/*.test.ts",
+    "src/testing/**",
+    "src/**/*-test-kit.ts",
+    "scripts/**",
+    "tsup.config.ts"
+  ],
+  "buckets": {
+    "commands": {
+      "purpose": "Parses the command line of the buckets binary, prints the splash and runs each command",
+      "files": [
+        "src/*.ts",
+        "src/commands/**",
+        "src/update/run.ts"
+      ],
+      "public": null,
+      "dependsOn": {
+        "context": "Every command gets the Context and Io and styles its output by stream",
+        "contract": "Commands print the rendered messages and return the exit codes of the contract",
+        "engine": "cli.ts creates the rule engine that every command and hook calls",
+        "files": "Commands find the project folder and read and edit JSON configs",
+        "hooks": "init, uninstall, doctor and hook install and run the agent hooks",
+        "inspect": "buckets inspect starts the page server and prints the graph exports",
+        "output": "Commands style terminal text and print one-line error messages",
+        "update": "update, doctor and the daily notice ask npm for the latest version"
+      },
+      "packages": {
+        "@slopbuckets/adapter-ts": "Prints the adapter version and analyzes files for check --file and fix",
+        "node:child_process": "Runs git for check --base and for the merge driver setup",
+        "node:fs": "Reads and writes configs, skill copies and the files each command installs",
+        "node:module": "index.ts turns on the V8 compile cache before loading the CLI",
+        "node:path": "Joins the project paths of every command",
+        "node:readline": "Asks the human yes or no questions in a terminal",
+        "node:url": "Finds the package folder and the skill file from the module URL",
+        "node:util": "Parses the arguments strictly and compares config values in the merge driver"
+      }
+    },
+    "context": {
+      "purpose": "The Context and process Io that every command and hook receives, and the style for each stream",
+      "files": ["src/context/**"],
+      "public": "src/context/index.ts",
+      "dependsOn": {
+        "contract": "The Context carries the RuleEngine interface of the contract",
+        "output": "Picks the terminal style of stdout and stderr from the Io",
+        "update": "The Io carries the registry, clock and process runner of the update check"
+      },
+      "packages": {}
+    },
+    "contract": {
+      "purpose": "Types and texts shared by engine, hooks and inspect: rules, violations, messages, config, snapshot and session",
+      "files": ["src/contract/**"],
+      "public": [
+        "src/contract/index.ts",
+        "src/contract/browser.ts"
+      ],
+      "dependsOn": {},
+      "packages": {
+        "node:module": "packageKey maps a bare built-in name such as fs to node:fs"
+      }
+    },
+    "engine": {
+      "purpose": "Runs the rules: lists the files, analyzes them through the adapter, caches the import graph and builds the snapshot",
+      "files": ["src/engine/**"],
+      "public": "src/engine/index.ts",
+      "dependsOn": {
+        "contract": "Returns the violations, check result and snapshot types of the contract",
+        "files": "Reads the config JSON and spells project paths in POSIX form"
+      },
+      "packages": {
+        "@slopbuckets/adapter-ts": "Scans every file for imports and exports and resolves them like tsc",
+        "node:child_process": "Lists the files of the project with git ls-files",
+        "node:crypto": "Hashes the config text and makes the random key that signs the cache",
+        "node:fs": "Reads the project files and stores the import graph cache",
+        "node:path": "Turns absolute paths into project paths",
+        "node:v8": "Serializes the cached import graph so the next hook loads it fast"
+      }
+    },
+    "files": {
+      "purpose": "Reads and edits project files: JSON with a byte order mark, JSON with comments in place, and project paths",
+      "files": ["src/files/**"],
+      "public": "src/files/index.ts",
+      "dependsOn": {
+        "contract": "findProjectDir looks for the config file name of the contract"
+      },
+      "packages": {
+        "node:fs": "findProjectDir looks for the config file in each parent folder",
+        "node:path": "Walks up parent folders and compares paths on each platform"
+      }
+    },
+    "hooks": {
+      "purpose": "Runs the agent hooks of every supported harness and installs their hook files, AGENTS.md, the skill and the git hook",
+      "files": ["src/hooks/**"],
+      "public": [
+        "src/hooks/index.ts",
+        "src/hooks/agents.ts",
+        "src/hooks/run.ts"
+      ],
+      "dependsOn": {
+        "context": "Each adapter reads the hook payload and writes its answer through the Io",
+        "contract": "The hook core decides from the check result and renders the pending and stop texts",
+        "files": "Adapters parse hook payloads and edit the JSON settings files of each harness",
+        "output": "Install steps and unexpected errors print one line through the error formatter"
+      },
+      "packages": {
+        "node:child_process": "Asks git for the top folder and runs buckets from the plugin runtime",
+        "node:crypto": "Names temporary session files and stop marker files uniquely",
+        "node:fs": "Reads harness settings and writes hook files, skill copies and session state",
+        "node:path": "Turns harness paths into project paths and joins install paths",
+        "node:url": "Accepts file URLs where a harness sends a path",
+        "node:util": "Compares hook entries to find the ones slopbuckets already installed"
+      }
+    },
+    "inspect": {
+      "purpose": "The inspect page: the local server, the browser page with its views and the bucket graph with its exports",
+      "files": ["src/inspect/**"],
+      "public": "src/inspect/index.ts",
+      "dependsOn": {
+        "contract": "The page and the exports read the snapshot and render violations with the contract messages"
+      },
+      "packages": {
+        "node:fs": "Reads the page bundle and writes the --out export file",
+        "node:http": "Serves the page and the snapshot events on 127.0.0.1",
+        "node:net": "Types the socket and address of the local server",
+        "node:path": "Finds the page bundle next to the built CLI",
+        "node:url": "Turns the module URL into the folder of the page bundle"
+      }
+    },
+    "output": {
+      "purpose": "Styles terminal text: ANSI colors, color detection, wrapping and one-line error messages",
+      "files": ["src/output/**"],
+      "public": "src/output/index.ts",
+      "dependsOn": {},
+      "packages": {}
+    },
+    "update": {
+      "purpose": "Finds the latest CLI version on npm, how the running CLI was installed and the command that updates it",
+      "files": [
+        "src/update/**",
+        "!src/update/run.ts"
+      ],
+      "public": "src/update/index.ts",
+      "dependsOn": {
+        "files": "Compares install paths and reads package.json files of installed copies",
+        "output": "Turns a failed registry request into a one-line error message"
+      },
+      "packages": {
+        "node:child_process": "Runs npm, pnpm, yarn, bun or Volta to install another version",
+        "node:fs": "Reads installed package.json files and keeps the daily update cache",
+        "node:os": "Finds the cache folder of the operating system for the update check",
+        "node:path": "Compares the install folder of the running CLI with global prefixes"
+      }
+    }
+  }
+}
