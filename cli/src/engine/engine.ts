@@ -217,7 +217,7 @@ async function update(
   // A tsconfig or package.json that changed since the cache, or a tsconfig.json that came or went, moves the
   // targets of every file.
   const resolveAll = cache !== null && (!sameInputs(cache.inputs, state.inputs) || !sameList(cache.tsconfigs, u.tsconfigs));
-  const unchanged = old !== null && toAnalyze.length === 0 && !resolveAll && u.files === old.files && (u.blob === undefined || sameList(u.blob, old.blob)) && u.mtime.every(Number.isNaN);
+  const unchanged = old !== null && toAnalyze.length === 0 && !resolveAll && u.files === old.files && (u.blob === undefined || sameList(u.blob, old.blob.toArray())) && u.mtime.every(Number.isNaN);
   const g = unchanged
     ? old
     : await applyChanges(old, { files: u.files, mtime: u.mtime, size: u.size, ...(u.blob ? { blob: u.blob } : {}), analyses, resolveAll, publicFiles: new Set(publicFiles) }, resolver(ref.dir, options));
@@ -294,11 +294,11 @@ async function statListing(
     const f = listed[i]!;
     while (old !== null && j < old.files.length && old.files[j]! < f) j++;
     const oi = old !== null && old.files[j] === f ? j : -1;
-    const b = known === null ? (listing.clean.get(f) ?? '') : oi >= 0 && !known.touched.has(f) ? old!.blob[oi]! : '';
+    const b = known === null ? (listing.clean.get(f) ?? '') : oi >= 0 && !known.touched.has(f) ? old!.blob.at(oi) : '';
     blob.push(b);
     mtime.push(NaN);
     size.push(NaN);
-    if (known === null ? oi >= 0 && b !== '' && old!.blob[oi] === b : !known.touched.has(f)) continue;
+    if (known === null ? oi >= 0 && b !== '' && old!.blob.at(oi) === b : !known.touched.has(f)) continue;
     toStat.push(i);
     oldIndex.push(oi);
   }

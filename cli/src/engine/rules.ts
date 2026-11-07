@@ -35,6 +35,7 @@ import {
   T_OUTSIDE,
   T_PATHS,
   T_RELATIVE,
+  typeNames,
   type Graph,
 } from './graph.js';
 import { globTable, IGNORED, ignoredPath, makeMatcher, OVERLAP, pathOwner, UNOWNED, type Owners } from './owners.js';
@@ -176,9 +177,12 @@ function prepare(input: RuleInput): RuleRun {
   return { input, project, g, config, owners, owner, out, B, bucketId, declared, publicOf, publicIdx, cycleFirst, once };
 }
 
-function namesOf(g: Graph, e: number): ImportName[] {
+/** The names edge `e` imports, with isType for those that private file `types` (-1 for none) exports as types. */
+function namesOf(g: Graph, e: number, types: number): ImportName[] {
   const names: ImportName[] = [];
-  if (!(g.flags[e]! & F_NAMESPACE)) for (let k = g.nameStart[e]!; k < g.nameStart[e + 1]!; k++) names.push({ name: g.strings[g.names[k]!]!, typeOnly: g.nameType[k] === 1 });
+  if (!(g.flags[e]! & F_NAMESPACE)) for (let k = g.nameStart[e]!; k < g.nameStart[e + 1]!; k++) names.push({ name: g.strings.at(g.names[k]!), typeOnly: g.nameType[k] === 1 });
+  const typeOnly = types < 0 ? undefined : typeNames(g, types);
+  if (typeOnly !== undefined) for (const n of names) if (!n.typeOnly && typeOnly.includes(n.name)) n.isType = true;
   return names;
 }
 
@@ -226,8 +230,8 @@ function scanEdges(r: RuleRun, detail: RuleDetail | undefined): EdgeScan {
 function unresolvedEdge(r: RuleRun, scan: EdgeScan, file: string, o: number, e: number): void {
   const { g, config } = r;
   const t = g.target[e]!;
-  const specifier = g.strings[g.spec[e]!]!;
-  const pattern = t === T_PATHS && g.info[e]! >= 0 ? g.strings[g.info[e]!]! : null;
+  const specifier = g.strings.at(g.spec[e]!);
+  const pattern = t === T_PATHS && g.info[e]! >= 0 ? g.strings.at(g.info[e]!) : null;
   const kind = t === T_RELATIVE ? 'relative' : t === T_PATHS ? 'paths' : 'workspace';
   r.once(`u${file}\0${specifier}`, { rule: 'import-unresolved', project: r.project, bucket: config.buckets[o]!.name, file, line: g.line[e]!, specifier, kind, pattern });
   scan.unresolvedFrom[o] = 1;
@@ -251,11 +255,13 @@ function fileEdges(r: RuleRun, scan: EdgeScan, f: number, o: number, file: strin
   const { g, owner } = r;
   for (let e = g.edgeStart[f]!; e < g.edgeStart[f + 1]!; e++) {
     const t = g.target[e]!;
+    // Most edges stay in their bucket and add nothing: a hook runs this loop before V8 optimizes it, so they leave first.
+    if (t >= 0 && owner[t] === o) continue;
     const line = g.line[e]!;
     if (t === T_DYNAMIC) {
       r.once(`d${file}\0${line}`, { rule: 'import-dynamic', project: r.project, file, line, call: (g.flags[e]! & KIND_MASK) === KIND_REQUIRE ? 'require' : 'import' });
     } else if (t === T_OUTSIDE) {
-      const specifier = g.strings[g.spec[e]!]!;
+      const specifier = g.strings.at(g.spec[e]!);
       const key = packageKey(specifier);
       let byKey = scan.packages.get(o);
       if (byKey === undefined) scan.packages.set(o, (byKey = new Map()));
@@ -284,30 +290,30 @@ function crossEdge(r: RuleRun, scan: EdgeScan, file: string, o: number, e: numbe
   scan.pairCount[pk]!++;
   const isPrivate = r.publicOf[t] !== ot;
   const namespace = (flags & F_NAMESPACE) !== 0;
-  const names = namesOf(g, e);
-  const types = isPrivate ? g.types.get(target) : undefined;
-  if (types !== undefined) for (const n of names) if (!n.typeOnly && types.includes(n.name)) n.isType = true;
-  if (r.cycleFirst.get(pk) === null) r.cycleFirst.set(pk, { file, line, target, names });
+  // Only a violation, the detail and a config cycle read the names, and most imports need none: made on first use.
+  let names: ImportName[] | undefined;
+  const named = () => (names ??= namesOf(g, e, isPrivate ? t : -1));
+  if (r.cycleFirst.get(pk) === null) r.cycleFirst.set(pk, { file, line, target, names: named() });
   if (!r.declared[pk]) {
     let list = scan.undeclared.get(pk);
     if (list === undefined) scan.undeclared.set(pk, (list = []));
-    if (!list.some((i) => i.file === file && i.line === line && i.target === target)) list.push({ file, line, target, names, private: isPrivate });
+    if (!list.some((i) => i.file === file && i.line === line && i.target === target)) list.push({ file, line, target, names: named(), private: isPrivate });
   } else if (isPrivate) {
     let list = scan.privates.get(pk);
     if (list === undefined) scan.privates.set(pk, (list = []));
     const known = list.find((i) => i.file === file && i.line === line && i.target === target);
-    if (known === undefined) list.push({ file, line, target, names });
-    else for (const n of names) if (!known.names.some((x) => x.name === n.name)) known.names.push(n);
+    if (known === undefined) list.push({ file, line, target, names: named() });
+    else for (const n of named()) if (!known.names.some((x) => x.name === n.name)) known.names.push(n);
   }
   if (detail !== undefined) {
     let list = detail.pairs.get(pk);
     if (list === undefined) detail.pairs.set(pk, (list = []));
-    list.push({ file, line, target, names: namespace ? '*' : names.map((n) => n.name), private: isPrivate });
+    list.push({ file, line, target, names: namespace ? '*' : named().map((n) => n.name), private: isPrivate });
   }
   if (namespace) {
     const kind = flags & KIND_MASK;
     const form = flags & F_REEXPORT ? 'export' : kind === KIND_DYNAMIC ? 'dynamic' : kind === KIND_REQUIRE ? 'require' : 'import';
-    const specifier = g.strings[g.spec[e]!]!;
+    const specifier = g.strings.at(g.spec[e]!);
     r.once(`n${file}\0${line}\0${specifier}`, { rule: 'import-namespace', project: r.project, file, line, from: config.buckets[o]!.name, to: config.buckets[ot]!.name, form, specifier });
     return;
   }
@@ -319,7 +325,7 @@ function crossEdge(r: RuleRun, scan: EdgeScan, file: string, o: number, e: numbe
   if (detail === undefined) return;
   let byName = detail.consumers.get(target);
   if (byName === undefined) detail.consumers.set(target, (byName = new Map()));
-  for (const n of names) {
+  for (const n of named()) {
     let list = byName.get(n.name);
     if (list === undefined) byName.set(n.name, (list = []));
     list.push({ bucket: config.buckets[o]!.name, file, line });
@@ -344,7 +350,7 @@ function reexportedNames(r: RuleRun, b: number, imports: readonly ImportRef[]): 
       let names = have.get(g.files[t]!);
       if (names === undefined) have.set(g.files[t]!, (names = new Set()));
       for (let k = g.nameStart[e]!; k < g.nameStart[e + 1]!; k++) {
-        const name = g.strings[g.names[k]!]!;
+        const name = g.strings.at(g.names[k]!);
         if (name === 'default' ? exported.has(defaultExportName(g.files[t]!)) : exported.has(name)) names.add(name);
       }
     }
@@ -466,8 +472,8 @@ function publicViolations(r: RuleRun, scan: EdgeScan, bucket: Config['buckets'][
   reexportViolations(r, bucket, b, pub, pi);
   if (bucket.external !== null || info === undefined || scan.holdAll || scan.holdExports[b] || scan.noFiles[b]) return;
   const usedNames = new Set<string>();
-  for (const id of scan.used.get(pi) ?? []) usedNames.add(g.strings[id]!);
-  for (const id of scan.usedPrivately.get(b) ?? []) usedNames.add(g.strings[id]!);
+  for (const id of scan.used.get(pi) ?? []) usedNames.add(g.strings.at(id));
+  for (const id of scan.usedPrivately.get(b) ?? []) usedNames.add(g.strings.at(id));
   for (const x of info.names) {
     if (!usedNames.has(x.name)) r.once(`e${pub}\0${x.name}`, { rule: 'export-unused', project, bucket: bucket.name, name: x.name, public: pub, line: x.line });
   }
@@ -480,7 +486,7 @@ function reexportViolations(r: RuleRun, bucket: Config['buckets'][number], b: nu
     const flags = g.flags[e]!;
     if (!(flags & F_REEXPORT)) continue;
     const line = g.line[e]!;
-    if (flags & F_NAMESPACE) r.once(`s${pub}\0${line}\0${g.strings[g.spec[e]!]!}`, { rule: 'public-not-interface', project, bucket: bucket.name, public: pub, line, kind: 'export-star', specifier: g.strings[g.spec[e]!]! });
+    if (flags & F_NAMESPACE) r.once(`s${pub}\0${line}\0${g.strings.at(g.spec[e]!)}`, { rule: 'public-not-interface', project, bucket: bucket.name, public: pub, line, kind: 'export-star', specifier: g.strings.at(g.spec[e]!) });
     const t = g.target[e]!;
     const ot = t >= 0 ? owner[t]! : -1;
     if (ot < 0 || ot === b) continue;

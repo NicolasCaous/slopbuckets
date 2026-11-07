@@ -177,7 +177,9 @@ export function makeMatcher(globs: readonly string[]): (file: string) => number[
     const p = staticPrefix(g);
     let list = byPrefix.get(p);
     if (list === undefined) byPrefix.set(p, (list = []));
-    list.push({ id, test: compileGlob(g) });
+    // Compiled on first use: a hook classifies a few files, and compiling the globs of 500 buckets takes 3 ms.
+    let test: ((file: string) => boolean) | null = null;
+    list.push({ id, test: (file) => (test ??= compileGlob(g))(file) });
   });
   return (file) => {
     const hits: number[] = [];
@@ -238,9 +240,11 @@ interface Classifier {
   config: Config;
 }
 
+/** The globs go into a matcher on the first file classified: an edit that keeps the file list classifies none. */
 function classifier(config: Config): Classifier {
   const table = globTable(config);
-  return { table, match: makeMatcher(table.globs), config };
+  let match: ((file: string) => number[]) | null = null;
+  return { table, match: (file) => (match ??= makeMatcher(table.globs))(file), config };
 }
 
 /** Owner of one file. Adds `sign` to the hit count of each glob that took part. */

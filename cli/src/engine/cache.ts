@@ -1,6 +1,6 @@
 // The cache of the rule engine in <project>/.buckets/cache/:
 //
-// - graph.bin (v8.serialize, string lists joined as in PackedCache): the sorted file list with mtime, size and index
+// - graph.bin (v8.serialize, string lists packed as in PackedCache): the sorted file list with mtime, size and index
 //   blob, the import graph, the owners of each file under the config they were computed with, the adapter's
 //   resolution state and the nested configs found.
 // - state.json: the violation keys of the last full result and the mtime and size of the files they name and of the
@@ -18,11 +18,11 @@ import type { AdapterState, ResolutionInput } from '@slopbuckets/adapter-ts';
 import type { Violation } from '../contract/index.js';
 import { ensureBucketsDir, isRecord } from '../files/index.js';
 import type { Config } from './config.js';
-import { indexOf, type Graph } from './graph.js';
+import { indexOf, TextList, type Graph } from './graph.js';
 import type { Owners } from './owners.js';
 import { violationFiles } from './rules.js';
 
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 
 /** What every file of the cache starts with. A file with another stamp is treated as missing. */
 interface Stamp {
@@ -48,44 +48,37 @@ export interface CacheFile extends Stamp {
 
 /**
  * graph.bin as written. v8.deserialize makes one string per array entry, which took 30 ms for the 300k strings of
- * a 50k-file project; one string joined with NUL and split after reading takes 20. Each list keeps its length,
- * because [''] and [] join to the same text. `types` is packed the same way, as each file followed by the number of
- * its names and the names: as a Map of 47k arrays it took 15 ms to read at 50k files.
+ * a 50k-file project, so a list is one string. `files`, which every call reads whole, is joined with NUL and split
+ * after reading; the file list keeps its length, because [''] and [] join to the same text. The other lists are a
+ * TextList: the text and the offset of each entry, which a read keeps as they are.
  */
 type Packed = [length: number, text: string];
-type PackedCache = Omit<CacheFile, 'graph'> & { graph: Omit<Graph, 'files' | 'blob' | 'strings' | 'types'> & Record<'files' | 'blob' | 'strings' | 'types', Packed> };
+type PackedText = [starts: Int32Array, text: string];
+type PackedCache = Omit<CacheFile, 'graph'> & { graph: Omit<Graph, 'files' | 'blob' | 'strings' | 'types'> & { files: Packed } & Record<'blob' | 'strings' | 'types', PackedText> };
 
 const packList = (list: readonly string[]): Packed => [list.length, list.join('\0')];
 function unpackList([length, text]: Packed): string[] {
   const list = length === 0 ? [] : text.split('\0');
-  // A NUL inside an entry (a specifier can hold any text) would shift every entry after it.
-  // ponytail: such a project rebuilds its cache on every call; give `strings` its own encoding if one ever shows up.
+  // A path holds no NUL, so a list that splits into another length is broken.
   if (list.length !== length) throw new Error('graph.bin has a list that does not split back');
   return list;
 }
-function packTypes(types: ReadonlyMap<string, readonly string[]>): Packed {
-  const flat: string[] = [];
-  for (const [file, names] of types) flat.push(file, String(names.length), ...names);
-  return packList(flat);
-}
-function unpackTypes(packed: Packed): Map<string, string[]> {
-  const flat = unpackList(packed);
-  const types = new Map<string, string[]>();
-  for (let i = 0; i < flat.length; ) {
-    const n = Number(flat[i + 1]);
-    if (!Number.isInteger(n) || n < 0 || i + 2 + n > flat.length) throw new Error('graph.bin has types that do not split back');
-    types.set(flat[i]!, flat.slice(i + 2, i + 2 + n));
-    i += 2 + n;
-  }
-  return types;
+/**
+ * Only the types of a list are checked. An offset out of order slices a wrong string, which no index of the engine
+ * follows, and a pass over the 200k offsets of `strings` at 50k files would cost part of what the lazy read saves.
+ */
+function unpackText(p: PackedText): TextList {
+  const [starts, text] = p;
+  if (typeof text !== 'string' || !(starts instanceof Int32Array) || starts.length === 0) throw new Error('graph.bin has a list that does not read back');
+  return TextList.packed(starts, text);
 }
 const pack = (c: CacheFile): PackedCache => ({
   ...c,
-  graph: { ...c.graph, files: packList(c.graph.files), blob: packList(c.graph.blob), strings: packList(c.graph.strings), types: packTypes(c.graph.types) },
+  graph: { ...c.graph, files: packList(c.graph.files), blob: c.graph.blob.pack(), strings: c.graph.strings.pack(), types: c.graph.types.pack() },
 });
 const unpack = (c: PackedCache): CacheFile => ({
   ...c,
-  graph: { ...c.graph, files: unpackList(c.graph.files), blob: unpackList(c.graph.blob), strings: unpackList(c.graph.strings), types: unpackTypes(c.graph.types) },
+  graph: { ...c.graph, files: unpackList(c.graph.files), blob: unpackText(c.graph.blob), strings: unpackText(c.graph.strings), types: unpackText(c.graph.types) },
 });
 
 export type Stats = Record<string, [number, number] | null>;
@@ -128,9 +121,9 @@ function isStarts(v: unknown, length: number, end: number): v is Int32Array {
 
 /** True when the columns of the files and of the edges of a graph as read have the right type and length. */
 function isFileColumns(g: Partial<Graph>): boolean {
-  if (!isStrings(g.files) || !isStrings(g.blob) || !isStrings(g.strings) || !(g.exports instanceof Map)) return false;
+  if (!isStrings(g.files) || !(g.blob instanceof TextList) || !(g.types instanceof TextList) || !(g.strings instanceof TextList) || !(g.exports instanceof Map)) return false;
   const n = g.files.length;
-  return g.mtime instanceof Float64Array && g.mtime.length === n && g.size instanceof Float64Array && g.size.length === n && g.blob.length === n;
+  return g.mtime instanceof Float64Array && g.mtime.length === n && g.size instanceof Float64Array && g.size.length === n && g.blob.length === n && g.types.length === n;
 }
 
 /** True when the edge and name columns of a graph whose file columns passed isFileColumns index within their arrays. */

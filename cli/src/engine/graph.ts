@@ -24,6 +24,72 @@ export const F_NAMESPACE = 8;
 const KINDS = { static: KIND_STATIC, dynamic: KIND_DYNAMIC, require: KIND_REQUIRE } as const;
 export const KIND_NAMES = ['static', 'dynamic', 'require'] as const;
 
+/**
+ * A list of strings kept as one text and the offset of each entry, the way graph.bin stores it, so reading the cache
+ * makes no string per entry: an entry is sliced out when read. A pre-edit at 50,000 files reads a few thousand of
+ * the 300,000 entries of strings, blob and types. Splitting all of them took 22 ms, and collecting the strings that
+ * made about 15 ms more. Entries pushed after the read go to `tail`, entries replaced to `patch`.
+ */
+export class TextList {
+  private constructor(
+    private readonly text: string,
+    /** Entry i below starts.length - 1 is text.slice(starts[i], starts[i + 1]). */
+    private readonly starts: Int32Array,
+    private readonly tail: string[],
+    private patch: Map<number, string> | null,
+  ) {}
+
+  /** The list over `list`, which it takes over: no copy. */
+  static of(list: string[]): TextList {
+    return new TextList('', Int32Array.of(0), list, null);
+  }
+
+  /** The list of a text and its offsets as pack() gives them. `starts` must rise from 0 to text.length. */
+  static packed(starts: Int32Array, text: string): TextList {
+    return new TextList(text, starts, [], null);
+  }
+
+  get length(): number {
+    return this.starts.length - 1 + this.tail.length;
+  }
+
+  /** Entry i, for 0 <= i < length. */
+  at(i: number): string {
+    const base = this.starts.length - 1;
+    if (i >= base) return this.tail[i - base]!;
+    return this.patch?.get(i) ?? this.text.slice(this.starts[i]!, this.starts[i + 1]!);
+  }
+
+  /** Appends `s` and returns its index. */
+  push(s: string): number {
+    return this.starts.length - 2 + this.tail.push(s);
+  }
+
+  set(i: number, s: string): void {
+    const base = this.starts.length - 1;
+    if (i >= base) this.tail[i - base] = s;
+    else (this.patch ??= new Map()).set(i, s);
+  }
+
+  /** A copy that shares the text read from the cache. */
+  copy(): TextList {
+    return new TextList(this.text, this.starts, this.tail.slice(), this.patch && new Map(this.patch));
+  }
+
+  toArray(): string[] {
+    return Array.from({ length: this.length }, (_, i) => this.at(i));
+  }
+
+  /** The offsets and the text, as graph.bin stores the list. */
+  pack(): [starts: Int32Array, text: string] {
+    if (this.tail.length === 0 && this.patch === null) return [this.starts, this.text];
+    const list = this.toArray();
+    const starts = new Int32Array(list.length + 1);
+    list.forEach((s, i) => (starts[i + 1] = starts[i]! + s.length));
+    return [starts, list.join('')];
+  }
+}
+
 /** What the rules need from a public file. */
 export interface PublicInfo {
   names: { name: string; line: number; typeOnly: boolean }[];
@@ -38,7 +104,7 @@ export interface Graph {
   mtime: Float64Array;
   size: Float64Array;
   /** The index blob of a tracked file that matched it when analyzed, '' otherwise. Such a file needs no stat. */
-  blob: string[];
+  blob: TextList;
   edgeStart: Int32Array;
   target: Int32Array;
   line: Int32Array;
@@ -49,11 +115,20 @@ export interface Graph {
   nameStart: Int32Array;
   names: Int32Array;
   nameType: Uint8Array;
-  strings: string[];
+  strings: TextList;
   /** Public files only. */
   exports: Map<string, PublicInfo>;
-  /** The names a file exports as types only (interface, type alias, export type), for each file that has one. */
-  types: Map<string, string[]>;
+  /**
+   * Per file: the names it exports as types only (interface, type alias, export type) as a JSON array, '' when none.
+   * typeNames reads them.
+   */
+  types: TextList;
+}
+
+/** The names file `i` exports as types only, or undefined when it has none. */
+export function typeNames(g: Graph, i: number): string[] | undefined {
+  const json = g.types.at(i);
+  return json === '' ? undefined : (JSON.parse(json) as string[]);
 }
 
 export function emptyGraph(): Graph {
@@ -61,7 +136,7 @@ export function emptyGraph(): Graph {
     files: [],
     mtime: new Float64Array(0),
     size: new Float64Array(0),
-    blob: [],
+    blob: TextList.of([]),
     edgeStart: Int32Array.of(0),
     target: new Int32Array(0),
     line: new Int32Array(0),
@@ -71,9 +146,9 @@ export function emptyGraph(): Graph {
     nameStart: Int32Array.of(0),
     names: new Int32Array(0),
     nameType: new Uint8Array(0),
-    strings: [],
+    strings: TextList.of([]),
     exports: new Map(),
-    types: new Map(),
+    types: TextList.of([]),
   };
 }
 
@@ -104,8 +179,10 @@ export function lowerBound(files: readonly string[], file: string): number {
 }
 
 class Builder {
-  private readonly strings: string[];
+  private readonly strings: TextList;
   private ids: Map<string, number> | null = null;
+  /** The strings of the seed edges and the strings added, until `ids` exists. */
+  private near: Map<string, number> | null = null;
   readonly edgeStart: number[] = [0];
   private readonly target: number[] = [];
   private readonly line: number[] = [];
@@ -116,21 +193,40 @@ class Builder {
   private readonly names: number[] = [];
   private readonly nameType: number[] = [];
 
-  constructor(strings: readonly string[]) {
-    this.strings = strings.slice();
+  /** Adds to the strings of `old`. `seed`: edge ranges of `old` whose strings an edit likely uses again, the old edges of the files it replaces. */
+  constructor(
+    private readonly old: Graph,
+    private readonly seed: [from: number, to: number][] = [],
+  ) {
+    this.strings = old.strings.copy();
   }
 
   private interned = 0;
 
   private intern(s: string): number {
-    // An edit adds a few strings: a linear search beats building a map of every string of the project.
+    // An edit adds a few strings. They are looked up among the strings of the edges it replaces, and the rest are
+    // added even when another file uses them too: a lookup in every string of the project reads all of them. A
+    // string is then added at most once per file that comes to use it.
     if (this.ids === null && ++this.interned < 64) {
-      const found = this.strings.indexOf(s);
-      return found >= 0 ? found : this.strings.push(s) - 1;
+      if (this.near === null) {
+        const near = (this.near = new Map());
+        const add = (id: number) => id >= 0 && !near.has(this.strings.at(id)) && near.set(this.strings.at(id), id);
+        const g = this.old;
+        for (const [from, to] of this.seed) {
+          for (let e = from; e < to; e++) {
+            add(g.spec[e]!);
+            add(g.info[e]!);
+            for (let k = g.nameStart[e]!; k < g.nameStart[e + 1]!; k++) add(g.names[k]!);
+          }
+        }
+      }
+      let id = this.near.get(s);
+      if (id === undefined) this.near.set(s, (id = this.strings.push(s)));
+      return id;
     }
-    this.ids ??= new Map(this.strings.map((x, i) => [x, i]));
+    this.ids ??= new Map(this.strings.toArray().map((x, i) => [x, i]));
     let id = this.ids.get(s);
-    if (id === undefined) this.ids.set(s, (id = this.strings.push(s) - 1));
+    if (id === undefined) this.ids.set(s, (id = this.strings.push(s)));
     return id;
   }
 
@@ -175,7 +271,7 @@ class Builder {
     this.edgeStart.push(this.target.length);
   }
 
-  build(files: string[], mtime: Float64Array, size: Float64Array, blob: string[], exports: Map<string, PublicInfo>, types: Map<string, string[]>): Graph {
+  build(files: string[], mtime: Float64Array, size: Float64Array, blob: TextList, exports: Map<string, PublicInfo>, types: TextList): Graph {
     return {
       files,
       mtime,
@@ -202,14 +298,13 @@ export function toPublicInfo(analysis: FileAnalysis): PublicInfo | undefined {
   return { names: analysis.exports.names, codeLine: analysis.exports.codeLines[0] ?? 0 };
 }
 
-/** Keeps the exports of an analyzed file: all of them for a public file, and the type names for any file. */
-function keepExports(changes: Changes, exports: Map<string, PublicInfo>, types: Map<string, string[]>, file: string, analysis: FileAnalysis): void {
+/** Keeps the exports of an analyzed file if it is public, and returns its entry of Graph.types. */
+function keepExports(changes: Changes, exports: Map<string, PublicInfo>, file: string, analysis: FileAnalysis): string {
   const info = toPublicInfo(analysis);
   if (info !== undefined && (changes.publicFiles?.has(file) ?? true)) exports.set(file, info);
   else exports.delete(file);
   const names = info?.names.filter((n) => n.typeOnly).map((n) => n.name) ?? [];
-  if (names.length > 0) types.set(file, names);
-  else types.delete(file);
+  return names.length > 0 ? JSON.stringify(names) : '';
 }
 
 export interface ResolveQuery {
@@ -315,7 +410,7 @@ function staleEdges(old: Graph, changes: Changes, match: FileMatch): { queries: 
     for (let e = old.edgeStart[oi]!; e < old.edgeStart[oi + 1]!; e++) {
       const t = old.target[e]!;
       if (t === T_DYNAMIC) continue;
-      const spec = old.strings[old.spec[e]!]!;
+      const spec = old.strings.at(old.spec[e]!);
       const again =
         changes.resolveAll ||
         (t >= 0 && oldToNew[t]! < 0) ||
@@ -333,22 +428,22 @@ function rebuild(old: Graph, changes: Changes, match: FileMatch, answers: Map<nu
   const { files, analyses } = changes;
   const { newToOld, oldToNew } = match;
   const N = files.length;
-  const b = new Builder(old.strings);
+  const b = new Builder(old, editsOf(old, analyses.keys()));
   const mtime = new Float64Array(N);
   const size = new Float64Array(N);
   const blob: string[] = changes.blob ?? new Array<string>(N).fill('');
   const exports = new Map<string, PublicInfo>();
-  const types = new Map<string, string[]>();
+  const types = new Array<string>(N).fill('');
   for (let i = 0; i < N; i++) {
     const file = files[i]!;
     const oi = newToOld[i]!;
-    if (changes.blob === undefined && oi >= 0 && !analyses.has(file)) blob[i] = old.blob[oi] ?? '';
+    if (changes.blob === undefined && oi >= 0 && !analyses.has(file)) blob[i] = old.blob.at(oi);
     mtime[i] = Number.isNaN(changes.mtime[i]) && oi >= 0 ? old.mtime[oi]! : changes.mtime[i]!;
     size[i] = Number.isNaN(changes.size[i]) && oi >= 0 ? old.size[oi]! : changes.size[i]!;
     const analysis = analyses.get(file);
     if (analysis !== undefined) {
       for (const imp of analysis.imports) b.addImport(imp, files);
-      keepExports(changes, exports, types, file, analysis);
+      types[i] = keepExports(changes, exports, file, analysis);
     } else if (oi >= 0) {
       for (let e = old.edgeStart[oi]!; e < old.edgeStart[oi + 1]!; e++) {
         const t = old.target[e]!;
@@ -357,12 +452,21 @@ function rebuild(old: Graph, changes: Changes, match: FileMatch, answers: Map<nu
       }
       const info = old.exports.get(file);
       if (info !== undefined) exports.set(file, info);
-      const names = old.types.get(file);
-      if (names !== undefined) types.set(file, names);
+      types[i] = old.types.at(oi);
     }
     b.endFile();
   }
-  return b.build(files, mtime, size, blob, exports, types);
+  return b.build(files, mtime, size, TextList.of(blob), exports, TextList.of(types));
+}
+
+/** The edge ranges in `g` of those of `files` it has: the old edges of files an edit replaces. */
+function editsOf(g: Graph, files: Iterable<string>): [number, number][] {
+  const out: [number, number][] = [];
+  for (const f of files) {
+    const i = indexOf(g.files, f);
+    if (i >= 0) out.push([g.edgeStart[i]!, g.edgeStart[i + 1]!]);
+  }
+  return out;
 }
 
 /**
@@ -374,16 +478,16 @@ function replaceFiles(old: Graph, changes: Changes): Graph {
   const replaced = [...changes.analyses.keys()].map((f) => indexOf(old.files, f)).filter((i) => i >= 0);
   replaced.sort((a, b) => a - b);
   // The new edges of the replaced files, packed on their own.
-  const b = new Builder(old.strings);
+  const b = new Builder(old, replaced.map((i) => [old.edgeStart[i]!, old.edgeStart[i + 1]!]));
   const exports = new Map(old.exports);
-  const types = new Map(old.types);
+  const types = old.types.copy();
   for (const i of replaced) {
     const analysis = changes.analyses.get(old.files[i]!)!;
     for (const imp of analysis.imports) b.addImport(imp, old.files);
     b.endFile();
-    keepExports(changes, exports, types, old.files[i]!, analysis);
+    types.set(i, keepExports(changes, exports, old.files[i]!, analysis));
   }
-  const part = b.build([], new Float64Array(0), new Float64Array(0), [], new Map(), new Map());
+  const part = b.build([], new Float64Array(0), new Float64Array(0), TextList.of([]), new Map(), TextList.of([]));
   let E = old.target.length + part.target.length;
   let M = old.names.length + part.names.length;
   for (const i of replaced) {
@@ -392,9 +496,9 @@ function replaceFiles(old: Graph, changes: Changes): Graph {
   }
   const g: Graph = {
     files: old.files,
-    mtime: Float64Array.from(old.mtime),
-    size: Float64Array.from(old.size),
-    blob: changes.blob ?? old.blob.slice(),
+    mtime: old.mtime.slice(),
+    size: old.size.slice(),
+    blob: changes.blob ? TextList.of(changes.blob) : old.blob.copy(),
     edgeStart: new Int32Array(N + 1),
     target: new Int32Array(E),
     line: new Int32Array(E),
@@ -421,25 +525,33 @@ function replaceFiles(old: Graph, changes: Changes): Graph {
     g.info.set(src.info.subarray(from, to), e);
     g.names.set(src.names.subarray(n0, n1), m);
     g.nameType.set(src.nameType.subarray(n0, n1), m);
-    for (let k = from; k < to; k++) g.nameStart[e + k - from] = m + src.nameStart[k]! - n0;
+    // An edit that keeps the number of names before a block, the common case, needs no loop.
+    if (m === n0) g.nameStart.set(src.nameStart.subarray(from, to), e);
+    else for (let k = from; k < to; k++) g.nameStart[e + k - from] = m + src.nameStart[k]! - n0;
     e += to - from;
     m += n1 - n0;
   };
   let next = 0; // next file of `old` not yet copied
+  // Edge offsets [from, to) of `old`, moved by the edges copied so far.
+  const starts = (from: number, to: number) => {
+    const shift = e - old.edgeStart[from]!;
+    if (shift === 0) g.edgeStart.set(old.edgeStart.subarray(from, to), from);
+    else for (let f = from; f < to; f++) g.edgeStart[f] = shift + old.edgeStart[f]!;
+  };
   replaced.forEach((i, k) => {
-    for (let f = next; f < i; f++) g.edgeStart[f] = e + old.edgeStart[f]! - old.edgeStart[next]!;
+    starts(next, i);
     copy(old, old.edgeStart[next]!, old.edgeStart[i]!);
     g.edgeStart[i] = e;
     copy(part, part.edgeStart[k]!, part.edgeStart[k + 1]!);
     next = i + 1;
-    if (changes.blob === undefined) g.blob[i] = '';
+    if (changes.blob === undefined) g.blob.set(i, '');
     const t = changes.mtime[i]!;
     if (!Number.isNaN(t)) {
       g.mtime[i] = t;
       g.size[i] = changes.size[i]!;
     }
   });
-  for (let f = next; f <= N; f++) g.edgeStart[f] = e + old.edgeStart[f]! - old.edgeStart[next]!;
+  starts(next, N + 1);
   copy(old, old.edgeStart[next]!, old.edgeStart[N]!);
   g.nameStart[E] = m;
   return g;

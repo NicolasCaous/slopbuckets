@@ -10,6 +10,7 @@ import { ensureBucketsDir } from '../files/paths.js';
 import { cleanupProjects, makeProject, writeFile } from '../testing/fixture.js';
 import { BASE_FILES, baseConfig, check, engine, git, keys, project, rules, TSCONFIG } from './engine-test-kit.js';
 import { readFromGit } from './files.js';
+import { TextList } from './graph.js';
 
 // Wrapped, so a test can make one read from git slow.
 vi.mock('./files.js', async (importOriginal) => {
@@ -94,9 +95,9 @@ describe('edge cases of checkEdit, recheck and the cache', () => {
     const file = path.join(dir, '.buckets', 'cache', 'graph.bin');
     const raw = v8.deserialize(readFileSync(file)) as any;
     const list = raw.graph.files[1].split('\0') as string[];
-    const blobs = raw.graph.blob[1].split('\0') as string[];
-    blobs[list.indexOf('src/billing/main.ts')] = blob;
-    raw.graph.blob[1] = blobs.join('\0');
+    const blobs = TextList.packed(raw.graph.blob[0], raw.graph.blob[1]);
+    blobs.set(list.indexOf('src/billing/main.ts'), blob);
+    raw.graph.blob = blobs.pack();
     writeFileSync(file, v8.serialize(raw));
     git(dir, 'add', '-A', '-f');
     commit(dir, 'cache');
