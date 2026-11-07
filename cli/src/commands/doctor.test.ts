@@ -2,9 +2,11 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main } from '../cli.js';
+import type { EnvironmentError } from '../contract/engine.js';
+import type { FileGroup, FileOwner, SnapshotProject, SnapshotV2 } from '../contract/snapshot.js';
 import { findAgentBuckets } from './doctor.js';
 import { gitHookBlock } from '../hooks/git-hook.js';
-import { createFakeEngine } from '../testing/fake-engine.js';
+import { createFakeEngine, type FakeEngineScript } from '../testing/fake-engine.js';
 import { fakeUpdates } from '../testing/fake-updates.js';
 import { cleanupProjects, makeProject, writeFile } from '../testing/fixture.js';
 import { fakeIo, testContext } from '../testing/harness.js';
@@ -16,13 +18,22 @@ const CONFIG = JSON.stringify({ version: '2.0', projects: ['packages/sdk'], buck
 const SKILL = '---\nname: slopbuckets\nmetadata:\n  slopbuckets-version: "2.0.0"\n---\n';
 const LOCAL = 'node ./node_modules/slopbuckets/dist/index.js';
 
+function project(at: string, files: FileGroup[], environment: EnvironmentError | null = null): SnapshotProject {
+  return { path: at, environment, ignore: [], projects: [], buckets: [], edges: [], files, violations: [], advice: [] };
+}
+
+const snapshotOf = (...projects: SnapshotProject[]): SnapshotV2 => ({ snapshotVersion: 2, projects });
+
+/** A fake engine whose snapshot shows a root project without source files, unless the script gives another. */
+const fakeEngine = (script: FakeEngineScript = {}) => createFakeEngine({ snapshot: snapshotOf(project('.', [])), ...script });
+
 function repo(files: Record<string, string>): string {
   const dir = makeProject(files, false);
   spawnSync('git', ['init', '-q'], { cwd: dir });
   return dir;
 }
 
-async function doctor(dir: string, engine = createFakeEngine(), env: Record<string, string> = { PATH: '' }) {
+async function doctor(dir: string, engine = fakeEngine(), env: Record<string, string> = { PATH: '' }) {
   const io = fakeIo({ cwd: path.join(dir, 'src'), env });
   io.updates = fakeUpdates({ packageDir: path.join(dir, 'node_modules', 'slopbuckets'), platform: process.platform });
   const code = await main({ ...testContext(), cliVersion: '2.0.0', engine }, io, ['doctor']);
@@ -72,11 +83,11 @@ describe('buckets doctor', () => {
     });
     const unresolved = [SAMPLES['import-unresolved'], { ...SAMPLES['import-unresolved'], kind: 'workspace' as const, line: 9 }];
     const environment = [{ code: 'config-newer' as const, project: '.', message: 'Run buckets update.' }];
-    const result = await doctor(dir, createFakeEngine({ violations: unresolved, environment }));
+    const result = await doctor(dir, fakeEngine({ violations: unresolved, environment, snapshot: snapshotOf(project('.', [], environment[0]!)) }));
     for (const line of [
       '`buckets` is not on PATH, and the project has no slopbuckets in node_modules.',
       'buckets.config.json has version "2.3", which needs slopbuckets 2.3 or later, and this is slopbuckets 2.0.0. Run buckets update',
-      'tsconfig.json is missing. Every project needs one in its own folder.',
+      'tsconfig.json is missing. Every project with code needs one in its own folder.',
       'packages/sdk/tsconfig.json is missing.',
       'The project has TypeScript 7.0.0, which slopbuckets cannot use because TypeScript 7 has no JavaScript API',
       'cannot check (config-newer): Run buckets update.',
@@ -103,7 +114,7 @@ describe('buckets doctor', () => {
     const name = process.platform === 'win32' ? 'buckets.cmd' : 'buckets';
     writeFile(dir, `global/node_modules/slopbuckets/dist/${name}`, process.platform === 'win32' ? '@"%~dp0\\index.js" %*\r\n' : '#!/bin/sh\n');
     spawnSync('chmod', ['+x', path.join(bin, name)]);
-    const result = await doctor(dir, createFakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
+    const result = await doctor(dir, fakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
     expect(result.out).toContain('The global `buckets` is slopbuckets 0.9.0, and the project pins 2.0.0. Run `npm install -g slopbuckets@2.0.0`');
     expect(result.code).toBe(1);
   });
@@ -127,7 +138,7 @@ describe('buckets doctor', () => {
 
   it('flags hooks that run another version than this command and the skill', async () => {
     const { dir, bin } = globalHooks('2.1.0');
-    const result = await doctor(dir, createFakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
+    const result = await doctor(dir, fakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
     expect(result.out).toContain('The agent hooks in .claude/settings.json run `buckets`, which is slopbuckets 2.1.0 in ');
     expect(result.out).toContain(
       'but this command is slopbuckets 2.0.0, and the skill in .claude/skills/slopbuckets/SKILL.md and .agents/skills/slopbuckets/SKILL.md is from slopbuckets 2.0.0. Install the same version globally with `npm install -g slopbuckets@2.0.0`',
@@ -137,7 +148,7 @@ describe('buckets doctor', () => {
 
   it('fails hooks that run a copy older than the config version', async () => {
     const { dir, bin } = globalHooks('1.2.1');
-    const result = await doctor(dir, createFakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
+    const result = await doctor(dir, fakeEngine(), { PATH: bin, PATHEXT: '.CMD' });
     expect(result.out).toContain('The agent hooks in .claude/settings.json run `buckets`, which is slopbuckets 1.2.1 in ');
     expect(result.out).toContain('older than version "2.0" of buckets.config.json, so they cannot check the project.');
     expect(result.code).toBe(1);
@@ -151,9 +162,20 @@ describe('buckets doctor', () => {
     writeFile(dir, `node_modules/.bin/buckets${process.platform === 'win32' ? '.cmd' : ''}`, '#!/bin/sh\n');
     spawnSync('chmod', ['+x', path.join(npx, 'buckets')]);
     expect(findAgentBuckets({ PATH: npx, PATHEXT: '.CMD' }, process.platform)).toBeNull();
-    const result = await doctor(dir, createFakeEngine(), { PATH: npx, PATHEXT: '.CMD' });
+    const result = await doctor(dir, fakeEngine(), { PATH: npx, PATHEXT: '.CMD' });
     expect(result.out).toContain('The agent hooks in .claude/settings.json run `buckets`, which is not installed');
     expect(result.code).toBe(1);
+  });
+
+  it('asks for a tsconfig.json only in a project with a source file the check reads', async () => {
+    const dir = repo({ 'buckets.config.json': CONFIG, 'packages/sdk/tsconfig.json': '{}' });
+    const root = (owner: FileOwner) => snapshotOf(project('.', [{ dir: 'scripts', owner, names: ['build.ts'] }]));
+    const ignored = await doctor(dir, fakeEngine({ snapshot: root({ state: 'ignored' }) }));
+    expect(ignored.out).toContain('+ tsconfig.json does not exist. The project needs none, because each of its source files is ignored or belongs to a nested project.');
+    expect(ignored.out).toContain('+ packages/sdk/tsconfig.json exists.');
+    expect(ignored.out).not.toContain('tsconfig.json is missing');
+    const owned = await doctor(dir, fakeEngine({ snapshot: root({ state: 'unowned' }) }));
+    expect(owned.out).toContain('- tsconfig.json is missing. Every project with code needs one in its own folder.');
   });
 
   it('rejects options it does not know with 64', async () => {

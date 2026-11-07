@@ -156,7 +156,23 @@ function readConfig(root: string): { config: Record<string, unknown> } | { findi
   return { finding: fail(`${CONFIG_FILE} is not a JSON object. \`buckets check\` shows where it breaks.`) };
 }
 
-function configFindings(ctx: Context, root: string, config: Record<string, unknown>): Finding[] {
+/**
+ * The projects among `missing` that need a tsconfig.json. The engine asks for one only when a source file of the
+ * project is neither ignored nor in a nested project, so a root whose code lives in nested projects needs none. A
+ * project the snapshot cannot tell about, because it has an environment error or an invalid config, needs one.
+ */
+async function needTsconfig(ctx: Context, root: string, missing: string[]): Promise<Set<string>> {
+  if (missing.length === 0) return new Set();
+  const { projects } = await ctx.engine.snapshot(root);
+  return new Set(
+    missing.filter((project) => {
+      const p = projects.find((s) => s.path === project);
+      return p === undefined || p.environment !== null || p.violations.some((v) => v.rule === 'config-invalid') || p.files.some((g) => g.owner.state !== 'ignored');
+    }),
+  );
+}
+
+async function configFindings(ctx: Context, root: string, config: Record<string, unknown>): Promise<Finding[]> {
   const findings: Finding[] = [];
   const version = config.version;
   const status = configVersionStatus(version);
@@ -165,12 +181,16 @@ function configFindings(ctx: Context, root: string, config: Record<string, unkno
   else findings.push(fail(version === undefined ? `${CONFIG_FILE} has no "version". Add "version": "2.0".` : `${CONFIG_FILE} has version ${JSON.stringify(version)}, which is not a version such as "2.0".`));
 
   const projects = Array.isArray(config.projects) ? config.projects.filter((p): p is string => typeof p === 'string') : [];
+  const missing = ['.', ...projects].filter((project) => !existsSync(path.join(root, project, 'tsconfig.json')));
+  const needed = await needTsconfig(ctx, root, missing);
   for (const project of ['.', ...projects]) {
     const shown = project === '.' ? 'tsconfig.json' : `${project}/tsconfig.json`;
     findings.push(
-      existsSync(path.join(root, project, 'tsconfig.json'))
+      !missing.includes(project)
         ? pass(`${shown} exists.`)
-        : fail(`${shown} is missing. Every project needs one in its own folder. Create it, for example with \`npx -p typescript@6 tsc --init\`.`),
+        : !needed.has(project)
+          ? pass(`${shown} does not exist. The project needs none, because each of its source files is ignored or belongs to a nested project.`)
+          : fail(`${shown} is missing. Every project with code needs one in its own folder. Create it, for example with \`npx -p typescript@6 tsc --init\`.`),
     );
   }
   findings.push(pass(typescriptInUse(root).text));
@@ -324,7 +344,7 @@ export async function doctorCommand(ctx: Context, io: Io, args: string[]): Promi
   const read = readConfig(root);
   const findings = [
     ...installFindings(ctx, io, root),
-    ...('finding' in read ? [read.finding] : [...configFindings(ctx, root, read.config), ...(await engineFindings(ctx, root))]),
+    ...('finding' in read ? [read.finding] : [...(await configFindings(ctx, root, read.config)), ...(await engineFindings(ctx, root))]),
     ...skillFindings(ctx, root),
     ...hookFindings(ctx, io, root, 'config' in read && typeof read.config.version === 'string' ? read.config.version : null),
     ...gitHookFinding(io, root),
