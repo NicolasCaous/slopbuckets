@@ -83,6 +83,7 @@ export const cursorAdapter = defineAdapter({
   name: AGENT,
   title: 'Cursor',
   markers: ['.cursor', '.cursorrules'],
+  hookFiles: [cursorHooks().file],
   handlers: { 'pre-tool-use': preToolUse, 'post-tool-use': postToolUse, stop: stop('stop'), 'subagent-stop': stop('subagent-stop') },
   neutral: { 'pre-tool-use': NEUTRAL },
   install: (projectDir, options) => installHooks(projectDir, cursorHooks(options.command)),

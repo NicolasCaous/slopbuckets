@@ -151,6 +151,7 @@ export const claudeAdapter = defineAdapter({
   name: 'claude',
   title: 'Claude Code',
   markers: ['.claude', 'CLAUDE.md'],
+  hookFiles: [claudeHooks().file],
   handlers: { 'pre-tool-use': handler('pre-tool-use'), stop: handler('stop'), 'subagent-stop': handler('subagent-stop'), 'post-compact': handler('post-compact') },
   install,
   uninstall,

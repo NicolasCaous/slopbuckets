@@ -81,6 +81,7 @@ export const codexAdapter = defineAdapter({
   name: AGENT,
   title: 'Codex CLI',
   markers: ['.codex'],
+  hookFiles: [codexHooks().file],
   handlers: { 'pre-tool-use': preToolUse, stop: stop('stop'), 'subagent-stop': stop('subagent-stop'), 'post-compact': postCompact },
   install,
   uninstall: (projectDir) => uninstallHooks(projectDir, codexHooks()),

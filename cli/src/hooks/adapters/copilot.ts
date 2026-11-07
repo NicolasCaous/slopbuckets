@@ -103,6 +103,8 @@ export const copilotAdapter = defineAdapter({
   name: AGENT,
   title: 'GitHub Copilot',
   markers: ['.github/hooks', '.github/copilot-instructions.md', '.github/instructions', '.github/skills'],
+  // Copilot reads every JSON file of .github/hooks/.
+  hookFiles: ['.github/hooks/'],
   handlers: { 'pre-tool-use': preToolUse, 'agent-stop': agentStop, 'subagent-stop': subagentStop },
   install,
   uninstall: (projectDir) => uninstallHooks(projectDir, copilotHooks()),

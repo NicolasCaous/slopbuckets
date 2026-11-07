@@ -20,6 +20,7 @@ export const piAdapter = defineAdapter({
   name: 'pi',
   title: 'Pi',
   markers: ['.pi'],
+  hookFiles: [],
   handlers: pluginHandlers(PI_TOOLS, 'pre-edit', 'pre-tool', 'stop', 'post-compact'),
   neutral: { 'pre-edit': PLUGIN_NEUTRAL, 'pre-tool': PLUGIN_NEUTRAL, stop: PLUGIN_NEUTRAL, 'post-compact': PLUGIN_NEUTRAL },
   install: (projectDir, options) => {

@@ -19,6 +19,7 @@ export const continueAdapter = defineAdapter({
   name: 'continue',
   title: TITLE,
   markers: ['.continue', '.continuerc.json'],
+  hookFiles: [],
   handlers: {},
   install,
   uninstall: () => [],

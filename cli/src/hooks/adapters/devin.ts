@@ -80,6 +80,7 @@ export const devinAdapter = defineAdapter({
   name: AGENT,
   title: 'Devin',
   markers: ['.devin'],
+  hookFiles: [devinHooks().file],
   handlers: { 'pre-tool-use': preToolUse, 'post-tool-use': postToolUse, stop, 'post-compact': postCompact },
   install: (projectDir, options) => installHooks(projectDir, devinHooks(anchoredCommand(options.command, 'DEVIN_PROJECT_DIR'))),
   uninstall: (projectDir) => uninstallHooks(projectDir, devinHooks()),

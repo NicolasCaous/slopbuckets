@@ -134,6 +134,7 @@ export const aiderAdapter = defineAdapter({
   name: 'aider',
   title: TITLE,
   markers: [AIDER_CONFIG],
+  hookFiles: [],
   handlers: {},
   install,
   uninstall,

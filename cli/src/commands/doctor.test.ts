@@ -178,6 +178,26 @@ describe('buckets doctor', () => {
     expect(owned.out).toContain('- tsconfig.json is missing. Every project with code needs one in its own folder.');
   });
 
+  it('reads the hook commands only from the hook files of the agents, not from nested worktrees or other files', async () => {
+    const settings = (command: string) => JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `${command} hook stop` }] }] } });
+    const dir = repo({
+      'buckets.config.json': CONFIG,
+      'node_modules/slopbuckets/package.json': '{ "name": "slopbuckets", "version": "2.0.0" }',
+      'node_modules/slopbuckets/dist/index.js': '',
+      '.claude/settings.json': settings(LOCAL),
+      '.claude/commands/check.js': 'run("buckets hook stop")',
+      '.claude/worktrees/agent-1/.git': 'gitdir: ../../../.git/worktrees/agent-1\n',
+      '.claude/worktrees/agent-1/.claude/settings.json': settings('buckets'),
+      '.claude/worktrees/agent-1/scripts/bench.mjs': 'spawn("buckets hook stop")',
+      '.github/hooks/team.json': JSON.stringify({ hooks: { agentStop: [{ bash: `${LOCAL} hook --agent copilot agent-stop` }] } }),
+    });
+    const result = await doctor(dir);
+    expect(result.out).toContain(`+ The agent hooks in .claude/settings.json, .github/hooks/team.json run \`${LOCAL}\`, which is slopbuckets 2.0.0.`);
+    expect(result.out).not.toContain('worktrees');
+    expect(result.out).not.toContain('check.js');
+    expect(result.out).not.toContain('run `buckets`');
+  });
+
   it('rejects options it does not know with 64', async () => {
     const io = fakeIo({ cwd: makeProject({}) });
     expect(await main(testContext(), io, ['doctor', '--fix'])).toBe(64);

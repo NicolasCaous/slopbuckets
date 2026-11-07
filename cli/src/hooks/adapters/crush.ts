@@ -157,6 +157,7 @@ export const crushAdapter = defineAdapter({
   name: AGENT,
   title: TITLE,
   markers: ['.crush.json', 'crush.json', '.crushrc', 'crushrc', '.crush'],
+  hookFiles: [...JSON_FILES, ...RC_FILES],
   handlers: { 'pre-tool-use': preToolUse },
   install,
   uninstall: (projectDir) => [...RC_FILES.flatMap((file) => uninstallRc(projectDir, file)), ...JSON_FILES.flatMap((file) => uninstallHooks(projectDir, hookFile(file)))],

@@ -168,6 +168,7 @@ describe('runJson', () => {
     name: 'x',
     title: 'X',
     markers: [],
+    hookFiles: [],
     handlers: {
       'pre-tool-use': async () => {
         throw new Error('boom');

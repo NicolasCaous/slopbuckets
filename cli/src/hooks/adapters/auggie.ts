@@ -118,6 +118,7 @@ export const auggieAdapter = defineAdapter({
   name: AGENT,
   title: 'Auggie',
   markers: ['.augment'],
+  hookFiles: [auggieHooks().file],
   handlers: { 'pre-tool-use': preToolUse, 'post-tool-use': postToolUse, stop },
   install: (projectDir, options) => installHooks(projectDir, auggieHooks(options.command)),
   uninstall: (projectDir) => uninstallHooks(projectDir, auggieHooks()),

@@ -103,6 +103,7 @@ export const geminiAdapter = defineAdapter({
   name: AGENT,
   title: 'Gemini CLI',
   markers: ['.gemini', 'GEMINI.md'],
+  hookFiles: [geminiHooks().file],
   handlers: { 'before-tool': beforeToolHook, 'after-tool': afterToolHook, 'after-agent': afterAgent },
   install,
   // The context.fileName setting stays: it only adds AGENTS.md, which the user may read for other reasons.

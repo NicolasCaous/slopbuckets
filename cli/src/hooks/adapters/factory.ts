@@ -95,6 +95,7 @@ export const factoryAdapter = defineAdapter({
   name: AGENT,
   title: 'Factory Droid',
   markers: ['.factory'],
+  hookFiles: [factoryHooks().file],
   handlers: { 'pre-tool-use': preToolUse, 'post-tool-use': postToolUse, stop: stop('stop'), 'subagent-stop': stop('subagent-stop'), 'post-compact': postCompact },
   install: (projectDir, options) => installHooks(projectDir, factoryHooks(anchoredCommand(options.command, 'FACTORY_PROJECT_DIR'))),
   uninstall: (projectDir) => uninstallHooks(projectDir, factoryHooks()),

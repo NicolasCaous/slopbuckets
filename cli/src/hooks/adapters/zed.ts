@@ -19,6 +19,7 @@ export const zedAdapter = defineAdapter({
   name: 'zed',
   title: TITLE,
   markers: ['.zed'],
+  hookFiles: [],
   handlers: {},
   install,
   uninstall: () => [],

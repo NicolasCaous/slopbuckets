@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { Context, Io } from '../context/index.js';
 import { CONFIG_FILE, configNewerMessage, configVersionStatus, EXIT_CODES, renderEnvironment } from '../contract/index.js';
 import { findProjectDir, isRecord, parseJson } from '../files/index.js';
-import { harnesses } from '../hooks/agents.js';
+import { ADAPTERS } from '../hooks/agents.js';
 import { GIT_BLOCK_END, GIT_BLOCK_START, gitTopLevel, preCommitPath, skillCopies } from '../hooks/index.js';
 import { binTarget, detectInstall, envValue, findOnPath, localScript, packageVersion } from '../update/index.js';
 import { checklist, parseCommand } from './io.js';
@@ -225,51 +225,39 @@ function skillFindings(ctx: Context, root: string): Finding[] {
   );
 }
 
-/** Finds `buckets hook` and `node <script> hook` in the harness files, keyed by command, with the files that hold each. */
+/**
+ * Finds `buckets hook` and `node <script> hook` in the hook files of every adapter (`hookFiles`), keyed by command,
+ * with the files that hold each. It reads only those files and the files directly in a listed folder, so it never
+ * reads a nested repository, such as a git worktree inside .claude, or a node_modules.
+ */
 function installedHookCommands(root: string): Map<string, string[]> {
-  // ponytail: a text search of the harness folders, one level of nesting deep in each; a plugin that builds the
-  // command from pieces is missed.
+  // ponytail: a text search of the hook files; a plugin that builds the command from pieces is missed.
   const found = new Map<string, string[]>();
-  const places = new Set(['.agents', ...harnesses().flatMap((h) => h.markers)]);
-  const scan = (file: string): void => {
+  const scan = (rel: string): void => {
     let text: string;
     try {
-      if (statSync(file).size > 1_000_000 || file.endsWith('.md')) return;
-      text = readFileSync(file, 'utf8').replace(/\\(["\\/])/g, '$1');
+      const stat = statSync(path.join(root, rel));
+      if (!stat.isFile() || stat.size > 1_000_000) return;
+      text = readFileSync(path.join(root, rel), 'utf8').replace(/\\(["\\/])/g, '$1');
     } catch {
       return;
     }
     for (const match of text.matchAll(/(node\s+(?:"[^"]*"|'[^']*'|\S+)|\bbuckets)\s+hook\b/g)) {
       const command = match[1]!;
-      const shown = path.relative(root, file).split(path.sep).join('/');
       const files = found.get(command) ?? [];
-      if (!files.includes(shown)) files.push(shown);
+      if (!files.includes(rel)) files.push(rel);
       found.set(command, files);
     }
   };
-  const walk = (dir: string, depth: number): void => {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry);
+  for (const rel of new Set(ADAPTERS.flatMap((a) => a.hookFiles))) {
+    if (!rel.endsWith('/')) scan(rel);
+    else {
       try {
-        if (statSync(full).isDirectory()) {
-          if (depth < 3 && entry !== 'node_modules') walk(full, depth + 1);
-        } else scan(full);
+        for (const entry of readdirSync(path.join(root, rel)).sort()) scan(`${rel}${entry}`);
       } catch {
-        // gone or unreadable
+        // no such folder
       }
     }
-  };
-  for (const place of places) {
-    const full = path.join(root, place);
-    if (!existsSync(full)) continue;
-    if (statSync(full).isDirectory()) walk(full, 0);
-    else scan(full);
   }
   return found;
 }

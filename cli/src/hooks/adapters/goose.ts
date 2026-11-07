@@ -125,6 +125,7 @@ export const gooseAdapter = defineAdapter({
   name: AGENT,
   title: TITLE,
   markers: ['.goosehints', GOOSE_PLUGIN_DIR],
+  hookFiles: [GOOSE_HOOKS_FILE],
   handlers: { 'pre-tool-use': preToolUse, stop },
   install,
   uninstall,

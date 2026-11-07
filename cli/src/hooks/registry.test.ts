@@ -24,6 +24,7 @@ const fakeCopilot = defineAdapter({
   name: 'fake',
   title: 'Fake harness',
   markers: ['.fake'],
+  hookFiles: [],
   handlers: {
     async pre(_ctx, io, input) {
       const args = decodeArgs(input.toolArgs);

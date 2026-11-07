@@ -52,6 +52,12 @@ export interface HookAdapter extends HarnessInfo {
   /** What a handler that throws prints on stdout, by event: the answer that lets everything go on. Default: nothing. */
   neutral?: Readonly<Partial<Record<string, string>>>;
   /**
+   * The files, relative to the project with `/`, where `install` writes the `buckets hook` commands. `buckets doctor`
+   * reads only these. A path that ends in `/` stands for every file directly in that folder. Empty for a harness
+   * without hooks, and for a plugin, which builds the command when it runs.
+   */
+  hookFiles: readonly string[];
+  /**
    * Writes the harness config in `projectDir`, idempotently: it merges into existing files, keeps every hook and
    * setting of the user, never adds an entry twice, and reports each file it changed or left alone.
    */
@@ -65,6 +71,7 @@ export function defineAdapter<E extends string>(
   spec: HarnessInfo & {
     handlers: Record<E, HookHandler>;
     neutral?: Partial<Record<E, string>>;
+    hookFiles: HookAdapter['hookFiles'];
     install: HookAdapter['install'];
     uninstall: HookAdapter['uninstall'];
   },

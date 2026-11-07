@@ -215,6 +215,7 @@ export const kiroAdapter = defineAdapter({
   name: AGENT,
   title: TITLE,
   markers: ['.kiro'],
+  hookFiles: [KIRO_HOOK_FILE, `${KIRO_AGENTS_DIR}/`],
   handlers: { 'pre-tool-use': preToolUse, stop },
   install,
   uninstall: (projectDir) => [...uninstallV1(projectDir), ...agentFiles(projectDir).flatMap((file) => uninstallHooks(projectDir, agentHookFile(file)))],

@@ -21,6 +21,7 @@ export const opencodeAdapter = defineAdapter({
   name: 'opencode',
   title: 'OpenCode',
   markers: ['.opencode', 'opencode.json', 'opencode.jsonc'],
+  hookFiles: [],
   handlers: pluginHandlers(OPENCODE_TOOLS, 'pre-edit', 'pre-tool', 'stop', 'subagent-stop', 'post-compact'),
   neutral: { 'pre-edit': PLUGIN_NEUTRAL, 'pre-tool': PLUGIN_NEUTRAL, stop: PLUGIN_NEUTRAL, 'subagent-stop': PLUGIN_NEUTRAL, 'post-compact': PLUGIN_NEUTRAL },
   install: (projectDir, options) => [installPluginFile(projectDir, { ...OPENCODE_PLUGIN_FILE, content: opencodePlugin(options.command) })],

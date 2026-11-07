@@ -72,6 +72,7 @@ export const qwenAdapter = defineAdapter({
   name: AGENT,
   title: 'Qwen Code',
   markers: ['.qwen'],
+  hookFiles: [qwenHooks().file],
   handlers: { 'pre-tool-use': preToolUse, stop: stop('stop'), 'subagent-stop': stop('subagent-stop'), 'post-compact': postCompact },
   install: (projectDir, options) => installHooks(projectDir, qwenHooks(options.command)),
   uninstall: (projectDir) => uninstallHooks(projectDir, qwenHooks()),

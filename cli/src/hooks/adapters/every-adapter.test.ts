@@ -45,6 +45,15 @@ describe.each(ADAPTERS.filter((adapter) => adapter.events.length > 0).map((adapt
     for (const event of events) expect(written).toContain(name === 'claude' ? `${cli} hook ${event}` : `${cli} hook --agent ${name} ${event}`);
   });
 
+  it.skipIf(PLUGINS.includes(name))('lists every file that holds a hook command in hookFiles, which buckets doctor reads', () => {
+    const dir = makeProject(USER_FILES[name] ?? {}, false);
+    adapter.install(dir, { skill: 'the skill\n', command: LOCAL });
+    const holders = files(dir).filter((file) => /index\.js\\?"? hook /.test(readFileSync(path.join(dir, file), 'utf8')));
+    expect(holders.length).toBeGreaterThan(0);
+    const listed = (file: string) => adapter.hookFiles.some((h) => (h.endsWith('/') ? file.startsWith(h) && !file.slice(h.length).includes('/') : file === h));
+    expect(holders.filter((file) => !listed(file))).toEqual([]);
+  });
+
   it('uninstall removes what install wrote, after either command', () => {
     for (const command of [undefined, LOCAL]) {
       const dir = makeProject(USER_FILES[name] ?? {}, false);

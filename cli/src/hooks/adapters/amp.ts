@@ -21,6 +21,7 @@ export const ampAdapter = defineAdapter({
   name: 'amp',
   title: 'Amp',
   markers: ['.amp'],
+  hookFiles: [],
   handlers: pluginHandlers(AMP_TOOLS, 'pre-edit', 'pre-tool', 'stop', 'subagent-stop'),
   neutral: { 'pre-edit': PLUGIN_NEUTRAL, 'pre-tool': PLUGIN_NEUTRAL, stop: PLUGIN_NEUTRAL, 'subagent-stop': PLUGIN_NEUTRAL },
   install: (projectDir, options) => [installPluginFile(projectDir, { ...AMP_PLUGIN_FILE, content: ampPlugin(options.command) })],

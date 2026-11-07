@@ -266,6 +266,7 @@ export const clineAdapter = defineAdapter({
   name: AGENT,
   title: 'Cline',
   markers: ['.clinerules'],
+  hookFiles: [`${HOOKS_DIR}/`],
   handlers: { 'pre-tool-use': preToolUse },
   neutral: { 'pre-tool-use': NEUTRAL },
   install,

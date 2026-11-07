@@ -114,6 +114,7 @@ export const windsurfAdapter = defineAdapter({
   name: AGENT,
   title: TITLE,
   markers: ['.windsurf', '.windsurfrules', WINDSURF_FILE],
+  hookFiles: [WINDSURF_FILE, WINDSURF_LEGACY_FILE],
   handlers: { 'pre-write-code': preWriteCode },
   install,
   uninstall: (projectDir) => [WINDSURF_FILE, WINDSURF_LEGACY_FILE].flatMap((file) => uninstallHooks(projectDir, hookFile(file))),
