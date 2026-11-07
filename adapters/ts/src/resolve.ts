@@ -214,7 +214,12 @@ function workspaceFolders(projectDir: string, globs: readonly string[]): string[
 /** One project as the resolver sees it: its folder, its files and the state from earlier runs. */
 export class Resolver {
   private readonly root: string;
-  private readonly rootKey: string;
+  /**
+   * The project folder as given and as realpath names it, lower case on Windows. TypeScript answers with real paths,
+   * which expand links and 8.3 short names (C:/Users/RUNNER~1 becomes C:/Users/runneradmin), so a file of a project
+   * opened through either can come back under the other.
+   */
+  private readonly rootKeys: string[];
   private ts: LoadedTypeScript | undefined;
   /** Compiler options and module resolution cache of each tsconfig folder TypeScript resolved with. */
   private readonly tsConfigs = new Map<string, { options: TS.CompilerOptions; cache: TS.ModuleResolutionCache }>();
@@ -241,7 +246,13 @@ export class Resolver {
     readonly tsconfigs: readonly string[] | null = null,
   ) {
     this.root = toPosix(path.resolve(projectDir));
-    this.rootKey = process.platform === 'win32' ? this.root.toLowerCase() : this.root;
+    let real = this.root;
+    try {
+      real = toPosix(realpathSync.native(this.root));
+    } catch {
+      // no folder yet: only the given path
+    }
+    this.rootKeys = [...new Set([this.root, real].map((r) => (process.platform === 'win32' ? r.toLowerCase() : r)))];
     this.tsconfigSet = tsconfigs === null ? null : new Set(tsconfigs);
     if (!this.inputsMatch()) this.readState();
   }
@@ -254,9 +265,9 @@ export class Resolver {
   private rel(absolute: string): string | null {
     const p = toPosix(absolute);
     const key = process.platform === 'win32' ? p.toLowerCase() : p;
-    if (key === this.rootKey) return '';
-    if (!key.startsWith(`${this.rootKey}/`)) return null;
-    const r = p.slice(this.root.length + 1);
+    const root = this.rootKeys.find((k) => key === k || key.startsWith(`${k}/`));
+    if (root === undefined) return null;
+    const r = p.slice(root.length + 1);
     return /(^|\/)node_modules(\/|$)/.test(r) ? null : r;
   }
 
@@ -545,7 +556,7 @@ export class Resolver {
       const candidate = path.join(dir, 'node_modules', name);
       try {
         if (!lstatSync(candidate).isSymbolicLink()) return 0;
-        return this.rel(realpathSync(candidate)) === null ? 0 : 1;
+        return this.rel(realpathSync.native(candidate)) === null ? 0 : 1;
       } catch {
         // not here: look one folder up
       }

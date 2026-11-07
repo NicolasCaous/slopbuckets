@@ -156,6 +156,21 @@ describe('resolution', () => {
     expect(JSON.stringify(state.inputs)).not.toBe(before);
     expect(resolve(f.dir, 'src/app.ts', '@acme/dist', state, [...files])).toEqual({ unresolved: 'workspace' });
   });
+
+  it('resolves a linked workspace package of a project opened through a link or a short path', () => {
+    const f = fixture({
+      'package.json': { name: 'mono', private: true, workspaces: ['packages/*'] },
+      'packages/ui/package.json': { name: '@acme/ui', exports: { '.': './src/index.ts' } },
+      'packages/ui/src/index.ts': 'export const ui = 1;\n',
+    });
+    mkdirSync(path.join(f.dir, 'node_modules', '@acme'), { recursive: true });
+    symlinkSync(path.join(f.dir, 'packages', 'ui'), path.join(f.dir, 'node_modules', '@acme', 'ui'), 'junction');
+    // TypeScript answers with the real path, as with C:\Users\RUNNER~1 on the GitHub Windows runner
+    const alias = path.join(f.dir, 'alias');
+    symlinkSync(f.dir, alias, 'junction');
+    const files = ['packages/ui/src/index.ts', 'src/app.ts'];
+    expect(resolve(alias, 'src/app.ts', '@acme/ui', emptyState(), files)).toEqual({ file: 'packages/ui/src/index.ts' });
+  });
 });
 
 describe('which typescript', () => {
