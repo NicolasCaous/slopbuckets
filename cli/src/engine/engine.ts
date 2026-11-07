@@ -43,7 +43,7 @@ import {
   type SnapshotProject,
   type Violation,
 } from '../contract/index.js';
-import { diskCase, samePath } from '../files/index.js';
+import { diskCase, forwardSlashes, samePath } from '../files/index.js';
 import { CacheStore, cacheDir, readText, sameInputs, sameList, sameStat, statOf, type CacheFile, type EditsFile } from './cache.js';
 import { configHash, parseConfig, withRenames, type Config, type ConfigResult } from './config.js';
 import { listedAmong, listFiles, readFromGit, slice, SOURCE, unlisted, type Listing } from './files.js';
@@ -617,7 +617,9 @@ async function editProject(s: EngineState, session: Session, ref: ProjectRef, pa
 
 async function checkEdit(s: EngineState, root: string, edit: FileEdit | readonly FileEdit[]): Promise<CheckResult> {
   s.store.clear();
-  const edits = (Array.isArray(edit) ? edit : [edit as FileEdit]).map((e) => ({ abs: path.resolve(root, e.path), content: e.content }));
+  // Either separator names a file on every OS, as FileEdit promises. On Linux, path.resolve alone keeps a `\` as part
+  // of the file name, so a Linux file whose name holds a `\` cannot be edited through this call.
+  const edits = (Array.isArray(edit) ? edit : [edit as FileEdit]).map((e) => ({ abs: path.resolve(root, forwardSlashes(e.path)), content: e.content }));
   // An edited config replaces the one on disk.
   const configText = (file: string) => {
     const e = edits.find((x) => samePath(x.abs, file));
@@ -698,7 +700,7 @@ function snapshotChanges(root: string, changed: readonly string[] | undefined): 
   if (changed === undefined || changed.length > KNOWN_MAX) return null;
   const out: string[] = [];
   for (const p of changed) {
-    const rel = path.relative(root, path.resolve(root, p));
+    const rel = path.relative(root, path.resolve(root, forwardSlashes(p)));
     if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
     out.push(toPosix(rel));
   }
